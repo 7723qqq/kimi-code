@@ -13,7 +13,6 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { environmentTempTarget, IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnvironment';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, makeErrorPayload } from '#/errors';
@@ -62,7 +61,6 @@ export class AgentMcpService extends Service implements IAgentMcpService {
   constructor(
     @ISessionMcpHandle private readonly mcpHandle: ISessionMcpHandle,
     @IAgentToolRegistryService private readonly registry: IAgentToolRegistryService,
-    @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IAgentLoopService loop: IAgentLoopService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -75,15 +73,6 @@ export class AgentMcpService extends Service implements IAgentMcpService {
     super();
     this.register();
     this.attachMcpTools();
-    loop.hooks.onWillBeginStep.register('mcp', async (ctx, next) => {
-      await this.waitForInitialLoad(ctx.signal);
-      await next();
-    });
-    this._register(
-      toolExecutor.onWillExecuteTool((event) => {
-        event.waitUntil(this.waitForInitialLoad(event.signal));
-      }),
-    );
     this._register(
       this.dispatcher.hooks.onDidRestore.register('mcp', async (_ctx, next) => {
         await this.flushPendingDiscoveries();

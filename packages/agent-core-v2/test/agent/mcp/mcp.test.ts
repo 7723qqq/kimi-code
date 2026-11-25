@@ -336,33 +336,6 @@ describe('AgentMcpService', () => {
     expect(settled).toBe(true);
   });
 
-  it('releases the LLM step after the MCP wait budget elapses', async () => {
-    const manager = new FakeMcpManager();
-    const ready = new Promise<void>(() => {});
-    createService(manager, ready);
-
-    const loop = ix.get(IAgentLoopService);
-    const started = performance.now();
-    await loop.hooks.onWillBeginStep.run({
-      turnId: 1,
-      step: 1,
-      firstStepOfTurn: true,
-      signal: new AbortController().signal,
-    });
-
-    const elapsed = performance.now() - started;
-    expect(elapsed).toBeGreaterThanOrEqual(MCP_INITIAL_LOAD_WAIT_MS - 100);
-    expect(elapsed).toBeLessThan(MCP_INITIAL_LOAD_WAIT_MS + 1500);
-    expect(telemetryEvents).toContainEqual({
-      event: 'mcp_initial_load_wait',
-      properties: expect.objectContaining({
-        budget_ms: MCP_INITIAL_LOAD_WAIT_MS,
-        pending_count: 0,
-        total_count: 0,
-      }),
-    });
-  }, 10000);
-
   it('does not wait again after the MCP wait budget expired', async () => {
     const svc = createService(new FakeMcpManager(), new Promise<void>(() => {}));
 

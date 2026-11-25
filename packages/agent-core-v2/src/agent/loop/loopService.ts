@@ -82,6 +82,7 @@ import { IEventService } from '#/app/event/event';
 import { IPluginService } from '#/app/plugin/plugin';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
+import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionRequestAttributionService } from '#/session/requestAttribution/requestAttribution';
@@ -554,7 +555,13 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       const snapshot = this.journal.snapshot();
       const seed = seededMessages ?? this.replacedHistory ?? this.pendingHistory;
       this.profileAdapter.restore(snapshot);
-      const tools = initialTools === undefined ? this.toolsForActiveProfile() : [...initialTools];
+      let tools: readonly Tool[];
+      if (initialTools === undefined) {
+        await this.instantiation.invokeFunction((accessor) => accessor.get(ISessionMcpHandle).ready);
+        tools = this.toolsForActiveProfile();
+      } else {
+        tools = [...initialTools];
+      }
       const taskHistory = this.instantiation.invokeFunction((accessor) => accessor.get(IAgentTaskService));
       await taskHistory.reconcile();
       const completions = await restoreTaskCompletions({
