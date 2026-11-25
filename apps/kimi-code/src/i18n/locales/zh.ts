@@ -648,6 +648,9 @@ export default {
     },
   },
   tui: {
+    session: {
+      noWorkingDirectory: '无法在 {{environment}} 上开始新会话：当前绑定没有工作目录。',
+    },
     configFile: {
       transcriptSectionComment: '全屏 transcript 的显示偏好。',
       copyOnSelectComment: '仅全屏模式：false 表示按 Ctrl-C 才复制',

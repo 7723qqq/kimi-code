@@ -3442,7 +3442,7 @@ export class KimiTUI {
       const binding = await session.getEnvironment();
       if (binding.environmentId !== 'local' && binding.cwd === undefined) {
         throw new Error(
-          `Cannot start a new session on ${binding.environmentId}: the current binding has no working directory`,
+          t('tui.session.noWorkingDirectory', { environment: binding.environmentId }),
         );
       }
       return {

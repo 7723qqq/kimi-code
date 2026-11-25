@@ -674,6 +674,10 @@ export default {
     },
   },
   tui: {
+    session: {
+      noWorkingDirectory:
+        'Cannot start a new session on {{environment}}: the current binding has no working directory.',
+    },
     configFile: {
       transcriptSectionComment: 'Fullscreen transcript display preferences.',
       copyOnSelectComment: 'fullscreen only: false copies only when you press Ctrl-C',
