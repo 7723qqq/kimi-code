@@ -3,6 +3,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { AutoModeApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/auto-mode-approve';
 import { AutoModeAskUserQuestionDenyPermissionPolicyService } from '#/agent/permissionPolicy/policies/auto-mode-ask-user-question-deny';
+import { BashReadOnlyApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/bash-read-only';
 import { DangerousCommandAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/dangerous-command-ask';
 import { CompactionAuthorizationGuardPermissionPolicyService } from '#/agent/permissionPolicy/policies/compaction-authorization-guard';
 import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
@@ -50,6 +51,7 @@ export class AgentPermissionPolicyService extends Service implements IAgentPermi
       this.instantiation.createInstance(YoloModeApprovePermissionPolicyService),
       this.instantiation.createInstance(DefaultToolApprovePermissionPolicyService),
       this.instantiation.createInstance(GitCwdWriteApprovePermissionPolicyService),
+      this.instantiation.createInstance(BashReadOnlyApprovePermissionPolicyService),
       this.instantiation.createInstance(FallbackAskPermissionPolicyService),
     ];
   }

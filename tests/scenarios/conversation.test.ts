@@ -54,7 +54,7 @@ describe('conversation over KAP', () => {
   });
 
   test('waits for approval in manual mode and runs the tool once approved', async ({ kap, model }) => {
-    model.script(bash('echo approved-run'), say('done'));
+    model.script(bash('printf approved-run'), say('done'));
     const session = await kap.createSession();
 
     await kap.prompt(session.id, 'run it', { permissionMode: 'manual' });
@@ -71,7 +71,7 @@ describe('conversation over KAP', () => {
   });
 
   test('tells the model when the user rejects a tool call', async ({ kap, model }) => {
-    model.script(bash('echo never'), say('understood'));
+    model.script(bash('printf never'), say('understood'));
     const session = await kap.createSession();
 
     await kap.prompt(session.id, 'run it', { permissionMode: 'manual' });
@@ -86,7 +86,7 @@ describe('conversation over KAP', () => {
     expect(answered).toEqual(['approval']);
     const result = model.request(1).view.messages.at(-1);
     expect(result?.role).toBe('tool');
-    expect(result?.text).not.toContain('never\n');
+    expect(result?.text).not.toContain('never');
     expect(result?.text).toContain('not now');
   });
 
