@@ -22,6 +22,7 @@ export interface Playback {
   readonly context: EncodeContext;
   readonly defaultIntervalMs: number;
   readonly sink: PlaybackSink;
+  readonly split?: (data: string) => readonly string[];
   problem(message: string): void;
 }
 
@@ -106,9 +107,24 @@ async function streamReply(step: ReplyStep, playback: Playback): Promise<void> {
       return;
     case 'disconnect':
       ensureHead();
+      if (step.ending.afterUsage === true && encoding.usageOnly !== undefined) await writeData(encoding.usageOnly, playback);
+      if (sink.gone) return;
       request.transition('cut');
       sink.disconnect();
       return;
+  }
+}
+
+async function writeData(data: string, playback: Playback): Promise<void> {
+  const pieces = playback.split?.(data);
+  if (pieces === undefined) {
+    playback.sink.write(data);
+    return;
+  }
+  for (const [index, piece] of pieces.entries()) {
+    if (playback.sink.gone) return;
+    playback.sink.write(piece);
+    if (index < pieces.length - 1) await new Promise<void>((resolve) => setImmediate(resolve));
   }
 }
 

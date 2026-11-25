@@ -2,6 +2,7 @@ export { FakeModelClosedError, FakeModelVerificationError, TestkitError, WaitTim
 export { callProblems, messageProblems } from '#/model/checks';
 export { createFakeModel, startFakeModel, type FakeModel, type FakeModelOptions, type RequestTarget } from '#/model/fake-model';
 export type { Hold } from '#/model/holds';
+export type { FileUpload, UploadState } from '#/model/uploads';
 export type { Lane, LaneMatcher } from '#/model/lanes';
 export { FAKE_PROVIDER_DEFAULTS, fakeModelConfig, type FakeProviderOptions, type FakeProviderType } from '#/model/provider-config';
 export type { RequestFacts } from '#/model/record';
@@ -26,6 +27,7 @@ export {
   withResponseId,
   withUsage,
   type CallOptions,
+  type DisconnectOptions,
   type HttpErrorOptions,
   type RawResponseOptions,
   type SayOptions,
