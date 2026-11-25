@@ -1,9 +1,11 @@
 import type { IDisposable } from '#/_base/di/lifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { codePointBoundaryStart } from '#/_base/text/code-points';
 import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
+import { IAgentTaskService } from '#/agent/task/task';
 import {
   IAgentLoopService,
   isMaxStepsExceededError,
@@ -78,9 +80,14 @@ export async function runAgentTurn(
     void turn.ready.then(() => options.onReady?.()).catch(() => {});
   }
 
-  const completion = awaitRun(target, turn, options).finally(() => {
-    output.dispose();
-  });
+  const completion = (async () => {
+    try {
+      return await awaitRun(target, turn, options);
+    } finally {
+      output.dispose();
+      await stopSubagentTasks(target);
+    }
+  })();
   return { agentId: target.id, turn, completion, partialOutput: () => output.text() };
 }
 
@@ -157,6 +164,14 @@ function classifyTurnResult(result: TurnResult): CompletedTurnResult {
     }
     case 'cancelled':
       throw toRunError(result.reason ?? userCancellationReason());
+  }
+}
+
+async function stopSubagentTasks(target: IAgentScopeHandle): Promise<void> {
+  try {
+    await target.accessor.get(IAgentTaskService).stopAll('Subagent run ended');
+  } catch (error) {
+    onUnexpectedError(error);
   }
 }
 

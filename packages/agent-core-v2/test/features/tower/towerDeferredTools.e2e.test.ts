@@ -8,7 +8,6 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
 import { McpConnectionManager } from '#/mcpCore/connection-manager';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { toolSelectKey } from '#/agent/toolSelect/toolSelectOps';
@@ -119,7 +118,7 @@ async function withTowerAgent(
       }),
       appService(
         IFlagService,
-        stubFlag((id) => id === TOWER_FLAG_ID || id === TOOL_SELECT_FLAG_ID),
+        stubFlag((id) => id === TOWER_FLAG_ID),
       ),
     );
     ctx.configure({ modelCapabilities: options.capabilities });

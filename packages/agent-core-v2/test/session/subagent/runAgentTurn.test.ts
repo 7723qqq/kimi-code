@@ -8,6 +8,7 @@ import type { Event2 } from '#/app/event/event2';
 import { LifecycleScope } from '#/app/scopes';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentTaskService } from '#/agent/task/task';
 import {
   createMaxStepsExceededError,
   IAgentLoopService,
@@ -113,10 +114,25 @@ function retrying(turnId: number, stepId: string): TurnStepRetrying {
   });
 }
 
+function taskServiceStub(): {
+  readonly service: IAgentTaskService;
+  readonly stops: (string | undefined)[];
+} {
+  const stops: (string | undefined)[] = [];
+  const service = {
+    stopAll: async (reason?: string) => {
+      stops.push(reason);
+      return [];
+    },
+  } as unknown as IAgentTaskService;
+  return { service, stops };
+}
+
 function handleWith(
   turn: Turn | Promise<Turn>,
   messages: readonly ContextMessage[],
   events = new EventBusStub(),
+  tasks?: IAgentTaskService,
 ): { readonly handle: IAgentScopeHandle; readonly prompts: unknown[] } {
   const prompts: unknown[] = [];
   const services = new Map<unknown, unknown>([
@@ -133,6 +149,7 @@ function handleWith(
     ],
     [IAgentContextMemoryService, { get: () => messages }],
     [IEventBus, events.bus],
+    [IAgentTaskService, tasks ?? taskServiceStub().service],
   ]);
   const handle: IAgentScopeHandle = {
     id: 'agent-child',
@@ -388,6 +405,34 @@ describe('runAgentTurn partial output', () => {
     expect(kept.endsWith(' newest finding')).toBe(true);
     expect(kept).not.toContain('oldest finding');
     expect(kept).not.toMatch(/[\uD800-\uDFFF]/u);
+  });
+
+  it('stops the subagent tasks when the run completes', async () => {
+    const tasks = taskServiceStub();
+    const { handle } = handleWith(
+      makeTurn({ type: 'completed', steps: 1, truncated: false }),
+      [assistant('Done.')],
+      undefined,
+      tasks.service,
+    );
+    const run = await runAgentTurn(handle, { kind: 'prompt', prompt: 'find it' }, { signal });
+    const result = await run.completion;
+    expect(result).toMatchObject({ summary: 'Done.' });
+    expect(tasks.stops).toEqual(['Subagent run ended']);
+  });
+
+  it('stops the subagent tasks when the run fails without a final message', async () => {
+    const tasks = taskServiceStub();
+    const { handle } = handleWith(
+      makeTurn({ type: 'completed', steps: 1, truncated: false }),
+      [assistant('')],
+      undefined,
+      tasks.service,
+    );
+    const run = await runAgentTurn(handle, { kind: 'prompt', prompt: 'find it' }, { signal });
+    const error = await rejection(run.completion);
+    expect(isError2(error) && error.code).toBe(ErrorCodes.AGENT_NO_FINAL_MESSAGE);
+    expect(tasks.stops).toEqual(['Subagent run ended']);
   });
 
   it('stops listening once the run settles', async () => {
