@@ -98,6 +98,7 @@ function makePanel(opts: {
   initialTab?: 'installed' | 'official' | 'third-party' | 'custom';
   selectedId?: string;
   pluginHint?: { id: string; text: string };
+  terminalRows?: number;
 }) {
   const installed = opts.installed ?? [];
   const onSelect = mock<(s: PluginsPanelSelection) => void>();
@@ -110,6 +111,7 @@ function makePanel(opts: {
     initialTab: opts.initialTab,
     selectedId: opts.selectedId,
     pluginHint: opts.pluginHint,
+    terminalRows: () => opts.terminalRows ?? 30,
     onSelect,
     onCancel: mock(),
     onRequestMarketplace,
@@ -1256,4 +1258,22 @@ describe('plugins panel mouse', () => {
     expect(onRequestMarketplace).toHaveBeenCalledTimes(1);
     expect(renderRaw(panel)).toContain('Loading marketplace');
   });
+  it('fits a long installed list to the terminal and scrolls with the selection', () => {
+    const installed = Array.from({ length: 30 }, (_, index) => ({
+      ...superpowers,
+      id: `plugin-${String(index)}`,
+      displayName: `Plugin ${String(index)}`,
+    }));
+    const { panel } = makePanel({ installed, terminalRows: 20 });
+
+    const first = strip(renderRaw(panel));
+    expect(first).toContain('Plugin 0');
+    expect(first).not.toContain('Plugin 29');
+
+    for (let i = 0; i < 25; i++) panel.handleInput('[B');
+    const scrolled = strip(renderRaw(panel));
+    expect(scrolled).toContain('Plugin 25');
+    expect(scrolled).not.toContain('Plugin 0');
+  });
+
 });
