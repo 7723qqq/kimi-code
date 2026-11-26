@@ -22,7 +22,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycle';
 import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
 import {
-  IWorkspaceInstanceManager,
+  IProjectInstanceManager,
   type WorkspaceInstanceRef,
 } from '#/project/projectInstance/projectInstanceManager';
 
@@ -107,7 +107,7 @@ function managerStub(
     for (const listener of changeListeners) listener({ workspaceId: instance.id, instance });
     return trackLease(instance);
   });
-  const manager: IWorkspaceInstanceManager = {
+  const manager: IProjectInstanceManager = {
     _serviceBrand: undefined,
     onDidChange: (listener) => {
       changeListeners.add(listener);
@@ -204,7 +204,7 @@ describe('WorkspaceLifecycleService', () => {
   } {
     const manager = managerStub(options.instances, options.createInstance);
     host = createScopedTestHost([
-      stubPair(IWorkspaceInstanceManager, manager.manager),
+      stubPair(IProjectInstanceManager, manager.manager),
       stubPair(ISessionManager, sessionManagerStub(options.sessions ?? [])),
       stubPair(ISessionIndex, sessionIndexStub()),
       stubPair(ITelemetryService, recordingTelemetry(telemetryRecords)),

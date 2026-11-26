@@ -18,7 +18,7 @@ import { AppStateService } from '#/app/state/appStateService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
 import { defineState } from '#/state/state';
-import { IWorkspaceStateService } from '#/project/state/projectState';
+import { IProjectStateService } from '#/project/state/projectState';
 import { WorkspaceStateService } from '#/project/state/projectStateService';
 
 describe('StateRegistry', () => {
@@ -236,7 +236,7 @@ describe('state services (scoped)', () => {
     );
     registerScopedService(
       LifecycleScope.App,
-      IWorkspaceStateService,
+      IProjectStateService,
       WorkspaceStateService,
       ScopeActivation.OnScopeCreated,
       'state',
@@ -270,7 +270,7 @@ describe('state services (scoped)', () => {
   it('resolves a distinct state service per scope tier', () => {
     const appState = host.app.accessor.get(IAppStateService);
     const { workspace, session, agent } = createChain();
-    const workspaceState = workspace.accessor.get(IWorkspaceStateService);
+    const workspaceState = workspace.accessor.get(IProjectStateService);
     const sessionState = session.accessor.get(ISessionStateService);
     const agentState = agent.accessor.get(IAgentStateService);
     expect(appState).not.toBe(workspaceState);
@@ -286,7 +286,7 @@ describe('state services (scoped)', () => {
     sessionState.set(sessionKey, 'live');
     expect(sessionState.get(sessionKey)).toBe('live');
     expect(agent.accessor.get(IAgentStateService).has(sessionKey)).toBe(false);
-    expect(workspace.accessor.get(IWorkspaceStateService).has(sessionKey)).toBe(false);
+    expect(workspace.accessor.get(IProjectStateService).has(sessionKey)).toBe(false);
     expect(host.app.accessor.get(IAppStateService).has(sessionKey)).toBe(false);
   });
 

@@ -20,22 +20,22 @@ import {
   type SkillContribution,
 } from '#/features/skill/catalog/skillSource';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import { watchCandidates } from '#human/utils/watch';
 
 export const WORKSPACE_ROOT_SKILL_SOURCE_ID = 'workspace';
 
 const WATCH_DEBOUNCE_MS = 200;
 
-export interface IWorkspaceRootSkillSource extends ISkillSource {
+export interface IProjectRootSkillSource extends ISkillSource {
   readonly _serviceBrand: undefined;
 }
 
-export const IWorkspaceRootSkillSource: ServiceIdentifier<IWorkspaceRootSkillSource> =
-  createDecorator<IWorkspaceRootSkillSource>('workspaceRootSkillSource');
+export const IProjectRootSkillSource: ServiceIdentifier<IProjectRootSkillSource> =
+  createDecorator<IProjectRootSkillSource>('workspaceRootSkillSource');
 
-export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRootSkillSource {
+export class WorkspaceRootSkillSource extends Disposable implements IProjectRootSkillSource {
   declare readonly _serviceBrand: undefined;
 
   readonly id = WORKSPACE_ROOT_SKILL_SOURCE_ID;
@@ -50,10 +50,10 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
 
   constructor(
     @ISkillDiscovery private readonly discovery: ISkillDiscovery,
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
+    @IProjectContext private readonly workspace: IProjectContext,
     @IConfigService private readonly config: IConfigService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
+    @IProjectDirs private readonly dirs: IProjectDirs,
     private readonly fs: IHostFileSystem,
     private readonly watchEnabled = true,
   ) {
@@ -69,7 +69,7 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
   }
 
   private get workDirs(): readonly string[] {
-    const primary = this.dirs.primaryByWorkspace[this.workspace.workspaceId] ?? this.workspace.cwd;
+    const primary = this.dirs.ISessionProjectInfo[this.workspace.workspaceId] ?? this.workspace.cwd;
     return [primary, this.workspace.cwd, ...this.dirs.sharedAdditionalDirs];
   }
 

@@ -14,7 +14,7 @@ import {
   type ResumeSessionOptions,
 } from '#/project/sessionLifecycle/sessionLifecycle';
 import {
-  IWorkspaceInstanceManager,
+  IProjectInstanceManager,
   type WorkspaceInstanceLease,
 } from '#/project/projectInstance/projectInstanceManager';
 
@@ -78,14 +78,14 @@ export async function programForSession(
   const live = manager.get(sessionId);
   if (live !== undefined) {
     const context = live.accessor.get(ISessionContext);
-    return accessor.get(IWorkspaceInstanceManager).acquire({
+    return accessor.get(IProjectInstanceManager).acquire({
       workspaceId: context.workspaceId,
       root: context.cwd,
     });
   }
   const summary = await accessor.get(ISessionIndex).get(sessionId);
   if (summary === undefined) return undefined;
-  return accessor.get(IWorkspaceInstanceManager).acquire({
+  return accessor.get(IProjectInstanceManager).acquire({
     workspaceId: summary.workspaceId,
     root: summary.cwd,
   });

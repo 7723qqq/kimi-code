@@ -21,9 +21,9 @@ import { watchCandidates } from '#human/utils/watch';
 
 import type { Workspace } from './project';
 import {
-  IWorkspacePersistence,
+  IProjectPersistence,
   type PersistedProjectsFile,
-  type PersistedWorkspaceEntry,
+  type PersistedProjectEntry,
   type PersistedWorkspaceFile,
   type WorkspaceCatalog,
   type WorkspaceCatalogMutator,
@@ -45,7 +45,7 @@ interface LegacySnapshot {
   readonly file: PersistedWorkspaceFile;
 }
 
-export class FileWorkspacePersistence extends Disposable implements IWorkspacePersistence {
+export class FileProjectPersistence extends Disposable implements IProjectPersistence {
   declare readonly _serviceBrand: undefined;
 
   private readonly changeEmitter = this._register(new Emitter<void>());
@@ -103,7 +103,7 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
       const { file, catalog } = await this.readProjectsState();
       const next = await mutator(catalog);
       if (next === catalog) return;
-      const record: Record<string, PersistedWorkspaceEntry> = {};
+      const record: Record<string, PersistedProjectEntry> = {};
       for (const ws of next.workspaces) {
         const rawEntry = file.projects[ws.id];
         const merged: Record<string, unknown> =
@@ -118,7 +118,7 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
         merged['kind'] = ws.kind;
         merged['created_at'] = new Date(ws.createdAt).toISOString();
         merged['last_opened_at'] = new Date(ws.lastOpenedAt).toISOString();
-        record[ws.id] = merged as unknown as PersistedWorkspaceEntry;
+        record[ws.id] = merged as unknown as PersistedProjectEntry;
       }
       const nextFile: PersistedProjectsFile = {
         ...file,
@@ -283,7 +283,7 @@ function migrateLegacyDocument(file: PersistedWorkspaceFile, hash: string): Pers
   const raw = legacyRecord(file);
   const rawWorkspaces = legacyRecord(raw['workspaces']);
   const rawDeletedIds = raw['deleted_workspace_ids'];
-  const projects: Record<string, PersistedWorkspaceEntry> = {};
+  const projects: Record<string, PersistedProjectEntry> = {};
   for (const [id, value] of Object.entries(rawWorkspaces)) {
     const entry = sanitizeEntry(value);
     if (entry === null) continue;
@@ -347,9 +347,9 @@ function readIdempotencyKeys(value: unknown): Record<string, string> {
   return result;
 }
 
-function sanitizeEntry(value: unknown, strict = false): PersistedWorkspaceEntry | null {
+function sanitizeEntry(value: unknown, strict = false): PersistedProjectEntry | null {
   if (typeof value !== 'object' || value === null) return null;
-  const v = value as Partial<PersistedWorkspaceEntry>;
+  const v = value as Partial<PersistedProjectEntry>;
   if (
     typeof v.root !== 'string' ||
     typeof v.name !== 'string' ||
@@ -395,8 +395,8 @@ function projectsCorrupted(message: string): StorageError {
 
 registerScopedService(
   LifecycleScope.App,
-  IWorkspacePersistence,
-  FileWorkspacePersistence,
+  IProjectPersistence,
+  FileProjectPersistence,
   ScopeActivation.OnScopeCreated,
   'workspace',
 );

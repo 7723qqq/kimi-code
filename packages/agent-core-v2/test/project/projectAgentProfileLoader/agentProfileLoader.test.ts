@@ -43,10 +43,10 @@ import { IPluginAgentProfileLoader } from '#/project/projectAgentProfileLoader/p
 import { PluginAgentProfileLoaderService } from '#/project/projectAgentProfileLoader/pluginAgentProfileLoaderService';
 import { IUserAgentProfileLoader } from '#/project/projectAgentProfileLoader/userAgentProfileLoader';
 import { UserAgentProfileLoaderService } from '#/project/projectAgentProfileLoader/userAgentProfileLoaderService';
-import { IWorkspaceAgentProfileLoader } from '#/project/projectAgentProfileLoader/projectAgentProfileLoader';
+import { IProjectAgentProfileLoader } from '#/project/projectAgentProfileLoader/projectAgentProfileLoader';
 import { WorkspaceAgentProfileLoaderService } from '#/project/projectAgentProfileLoader/projectAgentProfileLoaderService';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import * as watchNamespace from '#human/utils/watch';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
@@ -119,7 +119,7 @@ function configStub(): IConfigService & {
   };
 }
 
-function workspaceContextStub(workDir: string): IWorkspaceContext {
+function workspaceContextStub(workDir: string): IProjectContext {
   return {
     _serviceBrand: undefined,
     workspaceId: 'wd_test',
@@ -132,17 +132,17 @@ function workspaceContextStub(workDir: string): IWorkspaceContext {
 
 function workspaceDirsStub(
   workDir: string,
-  onDidChange: IWorkspaceDirs['onDidChange'] = Event.None as Event<void>,
-): IWorkspaceDirs {
+  onDidChange: IProjectDirs['onDidChange'] = Event.None as Event<void>,
+): IProjectDirs {
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
     primary: workDir,
     additionalDirs: [],
     sharedAdditionalDirs: [],
-    primaryByWorkspace: {},
+    ISessionProjectInfo: {},
     onDidChange,
-  } as unknown as IWorkspaceDirs;
+  } as unknown as IProjectDirs;
 }
 
 function agentMd(name: string, description: string, override = false): string {
@@ -287,14 +287,14 @@ function makeStack(fixture: Fixture, opts?: StackOptions) {
       [IConfigService, config],
       [IBootstrapService, bootstrap],
       [IHostFileSystem, hostFs],
-      [IWorkspaceContext, workspaceContext],
-      [IWorkspaceDirs, workspaceDirs],
+      [IProjectContext, workspaceContext],
+      [IProjectDirs, workspaceDirs],
       [IPluginService, pluginStub(opts?.pluginAgentRoots ?? [], opts?.pluginReloadEmitter)],
       [IAgentProfileRegistry, new SyncDescriptor(AgentProfileRegistryService)],
       [IBuiltinAgentProfileLoader, new SyncDescriptor(BuiltinAgentProfileLoaderService)],
       [IUserAgentProfileLoader, new SyncDescriptor(UserAgentProfileLoaderService)],
       [IPluginAgentProfileLoader, new SyncDescriptor(PluginAgentProfileLoaderService)],
-      [IWorkspaceAgentProfileLoader, new SyncDescriptor(WorkspaceAgentProfileLoaderService)],
+      [IProjectAgentProfileLoader, new SyncDescriptor(WorkspaceAgentProfileLoaderService)],
       [IExtraAgentProfileLoader, new SyncDescriptor(ExtraAgentProfileLoaderService)],
       [IExplicitAgentProfileLoader, new SyncDescriptor(ExplicitAgentProfileLoaderService)],
     ),
@@ -306,7 +306,7 @@ function makeStack(fixture: Fixture, opts?: StackOptions) {
   const builtinLoader = get(IBuiltinAgentProfileLoader);
   const userLoader = get(IUserAgentProfileLoader);
   const pluginLoader = get(IPluginAgentProfileLoader);
-  const workspaceLoader = get(IWorkspaceAgentProfileLoader);
+  const workspaceLoader = get(IProjectAgentProfileLoader);
   const extraLoader = get(IExtraAgentProfileLoader);
   const explicitLoader = get(IExplicitAgentProfileLoader);
   const seed: ISessionAgentProfileCatalogSeed = {

@@ -21,7 +21,7 @@ export interface WorkspaceInstanceLease {
   dispose(): void;
 }
 
-export interface IWorkspaceInstanceManager {
+export interface IProjectInstanceManager {
   readonly _serviceBrand: undefined;
   readonly onDidChange: Event<WorkspaceInstanceChange>;
   acquire(ref: WorkspaceInstanceRef): Promise<WorkspaceInstanceLease>;
@@ -32,4 +32,4 @@ export interface IWorkspaceInstanceManager {
   snapshot(): WorkspaceInstancesSnapshot;
 }
 
-export const IWorkspaceInstanceManager: ServiceIdentifier<IWorkspaceInstanceManager> = createDecorator<IWorkspaceInstanceManager>('workspaceInstanceManager');
+export const IProjectInstanceManager: ServiceIdentifier<IProjectInstanceManager> = createDecorator<IProjectInstanceManager>('workspaceInstanceManager');

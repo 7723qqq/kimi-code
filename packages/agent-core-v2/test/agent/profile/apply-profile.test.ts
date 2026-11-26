@@ -20,7 +20,7 @@ import {
   PLUGIN_SKILL_SOURCE_ID,
 } from '#/features/skill/catalog/skillSource';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { IWorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManager';
+import { IProjectInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 
 import { stubAgentIdentity } from '../../app/agentIdentity/stubs';

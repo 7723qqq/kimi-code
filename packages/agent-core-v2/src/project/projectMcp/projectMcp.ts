@@ -13,7 +13,7 @@ export interface SessionMcpOverlayOptions {
   readonly sessionId?: string;
 }
 
-export interface IWorkspaceMcpService {
+export interface IProjectMcpService {
   readonly _serviceBrand: undefined;
 
   readonly ready: Promise<void>;
@@ -28,5 +28,5 @@ export interface IWorkspaceMcpService {
   ): ISessionMcpOverlay;
 }
 
-export const IWorkspaceMcpService: ServiceIdentifier<IWorkspaceMcpService> =
-  createDecorator<IWorkspaceMcpService>('workspaceMcpService');
+export const IProjectMcpService: ServiceIdentifier<IProjectMcpService> =
+  createDecorator<IProjectMcpService>('workspaceMcpService');

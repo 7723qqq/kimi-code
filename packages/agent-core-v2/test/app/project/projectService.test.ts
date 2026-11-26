@@ -31,13 +31,13 @@ import { IEventService } from '#/app/event/event';
 import type { Event2 } from '#/app/event/event2';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
-import { IWorkspaceService } from '#/app/project/project';
+import { IProjectService } from '#/app/project/project';
 import { WorkspaceService } from '#/app/project/projectService';
-import { FileWorkspacePersistence } from '#/app/project/fileProjectPersistence';
+import { FileProjectPersistence } from '#/app/project/fileProjectPersistence';
 import {
-  IWorkspacePersistence,
+  IProjectPersistence,
   type PersistedProjectsFile,
-  type PersistedWorkspaceEntry,
+  type PersistedProjectEntry,
 } from '#/app/project/projectPersistence';
 import { stubBootstrap } from '../bootstrap/stubs';
 
@@ -61,14 +61,14 @@ describe('WorkspaceService (file-backed)', () => {
     _clearScopedRegistryForTests();
     registerScopedService(
       LifecycleScope.App,
-      IWorkspacePersistence,
-      FileWorkspacePersistence,
+      IProjectPersistence,
+      FileProjectPersistence,
       ScopeActivation.OnDemand,
       'workspace',
     );
     registerScopedService(
       LifecycleScope.App,
-      IWorkspaceService,
+      IProjectService,
       WorkspaceService,
       ScopeActivation.OnDemand,
       'workspace',
@@ -93,7 +93,7 @@ describe('WorkspaceService (file-backed)', () => {
   function build(
     hostFs: IHostFileSystem = new HostFileSystem(),
     storage?: IFileSystemStorageService,
-  ): IWorkspaceService {
+  ): IProjectService {
     const fileStorage = storage ?? new FileStorageService(homeDir);
     appendLogs = new AppendLogStore(fileStorage, noopLog);
     const host = createScopedTestHost([
@@ -118,10 +118,10 @@ describe('WorkspaceService (file-backed)', () => {
       } as unknown as IEventService),
     ]);
     currentHost = host;
-    return host.app.accessor.get(IWorkspaceService);
+    return host.app.accessor.get(IProjectService);
   }
 
-  function restart(hostFs?: IHostFileSystem, storage?: IFileSystemStorageService): IWorkspaceService {
+  function restart(hostFs?: IHostFileSystem, storage?: IFileSystemStorageService): IProjectService {
     currentHost?.dispose();
     currentHost = undefined;
     return build(hostFs, storage);
@@ -139,7 +139,7 @@ describe('WorkspaceService (file-backed)', () => {
   }
 
   async function writeWorkspacesJson(
-    workspaces: Record<string, PersistedWorkspaceEntry>,
+    workspaces: Record<string, PersistedProjectEntry>,
     extra?: { readonly deleted_workspace_ids?: unknown },
   ): Promise<void> {
     await fsp.writeFile(
@@ -150,7 +150,7 @@ describe('WorkspaceService (file-backed)', () => {
   }
 
   async function writeProjectsJson(
-    projects: Record<string, PersistedWorkspaceEntry>,
+    projects: Record<string, PersistedProjectEntry>,
     deletedIds: readonly string[] = [],
   ): Promise<void> {
     await fsp.writeFile(
@@ -161,11 +161,11 @@ describe('WorkspaceService (file-backed)', () => {
   }
 
   async function readRegistry(): Promise<{
-    workspaces: Record<string, PersistedWorkspaceEntry>;
+    workspaces: Record<string, PersistedProjectEntry>;
     deleted_workspace_ids?: unknown;
   }> {
     const file = JSON.parse(await fsp.readFile(join(homeDir, 'projects.json'), 'utf8')) as {
-      projects: Record<string, PersistedWorkspaceEntry>;
+      projects: Record<string, PersistedProjectEntry>;
       deleted_project_ids?: unknown;
     };
     return { workspaces: file.projects, deleted_workspace_ids: file.deleted_project_ids };
@@ -466,7 +466,7 @@ describe('WorkspaceService (file-backed)', () => {
     const root = join(homeDir, 'dup');
     const canonicalId = encodeWorkDirKey(root);
     const legacyId = 'wd_duplegacy_deadbeef0000';
-    const entry: PersistedWorkspaceEntry = {
+    const entry: PersistedProjectEntry = {
       root,
       name: 'dup',
       created_at: '2026-01-01T00:00:00.000Z',
@@ -507,7 +507,7 @@ describe('WorkspaceService (file-backed)', () => {
     const typedRoot = 'C:\\Users\\Foo\\Proj';
     const legacyId = 'wd_proj_deadbeef0002';
     const canonicalId = encodeWorkDirKey(lowerRoot);
-    const entry = (root: string): PersistedWorkspaceEntry => ({
+    const entry = (root: string): PersistedProjectEntry => ({
       root,
       name: 'proj',
       created_at: '2026-01-01T00:00:00.000Z',
@@ -814,8 +814,8 @@ describe('WorkspaceService (file-backed)', () => {
           created_at: '2026-01-01T00:00:00.000Z',
           last_opened_at: '2026-01-01T00:00:00.000Z',
           icon: 'rocket-2',
-        } as PersistedWorkspaceEntry,
-      } as Record<string, PersistedWorkspaceEntry>,
+        } as PersistedProjectEntry,
+      } as Record<string, PersistedProjectEntry>,
     );
     await fsp.writeFile(
       join(homeDir, 'workspaces.json'),
@@ -1060,8 +1060,8 @@ describe('WorkspaceService (file-backed)', () => {
   });
 
 describe('projects.json migration and patch', () => {
-  function createPersistence(storage = new FileStorageService(homeDir)): FileWorkspacePersistence {
-    return new FileWorkspacePersistence(
+  function createPersistence(storage = new FileStorageService(homeDir)): FileProjectPersistence {
+    return new FileProjectPersistence(
       new JsonAtomicDocumentStore(storage),
       storage,
       stubBootstrap(homeDir),
@@ -1087,7 +1087,7 @@ describe('projects.json migration and patch', () => {
     const storage = new FileStorageService(homeDir);
     const docs = new JsonAtomicDocumentStore(storage);
     const get = spyOn(docs, 'get');
-    const persistence = new FileWorkspacePersistence(docs, storage, stubBootstrap(homeDir));
+    const persistence = new FileProjectPersistence(docs, storage, stubBootstrap(homeDir));
     try {
       const first = await persistence.load();
       for (let index = 0; index < 64; index += 1) {
@@ -1134,7 +1134,7 @@ describe('projects.json migration and patch', () => {
       await docs.set(scope, key, { ...original, deleted_project_ids: ['new'] });
       return value;
     }) as typeof docs.get);
-    const persistence = new FileWorkspacePersistence(docs, storage, stubBootstrap(homeDir));
+    const persistence = new FileProjectPersistence(docs, storage, stubBootstrap(homeDir));
     try {
       expect((await persistence.load())?.deletedIds).toEqual(['old']);
       expect((await persistence.load())?.deletedIds).toEqual(['new']);
@@ -1373,7 +1373,7 @@ describe('projects.json migration and patch', () => {
   it.skipIf(process.platform === 'win32')('watches consecutive atomic projects replacements', async () => {
     const persistence = createPersistence();
     const id = 'wm_watch';
-    const entry: PersistedWorkspaceEntry = {
+    const entry: PersistedProjectEntry = {
       root: homeDir,
       name: 'initial',
       kind: 'managed',
@@ -1421,7 +1421,7 @@ describe('projects.json migration and patch', () => {
   it('merges concurrent patches and preserves unrelated records and extensions', async () => {
     const idA = 'wd_a';
     const idB = 'wd_b';
-    const entry = (root: string, name: string): PersistedWorkspaceEntry => ({
+    const entry = (root: string, name: string): PersistedProjectEntry => ({
       root,
       name,
       kind: 'implicit',

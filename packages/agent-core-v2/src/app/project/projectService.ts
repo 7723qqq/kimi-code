@@ -13,7 +13,7 @@ import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import {
-  IWorkspaceService,
+  IProjectService,
   type Workspace,
   type WorkspaceCreate,
   type WorkspaceUpdate,
@@ -30,16 +30,16 @@ import {
   isImplicitBucketSessionLine,
   readSessionIndexEntries,
 } from './projectAlias';
-import { IWorkspacePersistence, type WorkspaceCatalog } from './projectPersistence';
+import { IProjectPersistence, type WorkspaceCatalog } from './projectPersistence';
 
-export class WorkspaceService implements IWorkspaceService {
+export class WorkspaceService implements IProjectService {
   declare readonly _serviceBrand: undefined;
 
   private merged = false;
   private opQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
-    @IWorkspacePersistence private readonly store: IWorkspacePersistence,
+    @IProjectPersistence private readonly store: IProjectPersistence,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @IAppendLogStore private readonly appendLogs: IAppendLogStore,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
@@ -499,7 +499,7 @@ export class WorkspaceService implements IWorkspaceService {
 
 registerScopedService(
   LifecycleScope.App,
-  IWorkspaceService,
+  IProjectService,
   WorkspaceService,
   ScopeActivation.OnScopeCreated,
   'workspace',

@@ -14,9 +14,9 @@ import {
   type SessionListQuery,
   type SessionSummary,
 } from '#/app/sessionIndex/sessionIndex';
-import { IWorkspaceAliases } from '#/app/projectAliases/projectAliases';
+import { IProjectAliases } from '#/app/projectAliases/projectAliases';
 import {
-  IWorkspaceSessions,
+  IProjectSessions,
   RECENT_SESSIONS_LIMIT,
 } from '#/app/projectSessions/projectSessions';
 import { WorkspaceSessionsService } from '#/app/projectSessions/projectSessionsService';
@@ -53,7 +53,7 @@ class FakeSessionIndex implements ISessionIndex {
   async remove(_id: string): Promise<void> {}
 }
 
-class FakeWorkspaceAliases implements IWorkspaceAliases {
+class IWorkspaceAliases implements IProjectAliases {
   readonly _serviceBrand: undefined;
   aliases: Record<string, readonly string[]> = {};
 
@@ -69,7 +69,7 @@ describe('WorkspaceSessionsService', () => {
     _clearScopedRegistryForTests();
     registerScopedService(
       LifecycleScope.App,
-      IWorkspaceSessions,
+      IProjectSessions,
       WorkspaceSessionsService,
       ScopeActivation.OnDemand,
       'workspaceSessions',
@@ -82,18 +82,18 @@ describe('WorkspaceSessionsService', () => {
   });
 
   function build(): {
-    sessions: IWorkspaceSessions;
+    sessions: IProjectSessions;
     index: FakeSessionIndex;
-    aliases: FakeWorkspaceAliases;
+    aliases: IWorkspaceAliases;
   } {
     const index = new FakeSessionIndex();
-    const aliases = new FakeWorkspaceAliases();
+    const aliases = new IWorkspaceAliases();
     const host = createScopedTestHost([
       stubPair(ISessionIndex, index),
-      stubPair(IWorkspaceAliases, aliases),
+      stubPair(IProjectAliases, aliases),
     ]);
     currentHost = host;
-    return { sessions: host.app.accessor.get(IWorkspaceSessions), index, aliases };
+    return { sessions: host.app.accessor.get(IProjectSessions), index, aliases };
   }
 
   function summary(id: string, workspaceId: string, updatedAt: number): SessionSummary {

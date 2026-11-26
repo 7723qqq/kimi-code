@@ -17,7 +17,7 @@ import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnviro
 import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { resolveEffectiveWorkspaceRoots, type EffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
@@ -97,7 +97,7 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ILogService private readonly log: ILogService,
-    @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
+    @ISessionProjectInfo private readonly workspaceInfo: ISessionProjectInfo,
   ) {
     super();
     this.states.contributeState(changeNotifierSnapshotKey);
@@ -345,18 +345,18 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
     try {
       await this.workspaceInfo.ready;
       if (this.muted) return;
-      const primaryByWorkspace = { ...this.workspaceInfo.primaryByWorkspace };
+      const ISessionProjectInfo = { ...this.workspaceInfo.ISessionProjectInfo };
       const additionalDirs = [...this.workspaceInfo.additionalDirs];
       const snapshot = this.snapshot;
       if (
-        samePrimarySnapshot(snapshot.workspacePrimaryByWorkspace, primaryByWorkspace) &&
+        samePrimarySnapshot(snapshot.workspacePrimaryByWorkspace, ISessionProjectInfo) &&
         sameDirectorySnapshot(snapshot.workspaceAdditionalDirs, additionalDirs)
       ) {
         return;
       }
       if (this.muted) return;
       await this.recordSnapshot({
-        workspacePrimaryByWorkspace: primaryByWorkspace,
+        workspacePrimaryByWorkspace: ISessionProjectInfo,
         workspaceAdditionalDirs: additionalDirs,
       });
       if (this.muted) {
@@ -372,10 +372,10 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
       ) {
         return;
       }
-      const changes = diffWorkspaceDirs(
+      const changes = diffProjectDirs(
         snapshot.workspacePrimaryByWorkspace ?? {},
         snapshot.workspaceAdditionalDirs ?? [],
-        primaryByWorkspace,
+        ISessionProjectInfo,
         additionalDirs,
       );
       if (changes.primary.length + changes.added.length + changes.removed.length === 0) return;
@@ -599,7 +599,7 @@ function directoryDifference(
   });
 }
 
-function diffWorkspaceDirs(
+function diffProjectDirs(
   previousPrimary: Readonly<Record<string, string>>,
   previousDirs: readonly string[],
   currentPrimary: Readonly<Record<string, string>>,

@@ -24,13 +24,13 @@ import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
-import { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
-import { IWorkspaceMcpConfigService } from '#/project/projectMcpConfig/projectMcpConfig';
+import { IProjectTrust } from '#/project/projectTrust/projectTrust';
+import { IProjectMcpConfigService } from '#/project/projectMcpConfig/projectMcpConfig';
 import { WorkspaceMcpConfigService } from '#/project/projectMcpConfig/projectMcpConfigService';
-import { IWorkspaceMcpService } from '#/project/projectMcp/projectMcp';
+import { IProjectMcpService } from '#/project/projectMcp/projectMcp';
 import { WorkspaceMcpService } from '#/project/projectMcp/projectMcpService';
 
 import { stubLog } from '../../_base/log/stubs';
@@ -64,13 +64,13 @@ describe('Workspace MCP initialization', () => {
       strict: true,
       additionalServices: (reg) => {
         reg.definePartialInstance(IBootstrapService, { homeDir });
-        reg.definePartialInstance(IWorkspaceContext, { cwd, workspaceId: 'test-workspace' });
-        reg.definePartialInstance(IWorkspaceDirs, {
+        reg.definePartialInstance(IProjectContext, { cwd, workspaceId: 'test-workspace' });
+        reg.definePartialInstance(IProjectDirs, {
           ready: Promise.resolve(),
           primary: cwd,
           additionalDirs: [],
           sharedAdditionalDirs: [],
-          primaryByWorkspace: {},
+          ISessionProjectInfo: {},
           onDidChange: Event.None as Event<void>,
         });
         reg.definePartialInstance(IPluginService, {
@@ -104,18 +104,18 @@ describe('Workspace MCP initialization', () => {
             (domain === MCP_SECTION ? mcpSection : undefined) as T,
         });
         reg.defineInstance(IHostFileSystem, new HostFileSystem());
-        reg.definePartialInstance(IWorkspaceTrust, {
+        reg.definePartialInstance(IProjectTrust, {
           ready: Promise.resolve(),
           get: async () => true,
           isTrusted: () => true,
-          onDidChange: Event.None as IWorkspaceTrust['onDidChange'],
+          onDidChange: Event.None as IProjectTrust['onDidChange'],
         });
-        reg.define(IWorkspaceMcpConfigService, WorkspaceMcpConfigService);
+        reg.define(IProjectMcpConfigService, WorkspaceMcpConfigService);
         registerAgentIdentityStub(reg);
-        reg.define(IWorkspaceMcpService, WorkspaceMcpService);
+        reg.define(IProjectMcpService, WorkspaceMcpService);
       },
     });
-    return ix.get(IWorkspaceMcpService);
+    return ix.get(IProjectMcpService);
   }
 
   it('exposes the connection manager before config is ready and starts connecting once ready', async () => {

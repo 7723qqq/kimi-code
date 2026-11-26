@@ -13,21 +13,21 @@ import {
   type MergeAllAvailableSkillsConfig,
 } from '#/features/skill/catalog/configSection';
 import { projectRootsForDirs } from '#/features/skill/catalog/skillRoots';
-import type { IWorkspaceSkillCatalog } from '#/features/skill/project/projectSkillCatalog';
+import type { IProjectSkillCatalog } from '#/features/skill/project/projectSkillCatalog';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IWorkspaceAgentProfileLoader } from '#/project/projectAgentProfileLoader/projectAgentProfileLoader';
-import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import type { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
-import type { IWorkspaceInstructionsService } from '#/project/projectInstructions/projectInstructions';
+import type { IProjectAgentProfileLoader } from '#/project/projectAgentProfileLoader/projectAgentProfileLoader';
+import type { IProjectContext } from '#/project/projectContext/projectContext';
+import type { IProjectDirs } from '#/project/projectDirs/projectDirs';
+import type { IProjectInstructionsService } from '#/project/projectInstructions/projectInstructions';
 
 import type {
-  IWorkspaceTrustDisclosure,
+  IProjectTrustDisclosure,
   TrustGatedActivation,
   TrustGatedInstructionSources,
   TrustGatedMcpServer,
 } from './trustDisclosure';
-import type { IWorkspaceTrust } from './projectTrust';
+import type { IProjectTrust } from './projectTrust';
 
 const EMPTY_INSTRUCTION_SOURCES: TrustGatedInstructionSources = {
   agentsMdPaths: [],
@@ -46,21 +46,21 @@ const EMPTY_ACTIVATION: TrustGatedActivation = {
 
 const SKILL_DISCLOSURE_TIMEOUT_MS = 1000;
 
-export class WorkspaceTrustDisclosureService implements IWorkspaceTrustDisclosure {
+export class WorkspaceTrustDisclosureService implements IProjectTrustDisclosure {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    private readonly context: IWorkspaceContext,
+    private readonly context: IProjectContext,
     private readonly fs: IHostFileSystem,
     private readonly bootstrap: IBootstrapService,
     private readonly config: IConfigService,
     private readonly localConfig: IProjectLocalConfigService,
-    private readonly workspaceDirs: IWorkspaceDirs,
-    private readonly trust: IWorkspaceTrust,
-    private readonly skills: IWorkspaceSkillCatalog,
-    private readonly agentProfilesLoader: IWorkspaceAgentProfileLoader,
+    private readonly workspaceDirs: IProjectDirs,
+    private readonly trust: IProjectTrust,
+    private readonly skills: IProjectSkillCatalog,
+    private readonly agentProfilesLoader: IProjectAgentProfileLoader,
     private readonly agentProfilesRegistry: IAgentProfileRegistry,
-    private readonly instructions: IWorkspaceInstructionsService,
+    private readonly instructions: IProjectInstructionsService,
     private readonly log: ILogService,
   ) {}
 

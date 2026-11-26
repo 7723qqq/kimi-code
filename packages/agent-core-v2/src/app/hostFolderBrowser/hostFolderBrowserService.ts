@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, sep } from 'node:path';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
-import { IWorkspaceService } from '#/app/project/project';
+import { IProjectService } from '#/app/project/project';
 
 import type { FsBrowseEntry, FsBrowseResponse, FsHomeResponse } from './hostFolderBrowser';
 import {
@@ -18,7 +18,7 @@ import {
 export class HostFolderBrowser implements IHostFolderBrowser {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IWorkspaceService private readonly registry: IWorkspaceService) {}
+  constructor(@IProjectService private readonly registry: IProjectService) {}
 
   async browse(absPath?: string): Promise<FsBrowseResponse> {
     const target = absPath ?? homedir();

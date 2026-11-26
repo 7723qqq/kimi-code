@@ -20,7 +20,7 @@ import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import {
@@ -73,7 +73,7 @@ export class AgentEnvironmentBindingService implements IAgentEnvironmentBindingS
     @IAgentEnvironmentBindingSeed private readonly seed: IAgentEnvironmentBindingSeed,
     @ISessionContext private readonly session: ISessionContext,
     @ISessionWorkspaceContext private readonly workspaceContext: ISessionWorkspaceContext,
-    @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
+    @ISessionProjectInfo private readonly workspaceInfo: ISessionProjectInfo,
     @IEnvironmentService private readonly resolver: EnvironmentResolver,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentReminderService private readonly reminder: IAgentReminderService,

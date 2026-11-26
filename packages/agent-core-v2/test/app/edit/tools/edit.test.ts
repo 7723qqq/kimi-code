@@ -6,7 +6,7 @@ import * as posixPath from 'node:path/posix';
 
 
 import { PathSecurityError } from '#/tool/path-access';
-import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../environment/stubs';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -30,7 +30,7 @@ import { OsFsErrors } from '#/os/interface/hostFsErrors';
 
 
 const signal = new AbortController().signal;
-const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
+const PERMISSIVE_WORKSPACE = IProjectContext('/');
 
 let disposables: DisposableStore;
 
@@ -444,7 +444,7 @@ describe('EditTool', () => {
   it('rejects relative traversal edits before reading', async () => {
     const readText = mock().mockResolvedValue('secret');
     const { fs } = createSpiedEditFs({ readText });
-    const tool = buildTool(fs, createTestEnv(), stubWorkspaceContext('/workspace/project'));
+    const tool = buildTool(fs, createTestEnv(), IProjectContext('/workspace/project'));
 
     const result = await execute(tool, {
       path: '../outside.txt',
@@ -561,7 +561,7 @@ describe('EditTool', () => {
       readText: mock().mockResolvedValue('old content'),
       writeText,
     });
-    const tool = buildTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = buildTool(fs, createTestEnv(), IProjectContext('/workspace'));
 
     const result = await execute(tool, {
       path: '/tmp/outside.txt',
@@ -579,7 +579,7 @@ describe('EditTool', () => {
       readText: mock().mockResolvedValue('content'),
       writeText,
     });
-    const tool = buildTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = buildTool(fs, createTestEnv(), IProjectContext('/workspace'));
 
     const result = await execute(tool, {
       path: '/workspace-sneaky/test.txt',
@@ -599,7 +599,7 @@ describe('EditTool', () => {
     });
     fs.realpath = async (path: string) =>
       path === '/workspace/link/a.txt' ? '/outside/a.txt' : path;
-    const tool = buildTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = buildTool(fs, createTestEnv(), IProjectContext('/workspace'));
 
     const result = await execute(tool, {
       path: 'link/a.txt',

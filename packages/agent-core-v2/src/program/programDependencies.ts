@@ -10,17 +10,17 @@ import type { IMcpConfigStore } from '#/app/mcpConfig/configStore';
 import type { IPluginService } from '#/app/plugin/plugin';
 import type { ISessionManager } from '#/app/sessionManager/sessionManager';
 import type { IAppStateService } from '#/app/state/appState';
-import type { IWorkspaceService } from '#/app/project/project';
-import type { IWorkspacePersistence } from '#/app/project/projectPersistence';
+import type { IProjectService } from '#/app/project/project';
+import type { IProjectPersistence } from '#/app/project/projectPersistence';
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import type { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
 import type { IExplicitAgentProfileLoader } from '#/project/projectAgentProfileLoader/explicitAgentProfileLoader';
 import type { IExtraAgentProfileLoader } from '#/project/projectAgentProfileLoader/extraAgentProfileLoader';
 import type { IPluginAgentProfileLoader } from '#/project/projectAgentProfileLoader/pluginAgentProfileLoader';
 import type { IUserAgentProfileLoader } from '#/project/projectAgentProfileLoader/userAgentProfileLoader';
-import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import type { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
-import type { IWorkspaceTrustStore } from '#/project/projectTrust/projectTrustStore';
+import type { IProjectContext } from '#/project/projectContext/projectContext';
+import type { IProjectTrust } from '#/project/projectTrust/projectTrust';
+import type { IProjectTrustStore } from '#/project/projectTrust/projectTrustStore';
 import type { ProgramMcpLease } from './programMcp';
 import type { ProgramWorkdir } from './programWorkdirs';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
@@ -29,13 +29,13 @@ import { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSour
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 
 export interface ProgramSessionControllerInput {
-  readonly context: IWorkspaceContext;
+  readonly context: IProjectContext;
   readonly extraAgentProfiles: IExtraAgentProfileLoader;
   readonly explicitAgentProfiles: IExplicitAgentProfileLoader;
   readonly userAgentProfiles: IUserAgentProfileLoader;
   readonly pluginAgentProfiles: IPluginAgentProfileLoader;
   readonly acquireMcp: () => Promise<ProgramMcpLease>;
-  readonly trust: IWorkspaceTrust;
+  readonly trust: IProjectTrust;
   readonly acquireWorkdir: (
     environmentId: string,
     cwd: string,
@@ -47,8 +47,8 @@ export interface ProgramSessionControllerInput {
 export interface ProgramDependencies {
   readonly appState: IAppStateService;
   readonly docs: IAtomicDocumentStore;
-  readonly workspaces: IWorkspaceService;
-  readonly workspaceStore: IWorkspacePersistence;
+  readonly workspaces: IProjectService;
+  readonly workspaceStore: IProjectPersistence;
   readonly bootstrap: IBootstrapService;
   readonly config: IConfigService;
   readonly git: LiveRef<IGitService>;
@@ -63,6 +63,6 @@ export interface ProgramDependencies {
   readonly builtinSkills: IBuiltinSkillSource;
   readonly userSkills: IUserFileSkillSource;
   readonly telemetry: ITelemetryService;
-  readonly trustStore: IWorkspaceTrustStore;
+  readonly trustStore: IProjectTrustStore;
   createSessionController(input: ProgramSessionControllerInput): SessionLifecycleService;
 }

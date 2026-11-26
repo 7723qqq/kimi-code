@@ -278,7 +278,7 @@ export interface FsDownloadResolved {
   readonly modifiedAt: Date;
 }
 
-export interface IWorkspaceFsService {
+export interface IProjectFsService {
   readonly _serviceBrand: undefined;
 
   list(req: FsListRequest): Promise<FsListResponse>;
@@ -300,5 +300,5 @@ export interface IWorkspaceFsService {
   resolveDownload(relPath: string, allowExternalSymlinks?: boolean): Promise<FsDownloadResolved>;
 }
 
-export const IWorkspaceFsService: ServiceIdentifier<IWorkspaceFsService> =
-  createDecorator<IWorkspaceFsService>('workspaceFsService');
+export const IProjectFsService: ServiceIdentifier<IProjectFsService> =
+  createDecorator<IProjectFsService>('workspaceFsService');

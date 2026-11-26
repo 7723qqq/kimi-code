@@ -63,7 +63,7 @@ import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle'
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import type { ToolInfo } from '#/tool/toolContract';
 import { WorkspaceStateService } from '#/project/state/projectStateService';
 
@@ -189,8 +189,8 @@ import {
   IAgentUserToolService,
   ISessionUsageService,
   ISessionWorkspaceContext,
-  IWorkspaceStateService,
-  IWorkspaceTrust,
+  IProjectStateService,
+  IProjectTrust,
   LifecycleScope,
   AgentMcpService,
   AgentPermissionGate,
@@ -1351,24 +1351,24 @@ export class AgentTestContext {
               connectionManager: new McpConnectionManager(),
               isBaselineServer: () => true,
             } satisfies ISessionMcpHandle);
-            reg.defineInstance(ISessionWorkspaceInfo, {
+            reg.defineInstance(ISessionProjectInfo, {
               _serviceBrand: undefined,
               ready: Promise.resolve(),
               additionalDirs: [],
-              primaryByWorkspace: {},
+              ISessionProjectInfo: {},
               onDidChange: Event.None as Event<void>,
-            } satisfies ISessionWorkspaceInfo);
+            } satisfies ISessionProjectInfo);
             reg.defineInstance(ISessionWorkdir, {
               _serviceBrand: undefined,
               environmentId: 'local',
               cwd: this.cwd,
               fs: undefined as never,
             });
-            reg.definePartialInstance(IWorkspaceTrust, {
+            reg.definePartialInstance(IProjectTrust, {
               get: async () => false,
             });
             reg.defineInstance(
-              IWorkspaceStateService,
+              IProjectStateService,
               new WorkspaceStateService(this.root.accessor.get(IAppStateService)),
             );
             reg.defineDescriptor(

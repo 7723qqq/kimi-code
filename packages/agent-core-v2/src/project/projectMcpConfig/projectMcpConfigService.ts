@@ -13,19 +13,19 @@ import { IMcpConfigStore } from '#/app/mcpConfig/configStore';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
-import { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectTrust } from '#/project/projectTrust/projectTrust';
 import { watch, watchCandidates } from '#human/utils/watch';
 
 import {
-  IWorkspaceMcpConfigService,
+  IProjectMcpConfigService,
   type McpServersChangeEvent,
   type McpTunables,
 } from './projectMcpConfig';
 
 const WATCH_DEBOUNCE_MS = 200;
 
-export class WorkspaceMcpConfigService extends Disposable implements IWorkspaceMcpConfigService {
+export class WorkspaceMcpConfigService extends Disposable implements IProjectMcpConfigService {
   declare readonly _serviceBrand: undefined;
 
   readonly ready: Promise<void>;
@@ -44,13 +44,13 @@ export class WorkspaceMcpConfigService extends Disposable implements IWorkspaceM
   private primaryReloadTail: Promise<void> = Promise.resolve();
 
   constructor(
-    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
+    @IProjectDirs private readonly dirs: IProjectDirs,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IPluginService private readonly plugins: IPluginService,
     @ILogService private readonly log: ILogService,
     @IConfigService private readonly config: IConfigService,
     @IHostFileSystem private readonly fs: IHostFileSystem,
-    @IWorkspaceTrust private readonly trust: IWorkspaceTrust,
+    @IProjectTrust private readonly trust: IProjectTrust,
     @IMcpConfigStore mcpConfigStore: IMcpConfigStore,
   ) {
     super();

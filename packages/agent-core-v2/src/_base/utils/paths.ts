@@ -30,7 +30,7 @@ export function canonicalPath(cwd: string): string {
   return nodePath.resolve(cwd).replaceAll('\\', '/');
 }
 
-export function canonicalWorkspaceRoot(cwd: string): string {
+export function canonicalProjectRoot(cwd: string): string {
   const resolved = canonicalPath(cwd);
   return workspaceRootKey(resolved) || resolved;
 }

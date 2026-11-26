@@ -25,7 +25,7 @@ export interface TrustGatedActivation {
   readonly instructionSources: TrustGatedInstructionSources;
 }
 
-export interface IWorkspaceTrustDisclosure {
+export interface IProjectTrustDisclosure {
   readonly _serviceBrand: undefined;
 
   describeGatedActivation(
@@ -34,5 +34,5 @@ export interface IWorkspaceTrustDisclosure {
   ): Promise<TrustGatedActivation>;
 }
 
-export const IWorkspaceTrustDisclosure: ServiceIdentifier<IWorkspaceTrustDisclosure> =
-  createDecorator<IWorkspaceTrustDisclosure>('workspaceTrustDisclosure');
+export const IProjectTrustDisclosure: ServiceIdentifier<IProjectTrustDisclosure> =
+  createDecorator<IProjectTrustDisclosure>('workspaceTrustDisclosure');

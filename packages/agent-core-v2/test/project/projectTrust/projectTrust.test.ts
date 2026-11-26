@@ -15,16 +15,16 @@ import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemet
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IWorkspaceStateService } from '#/project/state/projectState';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectStateService } from '#/project/state/projectState';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import { WORKSPACE_TRUST_SECTION } from '#/project/projectTrust/configSection';
 import {
-  deleteWorkspaceTrust,
-  readWorkspaceTrust,
-  writeWorkspaceTrust,
+  deleteProjectTrust,
+  readProjectTrust,
+  writeProjectTrust,
 } from '#/project/projectTrust/trustRecord';
 import {
-  IWorkspaceTrust,
+  IProjectTrust,
   type WorkspaceTrustChange,
 } from '#/project/projectTrust/projectTrust';
 import {
@@ -33,7 +33,7 @@ import {
   workspaceTrustTrustedKey,
 } from '#/project/projectTrust/projectTrustService';
 import {
-  IWorkspaceTrustStore,
+  IProjectTrustStore,
   WorkspaceTrustStore,
 } from '#/project/projectTrust/projectTrustStore';
 import { waitForAssertion } from '#test/helpers/waitFor';
@@ -65,12 +65,12 @@ describe('WorkspaceTrustService', () => {
     root: string,
     events?: WorkspaceTrustChange[],
     env: NodeJS.ProcessEnv = {},
-    sharedStore?: IWorkspaceTrustStore,
+    sharedStore?: IProjectTrustStore,
     additionalDirs: readonly string[] = [],
   ): {
-    service: IWorkspaceTrust;
-    states: IWorkspaceStateService;
-    trustStore: IWorkspaceTrustStore;
+    service: IProjectTrust;
+    states: IProjectStateService;
+    trustStore: IProjectTrustStore;
     dirs: { primary: string; additionalDirs: string[] };
     dirsChange: Emitter<void>;
   } {
@@ -80,7 +80,7 @@ describe('WorkspaceTrustService', () => {
       strict: true,
       additionalServices: (reg) => {
         registerStateServices(reg);
-        reg.definePartialInstance(IWorkspaceDirs, {
+        reg.definePartialInstance(IProjectDirs, {
           get primary() {
             return dirs.primary;
           },
@@ -97,21 +97,21 @@ describe('WorkspaceTrustService', () => {
         reg.defineInstance(ITelemetryService, noopTelemetryService);
         reg.defineInstance(IConfigService, stubConfigService());
         if (sharedStore === undefined) {
-          reg.define(IWorkspaceTrustStore, WorkspaceTrustStore);
+          reg.define(IProjectTrustStore, WorkspaceTrustStore);
         } else {
-          reg.defineInstance(IWorkspaceTrustStore, sharedStore);
+          reg.defineInstance(IProjectTrustStore, sharedStore);
         }
-        reg.define(IWorkspaceTrust, WorkspaceTrustService);
+        reg.define(IProjectTrust, WorkspaceTrustService);
       },
     });
-    const service = ix.get(IWorkspaceTrust);
+    const service = ix.get(IProjectTrust);
     if (events !== undefined) {
       service.onDidChange((change) => events.push(change));
     }
     return {
       service,
-      states: ix.get(IWorkspaceStateService),
-      trustStore: ix.get(IWorkspaceTrustStore),
+      states: ix.get(IProjectStateService),
+      trustStore: ix.get(IProjectTrustStore),
       dirs,
       dirsChange,
     };
@@ -233,7 +233,7 @@ describe('WorkspaceTrustService', () => {
     const record = { root, trustedAt: 1 };
     await docs.set('workspace-trust', encodeWorkDirKey(root), record);
 
-    expect(await readWorkspaceTrust(docs, root)).toBe(true);
+    expect(await readProjectTrust(docs, root)).toBe(true);
     await expect(
       docs.get('workspace-trust', encodeWorkDirKey('c:/users/foo/repo')),
     ).resolves.toEqual(record);
@@ -241,12 +241,12 @@ describe('WorkspaceTrustService', () => {
 
   it('shares one trust key across UNC and drive-letter spelling variants', async () => {
     const docs = new JsonAtomicDocumentStore(new FileStorageService(homeDir));
-    await writeWorkspaceTrust(docs, '//server/share/repo', 1);
-    expect(await readWorkspaceTrust(docs, '\\\\SERVER\\SHARE\\REPO')).toBe(true);
-    expect(await readWorkspaceTrust(docs, '//Server/Share/Repo')).toBe(true);
+    await writeProjectTrust(docs, '//server/share/repo', 1);
+    expect(await readProjectTrust(docs, '\\\\SERVER\\SHARE\\REPO')).toBe(true);
+    expect(await readProjectTrust(docs, '//Server/Share/Repo')).toBe(true);
 
-    await writeWorkspaceTrust(docs, 'C:\\Users\\Foo\\Repo', 2);
-    expect(await readWorkspaceTrust(docs, 'c:/users/foo/repo')).toBe(true);
+    await writeProjectTrust(docs, 'C:\\Users\\Foo\\Repo', 2);
+    expect(await readProjectTrust(docs, 'c:/users/foo/repo')).toBe(true);
   });
 
   it('deletes both canonical and legacy trust markers', async () => {
@@ -254,12 +254,12 @@ describe('WorkspaceTrustService', () => {
     const root = 'C:\\Users\\Foo\\Repo';
     const legacyKey = encodeWorkDirKey(root);
     await docs.set('workspace-trust', legacyKey, { root, trustedAt: 1 });
-    await writeWorkspaceTrust(docs, root, 2);
+    await writeProjectTrust(docs, root, 2);
 
-    await deleteWorkspaceTrust(docs, root);
+    await deleteProjectTrust(docs, root);
 
     await expect(docs.get('workspace-trust', legacyKey)).resolves.toBeUndefined();
-    await expect(readWorkspaceTrust(docs, root)).resolves.toBe(false);
+    await expect(readProjectTrust(docs, root)).resolves.toBe(false);
   });
 
   it('propagates storage failures instead of reporting an untrusted workspace', async () => {
@@ -270,10 +270,10 @@ describe('WorkspaceTrustService', () => {
       throw failure;
     };
 
-    await expect(readWorkspaceTrust(docs, cwd)).rejects.toBe(failure);
+    await expect(readProjectTrust(docs, cwd)).rejects.toBe(failure);
 
     docs.get = read;
-    await expect(readWorkspaceTrust(docs, cwd)).resolves.toBe(false);
+    await expect(readProjectTrust(docs, cwd)).resolves.toBe(false);
   });
 
   it('retries failed initialization for both the shared entry and workspace service', async () => {
@@ -309,7 +309,7 @@ describe('WorkspaceTrustService', () => {
 
   it('emits one recovery change when initialization discovers an existing marker', async () => {
     const docs = new JsonAtomicDocumentStore(new FileStorageService(homeDir));
-    await writeWorkspaceTrust(docs, cwd, 1);
+    await writeProjectTrust(docs, cwd, 1);
     const failure = new Error('trust storage temporarily unavailable');
     const read = docs.get.bind(docs);
     let unavailable = true;
@@ -343,8 +343,8 @@ describe('WorkspaceTrustService', () => {
     await docs.set('workspace-trust', encodeWorkDirKey(root), { root, trustedAt: 1 });
     await writeFile(join(homeDir, 'workspace-trust', 'corrupt-record'), '{', 'utf8');
 
-    await expect(readWorkspaceTrust(docs, 'c:/users/foo/repo')).resolves.toBe(true);
-    await deleteWorkspaceTrust(docs, root);
+    await expect(readProjectTrust(docs, 'c:/users/foo/repo')).resolves.toBe(true);
+    await deleteProjectTrust(docs, root);
 
     const failure = new Error('legacy trust record is inaccessible');
     const read = docs.get.bind(docs);
@@ -354,7 +354,7 @@ describe('WorkspaceTrustService', () => {
     };
     await writeFile(join(homeDir, 'workspace-trust', 'inaccessible-record'), '{}', 'utf8');
 
-    await expect(readWorkspaceTrust(docs, root)).rejects.toBe(failure);
+    await expect(readProjectTrust(docs, root)).rejects.toBe(failure);
   });
 
   it('tracks different roots independently', async () => {
@@ -447,7 +447,7 @@ describe('WorkspaceTrustService', () => {
     await entry.untrust();
     expect(await docs.get('workspace-trust', legacyKey)).toBeUndefined();
     expect(await docs.get('workspace-trust', thirdLegacyKey)).toBeUndefined();
-    expect(await readWorkspaceTrust(docs, otherRoot)).toBe(false);
+    expect(await readProjectTrust(docs, otherRoot)).toBe(false);
   });
 
   it('serializes mutations that arrive during initialization', async () => {

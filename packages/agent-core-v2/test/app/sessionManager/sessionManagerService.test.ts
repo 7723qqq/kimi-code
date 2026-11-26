@@ -33,10 +33,10 @@ import type {
 } from '#/project/sessionLifecycle/sessionLifecycle';
 import type { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
 import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
-import type { IWorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManager';
+import type { IProjectInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 
 
-function environmentRegistryOf(workspaces: IWorkspaceInstanceManager): EnvironmentRegistry | undefined {
+function environmentRegistryOf(workspaces: IProjectInstanceManager): EnvironmentRegistry | undefined {
   for (const id of ['workspace', 'workspace-1']) {
     const holder = workspaces.get(id) as { environments?: EnvironmentRegistry } | undefined;
     if (holder?.environments !== undefined) return holder.environments;
@@ -45,7 +45,7 @@ function environmentRegistryOf(workspaces: IWorkspaceInstanceManager): Environme
 }
 
 function makeSessionManager(
-  workspaces: IWorkspaceInstanceManager,
+  workspaces: IProjectInstanceManager,
   index: ISessionIndex,
   overrides: {
     readonly config?: IConfigService;
@@ -119,9 +119,9 @@ function controller(sessionId = 'session-1'): {
   return { service, handle };
 }
 
-type WorkspaceLease = Awaited<ReturnType<IWorkspaceInstanceManager['acquire']>>;
+type WorkspaceLease = Awaited<ReturnType<IProjectInstanceManager['acquire']>>;
 
-function workspaceManager(workspace: WorkspaceInstance): IWorkspaceInstanceManager & {
+function workspaceManager(workspace: WorkspaceInstance): IProjectInstanceManager & {
   readonly leases: readonly WorkspaceLease[];
 } {
   const leases: WorkspaceLease[] = [];
@@ -140,7 +140,7 @@ function workspaceManager(workspace: WorkspaceInstance): IWorkspaceInstanceManag
     }),
     get: (workspaceId: string) => workspaceId === workspace.id ? workspace : undefined,
     leases,
-  } as unknown as IWorkspaceInstanceManager & { readonly leases: readonly WorkspaceLease[] };
+  } as unknown as IProjectInstanceManager & { readonly leases: readonly WorkspaceLease[] };
 }
 
 async function drainMicrotasks(ticks = 50): Promise<void> {

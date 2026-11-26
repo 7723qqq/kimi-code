@@ -18,15 +18,15 @@ import type { PluginReloadEvent } from '#/app/plugin/types';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import {
-  IWorkspaceMcpConfigService,
+  IProjectMcpConfigService,
   type McpServersChange,
 } from '#/project/projectMcpConfig/projectMcpConfig';
 import { WorkspaceMcpConfigService } from '#/project/projectMcpConfig/projectMcpConfigService';
 import {
-  IWorkspaceTrust,
+  IProjectTrust,
   type WorkspaceTrustChange,
 } from '#/project/projectTrust/projectTrust';
 import type { WatchChange } from '#human/utils/watch';
@@ -66,7 +66,7 @@ describe('WorkspaceMcpConfigService', () => {
   let trustFlips: Emitter<WorkspaceTrustChange>;
   let sectionChanges: Emitter<ConfigSectionChangedEvent>;
   let dirsChanges: Emitter<void>;
-  let primaryDirs: IWorkspaceDirs;
+  let primaryDirs: IProjectDirs;
   let changes: McpServersChange[];
 
   beforeEach(() => {
@@ -97,19 +97,19 @@ describe('WorkspaceMcpConfigService', () => {
     mcpSection?: McpSection,
     trustReady: () => Promise<void> = () => Promise.resolve(),
     hostFs: IHostFileSystem = new HostFileSystem(),
-  ): IWorkspaceMcpConfigService {
+  ): IProjectMcpConfigService {
     primaryDirs = {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
       primary: cwd,
       onDidChange: dirsChanges.event,
-    } as unknown as IWorkspaceDirs;
+    } as unknown as IProjectDirs;
     const ix = createServices(disposables, {
       strict: true,
       additionalServices: (reg) => {
         reg.definePartialInstance(IBootstrapService, { homeDir });
-        reg.definePartialInstance(IWorkspaceContext, { cwd });
-        reg.defineInstance(IWorkspaceDirs, primaryDirs);
+        reg.definePartialInstance(IProjectContext, { cwd });
+        reg.defineInstance(IProjectDirs, primaryDirs);
         reg.definePartialInstance(IPluginService, {
           enabledMcpServers: async () => pluginServers,
           onDidReload: pluginReloads.event,
@@ -122,7 +122,7 @@ describe('WorkspaceMcpConfigService', () => {
             (domain === MCP_SECTION ? mcpSection : undefined) as T,
         });
         reg.defineInstance(IHostFileSystem, hostFs);
-        reg.definePartialInstance(IWorkspaceTrust, {
+        reg.definePartialInstance(IProjectTrust, {
           get ready() {
             return trustReady();
           },
@@ -134,10 +134,10 @@ describe('WorkspaceMcpConfigService', () => {
           onDidChange: trustFlips.event,
         });
         reg.definePartialInstance(IMcpConfigStore, { onDidWrite: storeWrites.event });
-        reg.define(IWorkspaceMcpConfigService, WorkspaceMcpConfigService);
+        reg.define(IProjectMcpConfigService, WorkspaceMcpConfigService);
       },
     });
-    const service = ix.get(IWorkspaceMcpConfigService);
+    const service = ix.get(IProjectMcpConfigService);
     service.onDidChange(({ upsert, remove }) => changes.push({ upsert, remove }));
     return service;
   }

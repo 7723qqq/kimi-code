@@ -6,7 +6,7 @@ import {
 import type { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { IPluginService } from '#/app/plugin/plugin';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
+import { IProjectContext } from '#/project/projectContext/projectContext';
 
 import { discoverAgentFiles } from './internal/agentFileDiscovery';
 import { profilesFromDiscovery } from './internal/agentProfileFromFile';
@@ -28,7 +28,7 @@ export class PluginAgentProfileLoaderService
     @IHostFileSystem private readonly fs: IHostFileSystem,
     @ILogService log: ILogService,
     @IUserAgentProfileLoader private readonly user: IUserAgentProfileLoader,
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
+    @IProjectContext private readonly workspace: IProjectContext,
     registry?: IAgentProfileRegistry,
   ) {
     super(log, registry);

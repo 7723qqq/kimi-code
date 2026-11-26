@@ -1,4 +1,4 @@
-import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
+import { canonicalProjectRoot } from '#/_base/utils/paths';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
@@ -16,7 +16,7 @@ interface TrustRecordEntry {
   readonly record: TrustRecord;
 }
 
-export async function readWorkspaceTrust(
+export async function readProjectTrust(
   docs: IAtomicDocumentStore,
   root: string,
   telemetry?: ITelemetryService,
@@ -29,13 +29,13 @@ export async function readWorkspaceTrust(
     if (legacyKey !== canonicalKey) {
       const legacy = await docs.get<TrustRecord>(TRUST_SCOPE, legacyKey);
       if (legacy !== undefined) {
-        await migrateWorkspaceTrust(docs, canonicalKey, legacyKey, legacy);
+        await migrateProjectTrust(docs, canonicalKey, legacyKey, legacy);
         return true;
       }
     }
     const [variant] = await findLegacyTrustRecords(docs, root);
     if (variant === undefined) return false;
-    await migrateWorkspaceTrust(docs, canonicalKey, variant.key, variant.record);
+    await migrateProjectTrust(docs, canonicalKey, variant.key, variant.record);
     return true;
   } catch (error) {
     telemetry?.track2('workspace_trust_read_failed', {
@@ -45,7 +45,7 @@ export async function readWorkspaceTrust(
   }
 }
 
-export function writeWorkspaceTrust(
+export function writeProjectTrust(
   docs: IAtomicDocumentStore,
   root: string,
   trustedAt: number,
@@ -53,7 +53,7 @@ export function writeWorkspaceTrust(
   return docs.set(TRUST_SCOPE, trustKey(root), { root, trustedAt });
 }
 
-export async function deleteWorkspaceTrust(
+export async function deleteProjectTrust(
   docs: IAtomicDocumentStore,
   root: string,
 ): Promise<void> {
@@ -66,7 +66,7 @@ export async function deleteWorkspaceTrust(
   }
 }
 
-async function migrateWorkspaceTrust(
+async function migrateProjectTrust(
   docs: IAtomicDocumentStore,
   canonicalKey: string,
   legacyKey: string,
@@ -80,7 +80,7 @@ async function findLegacyTrustRecords(
   docs: IAtomicDocumentStore,
   root: string,
 ): Promise<TrustRecordEntry[]> {
-  const canonicalRoot = canonicalWorkspaceRoot(root);
+  const canonicalRoot = canonicalProjectRoot(root);
   const canonicalKey = trustKey(root);
   const legacyKey = encodeWorkDirKey(root);
   const result: TrustRecordEntry[] = [];
@@ -89,7 +89,7 @@ async function findLegacyTrustRecords(
     try {
       const record = await docs.get<TrustRecord | null>(TRUST_SCOPE, key);
       if (record === undefined || record === null || typeof record.root !== 'string') continue;
-      if (canonicalWorkspaceRoot(record.root) === canonicalRoot) result.push({ key, record });
+      if (canonicalProjectRoot(record.root) === canonicalRoot) result.push({ key, record });
     } catch (error) {
       if (!isStorageError(error, StorageErrors.codes.STORAGE_DECODE_FAILED)) throw error;
     }
@@ -98,5 +98,5 @@ async function findLegacyTrustRecords(
 }
 
 function trustKey(root: string): string {
-  return encodeWorkDirKey(canonicalWorkspaceRoot(root));
+  return encodeWorkDirKey(canonicalProjectRoot(root));
 }

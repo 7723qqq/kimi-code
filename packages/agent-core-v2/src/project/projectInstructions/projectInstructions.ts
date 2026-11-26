@@ -9,7 +9,7 @@ export interface WorkspaceInstructionsSnapshot {
   readonly agentsMdPaths: readonly string[] | undefined;
 }
 
-export interface IWorkspaceInstructionsService {
+export interface IProjectInstructionsService {
   readonly _serviceBrand: undefined;
 
   readonly ready: Promise<void>;
@@ -19,5 +19,5 @@ export interface IWorkspaceInstructionsService {
   sessionProvider(): ISessionInstructionsProvider;
 }
 
-export const IWorkspaceInstructionsService: ServiceIdentifier<IWorkspaceInstructionsService> =
-  createDecorator<IWorkspaceInstructionsService>('workspaceInstructionsService');
+export const IProjectInstructionsService: ServiceIdentifier<IProjectInstructionsService> =
+  createDecorator<IProjectInstructionsService>('workspaceInstructionsService');

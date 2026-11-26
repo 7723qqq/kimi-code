@@ -25,7 +25,7 @@ import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProce
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import type { ExecutableToolResult, ExecutableToolContext } from '#/tool/toolContract';
-import { stubWorkspaceContext } from '#test/session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '#test/session/workspaceContext/stub-workspace-context';
 
 function decodePowerShellArgs(args: readonly string[]): string {
   const encoded = args[args.length - 1];
@@ -170,7 +170,7 @@ function powerShellTool(
   return new PowerShellTool(
     runtime,
     ctx,
-    stubWorkspaceContext(ctx.cwd),
+    IProjectContext(ctx.cwd),
     createMiniTaskService(),
     toolPolicy,
     config,

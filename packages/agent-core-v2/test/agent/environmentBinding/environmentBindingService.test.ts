@@ -60,7 +60,7 @@ function reminderText(environmentId: string, host: ReminderHost, cwd: string): s
   );
 }
 
-function stubWorkspaceContext(cwd: string, workDirWrites: string[]): ISessionWorkspaceContext {
+function IProjectContext(cwd: string, workDirWrites: string[]): ISessionWorkspaceContext {
   return {
     _serviceBrand: undefined,
     workDir: cwd,
@@ -127,7 +127,7 @@ function setup(options: {
   agentId?: string;
   sessionCwd?: string;
   seedBinding?: EnvironmentBinding;
-  primaryByWorkspace?: Readonly<Record<string, string>>;
+  ISessionProjectInfo?: Readonly<Record<string, string>>;
 } = {}) {
   const registry = new EnvironmentRegistry();
   const local = environment('local', 'local-one', 'ready', ['fs', 'process'], LOCAL_HOST);
@@ -160,7 +160,7 @@ function setup(options: {
     },
   } as unknown as IEventDispatcher;
   const workDirWrites: string[] = [];
-  const workspaceContext = stubWorkspaceContext(session.cwd, workDirWrites);
+  const workspaceContext = IProjectContext(session.cwd, workDirWrites);
   const busHandlers = new Map<string, ((event: { readonly agentId?: string }) => void)[]>();
   const published: { readonly type: string; readonly environmentId?: string; readonly status?: string }[] = [];
   const eventBus = {
@@ -187,7 +187,7 @@ function setup(options: {
   const workspaceInfo = {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    primaryByWorkspace: options.primaryByWorkspace ?? {},
+    ISessionProjectInfo: options.ISessionProjectInfo ?? {},
     additionalDirs: sessionState.get(workspaceContextAdditionalDirsKey),
     onDidChange: () => ({ dispose: () => {} }),
   };
@@ -450,7 +450,7 @@ describe('AgentEnvironmentService workspaceRoots', () => {
   it('follows the current primary only for a default local binding', () => {
     const local = setup({
       sessionCwd: '/old',
-      primaryByWorkspace: { workspace: '/new' },
+      ISessionProjectInfo: { workspace: '/new' },
     });
     expect(local.agentEnvironment.workspaceRoots()).toEqual({
       workDir: '/new',
@@ -461,7 +461,7 @@ describe('AgentEnvironmentService workspaceRoots', () => {
 
     const explicit = setup({
       seedBinding: { environmentId: 'local', cwd: '/explicit' },
-      primaryByWorkspace: { workspace: '/new' },
+      ISessionProjectInfo: { workspace: '/new' },
     });
     expect(explicit.agentEnvironment.workspaceRoots()).toEqual({
       workDir: '/explicit',
@@ -474,7 +474,7 @@ describe('AgentEnvironmentService workspaceRoots', () => {
   it('keeps remote host cwd independent from the local project primary', () => {
     const remote = setup({
       seedBinding: { environmentId: 'remote-cwd' },
-      primaryByWorkspace: { workspace: '/new' },
+      ISessionProjectInfo: { workspace: '/new' },
     });
     remote.registry.register(environment('remote-cwd', 'remote-cwd-one', 'ready', ['process'], {
       ...REMOTE_HOST,

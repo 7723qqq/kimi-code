@@ -12,7 +12,7 @@ export interface WorkspaceMeta {
   readonly lastOpenedAt: number;
 }
 
-export interface IWorkspaceContext {
+export interface IProjectContext {
   readonly _serviceBrand: undefined;
 
   readonly workspaceId: string;
@@ -23,9 +23,9 @@ export interface IWorkspaceContext {
   readonly persistenceScope: string;
 }
 
-export const IWorkspaceContext: ServiceIdentifier<IWorkspaceContext> =
-  createDecorator<IWorkspaceContext>('workspaceContext');
+export const IProjectContext: ServiceIdentifier<IProjectContext> =
+  createDecorator<IProjectContext>('workspaceContext');
 
-export function workspaceContextSeed(ctx: IWorkspaceContext): ScopeSeed {
-  return [[IWorkspaceContext as ServiceIdentifier<unknown>, ctx]];
+export function workspaceContextSeed(ctx: IProjectContext): ScopeSeed {
+  return [[IProjectContext as ServiceIdentifier<unknown>, ctx]];
 }

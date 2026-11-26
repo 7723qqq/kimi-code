@@ -44,7 +44,7 @@ import { SnapshotService } from '#/features/snapshot/snapshotService';
 import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { IHostClock } from '#/os/interface/hostClock';
 import { hostWorkspacePathSemantics } from '#/session/workspaceContext/workspacePaths';
-import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../environment/stubs';
 import { ConfigRegistry, ConfigService } from '#/app/config/configService';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
@@ -915,7 +915,7 @@ describe('AgentToolExecutorService', () => {
       }),
       stubBootstrap(root),
       environment,
-      stubWorkspaceContext(root),
+      IProjectContext(root),
       { now: () => new Date(5_000), timeZone: () => 'UTC' } as unknown as IHostClock,
       executor,
       ix.get(IEventBus),
@@ -1370,7 +1370,7 @@ describe('truncation pipeline', () => {
     mediaEnvironment = binding;
     registry.register(new ReadTool(
       binding,
-      stubWorkspaceContext(homeDir),
+      IProjectContext(homeDir),
       { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
       {
         _serviceBrand: undefined,
@@ -1388,7 +1388,7 @@ describe('truncation pipeline', () => {
       { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
       attachmentStore,
     ));
-    registry.register(new GlobTool(binding, stubWorkspaceContext(homeDir), noopTelemetryService));
+    registry.register(new GlobTool(binding, IProjectContext(homeDir), noopTelemetryService));
   });
 
   afterEach(async () => {
@@ -1673,7 +1673,7 @@ describe('truncation pipeline', () => {
     });
     registry.register(new ReadTool(
       mediaEnvironment,
-      stubWorkspaceContext(homeDir),
+      IProjectContext(homeDir),
       { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
       {
         _serviceBrand: undefined,

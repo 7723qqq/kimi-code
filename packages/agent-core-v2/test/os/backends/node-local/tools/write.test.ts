@@ -2,7 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import { PathSecurityError } from '#/tool/path-access';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../../environment/stubs';
 import { type WriteInput, WriteInputSchema } from '#/agent/tools/os/write/write';
 import { WriteTool } from '#/agent/tools/os/write/writeTool';
@@ -16,7 +16,7 @@ import type {
 
 
 const signal = new AbortController().signal;
-const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
+const PERMISSIVE_WORKSPACE = IProjectContext('/');
 
 function toolContentString(result: ExecutableToolResult): string {
   const c = result.output;
@@ -165,7 +165,7 @@ describe('WriteTool', () => {
   });
 
   it('matches permission args with negated glob path semantics', async () => {
-    const { tool } = makeTool({}, stubWorkspaceContext('/workspace'));
+    const { tool } = makeTool({}, IProjectContext('/workspace'));
     const insideSrc = await tool.resolveExecution({ path: './src/a.ts', content: 'x' });
     const outsideSrc = await tool.resolveExecution({ path: './README.md', content: 'x' });
     if (insideSrc.isError === true || outsideSrc.isError === true) {
@@ -339,7 +339,7 @@ describe('WriteTool', () => {
   });
 
   it('allows explicit absolute writes outside the workspace', async () => {
-    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace'));
+    const { tool, writeText } = makeTool({}, IProjectContext('/workspace'));
 
     const result = await execute(tool, { path: '/tmp/pwned.txt', content: 'x' });
 
@@ -348,7 +348,7 @@ describe('WriteTool', () => {
   });
 
   it('rejects relative traversal writes before fs I/O', async () => {
-    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace/project'));
+    const { tool, writeText } = makeTool({}, IProjectContext('/workspace/project'));
 
     const result = await execute(tool, { path: '../outside.txt', content: 'x' });
 
@@ -358,7 +358,7 @@ describe('WriteTool', () => {
   });
 
   it('blocks sensitive file writes', async () => {
-    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace'));
+    const { tool, writeText } = makeTool({}, IProjectContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace/id_rsa', content: 'key' });
 
@@ -373,7 +373,7 @@ describe('WriteTool', () => {
         realpath: async (path) =>
           path === '/workspace/link/secret.txt' ? '/outside/secret.txt' : path,
       },
-      stubWorkspaceContext('/workspace'),
+      IProjectContext('/workspace'),
     );
 
     const result = await execute(tool, { path: 'link/secret.txt', content: 'payload' });
@@ -431,7 +431,7 @@ describe('WriteTool', () => {
   });
 
   it('allows absolute writes to a sibling dir that merely shares the work-dir prefix', async () => {
-    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace'));
+    const { tool, writeText } = makeTool({}, IProjectContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace-sneaky/file.txt', content: 'content' });
 

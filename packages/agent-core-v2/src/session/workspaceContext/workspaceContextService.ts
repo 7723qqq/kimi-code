@@ -4,7 +4,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import { ISessionWorkdir } from '#/session/workdir/workdir';
 
 import { ISessionWorkspaceContext, type PathAccessOperation } from './workspaceContext';
@@ -28,7 +28,7 @@ export class SessionWorkspaceContextService extends Service implements ISessionW
   constructor(
     @ISessionStateService private readonly states: ISessionStateService,
     @ISessionContext private readonly ctx: ISessionContext,
-    @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
+    @ISessionProjectInfo private readonly workspaceInfo: ISessionProjectInfo,
     @ISessionWorkdir private readonly workdir: ISessionWorkdir,
   ) {
     super();

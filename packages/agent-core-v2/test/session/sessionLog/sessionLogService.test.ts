@@ -20,7 +20,7 @@ import { makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { SessionLogService } from '#/session/sessionLog/sessionLogService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { IWorkspaceStateService } from '#/project/state/projectState';
+import { IProjectStateService } from '#/project/state/projectState';
 import { WorkspaceStateService } from '#/project/state/projectStateService';
 
 let homeDir: string;
@@ -74,7 +74,7 @@ function testSessionSeed() {
         cwd: sessionDir,
       }),
     ),
-    [IWorkspaceStateService, new WorkspaceStateService()] as const,
+    [IProjectStateService, new WorkspaceStateService()] as const,
   ];
 }
 

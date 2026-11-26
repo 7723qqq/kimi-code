@@ -17,8 +17,8 @@ import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import type { IHostProcess } from '#/os/interface/hostProcess';
 import type { ProgramDependencies } from '#/program/programDependencies';
 import { ProgramMcp, type ProgramMcpLease } from '#/program/programMcp';
-import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import type { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import type { IProjectContext } from '#/project/projectContext/projectContext';
+import type { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import type { WorkspaceTrustChange } from '#/project/projectTrust/projectTrust';
 import { WorkspaceMcpConfigService } from '#/project/projectMcpConfig/projectMcpConfigService';
 
@@ -87,7 +87,7 @@ describe('ProgramMcp', () => {
         acquire: () => lease,
         acquireWhenReady: async () => lease,
       } as unknown as IEnvironmentService,
-      { workspaceId: 'workspace' } as IWorkspaceContext,
+      { workspaceId: 'workspace' } as IProjectContext,
       {
         bootstrap: { homeDir },
         config: { ready: Promise.resolve(), onDidSectionChange: Event.None, get: () => undefined },
@@ -111,7 +111,7 @@ describe('ProgramMcp', () => {
           return primary;
         },
         onDidChange: Event.None,
-      } as unknown as IWorkspaceDirs,
+      } as unknown as IProjectDirs,
       {
         _serviceBrand: undefined,
         ready: Promise.resolve(),

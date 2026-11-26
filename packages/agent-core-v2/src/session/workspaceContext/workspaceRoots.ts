@@ -2,7 +2,7 @@ import { workspaceRootKey } from '#/_base/utils/workdir-slug';
 import { LOCAL_ENVIRONMENT_ID, type EnvironmentBinding } from '#/environment/environment';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
-import type { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import type { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 
 export interface EffectiveWorkspaceRoots {
   readonly workDir: string;
@@ -14,12 +14,12 @@ export interface EffectiveWorkspaceRoots {
 export function resolveEffectiveWorkspaceRoots(
   session: Pick<ISessionContext, 'workspaceId' | 'cwd'>,
   binding: EnvironmentBinding | undefined,
-  workspace: Pick<ISessionWorkspaceInfo, 'primaryByWorkspace' | 'additionalDirs'>,
+  workspace: Pick<ISessionProjectInfo, 'ISessionProjectInfo' | 'additionalDirs'>,
   host?: Pick<HostEnvironmentInfo, 'cwd' | 'homeDir'>,
 ): EffectiveWorkspaceRoots {
   const environmentId = binding?.environmentId ?? LOCAL_ENVIRONMENT_ID;
   const local = environmentId === LOCAL_ENVIRONMENT_ID;
-  const primaryDir = local ? workspace.primaryByWorkspace[session.workspaceId] : undefined;
+  const primaryDir = local ? workspace.ISessionProjectInfo[session.workspaceId] : undefined;
   const followsPrimary = local && binding?.cwd === undefined && primaryDir !== undefined;
   const workDir =
     binding?.cwd ?? (local ? (primaryDir ?? session.cwd) : (host?.cwd ?? host?.homeDir ?? session.cwd));

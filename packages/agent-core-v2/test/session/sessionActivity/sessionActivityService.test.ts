@@ -34,7 +34,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { IWorkspaceStateService } from '#/project/state/projectState';
+import { IProjectStateService } from '#/project/state/projectState';
 import { WorkspaceStateService } from '#/project/state/projectStateService';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
@@ -246,7 +246,7 @@ describe('ISessionActivityView (Session scope aggregate of agent activity + inte
     disposables = new DisposableStore();
     host = createScopedTestHost();
     session = host.child(LifecycleScope.Session, SESSION_ID, [
-      stubPair(IWorkspaceStateService, new WorkspaceStateService()),
+      stubPair(IProjectStateService, new WorkspaceStateService()),
       stubPair(ISessionContext, { sessionId: SESSION_ID } as ISessionContext),
     ]);
     lifecycle = session.accessor.get(IAgentLifecycleService) as unknown as FakeAgentLifecycle;
@@ -285,7 +285,7 @@ describe('ISessionActivityView (Session scope aggregate of agent activity + inte
     main.loopState = 'running';
     const seededSession = host.child(LifecycleScope.Session, 'session-seeded', [
       stubPair(IAgentLifecycleService, seededLifecycle),
-      stubPair(IWorkspaceStateService, new WorkspaceStateService()),
+      stubPair(IProjectStateService, new WorkspaceStateService()),
       stubPair(ISessionContext, { sessionId: 'session-seeded' } as ISessionContext),
     ]);
     const view = seededSession.accessor.get(ISessionActivityView);

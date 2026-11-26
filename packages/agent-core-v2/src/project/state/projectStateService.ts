@@ -1,9 +1,9 @@
 import { StateRegistry } from '#/_base/state/stateRegistry';
 import { IAppStateService } from '#/app/state/appState';
 
-import type { IWorkspaceStateService } from './projectState';
+import type { IProjectStateService } from './projectState';
 
-export class WorkspaceStateService extends StateRegistry implements IWorkspaceStateService {
+export class WorkspaceStateService extends StateRegistry implements IProjectStateService {
   declare readonly _serviceBrand: undefined;
   protected override readonly inspectScope = 'workspace';
 

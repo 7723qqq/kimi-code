@@ -3,7 +3,7 @@ import { describe, expect, it, jest, mock } from 'bun:test';
 import { PathSecurityError } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
 import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../../environment/stubs';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
@@ -27,7 +27,7 @@ import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
 const signal = new AbortController().signal;
-const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
+const PERMISSIVE_WORKSPACE = IProjectContext('/');
 
 function linesFromContent(content: string): string[] {
   if (content === '') return [];
@@ -82,7 +82,7 @@ function stubProfileService(capabilities: {
 function createReadTool(
   fs: IHostFileSystem,
   env: IHostEnvironment,
-  workspace: ReturnType<typeof stubWorkspaceContext>,
+  workspace: ReturnType<typeof IProjectContext>,
   skillCatalog: ISessionSkillCatalog = {
     catalog: { getSkillRoots: () => [] },
   } as unknown as ISessionSkillCatalog,
@@ -231,7 +231,7 @@ function createRegistryBackedTool(environmentValue: FakeEnvironment) {
   };
   const tool = new ReadTool(
     environment,
-    stubWorkspaceContext('/workspace'),
+    IProjectContext('/workspace'),
     { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
     { _serviceBrand: undefined, getMediaReadContext: () => undefined },
     stubToolResultTruncationService(),
@@ -687,7 +687,7 @@ describe('ReadTool', () => {
 
   it('rejects relative traversal before reading', async () => {
     const { fs, readText } = createSpiedFs('secret');
-    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace/project'));
+    const tool = createReadTool(fs, createTestEnv(), IProjectContext('/workspace/project'));
 
     const result = await execute(tool, { path: '../../outside.txt' });
 
@@ -705,7 +705,7 @@ describe('ReadTool', () => {
     const tool = createReadTool(
       fs,
       createTestEnv(),
-      stubWorkspaceContext('/workspace/project'),
+      IProjectContext('/workspace/project'),
       skillCatalog,
     );
 
@@ -717,7 +717,7 @@ describe('ReadTool', () => {
 
   it('allows explicit absolute paths outside the workspace', async () => {
     const { fs, readBytes, readLines } = createSpiedFs('external');
-    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv(), IProjectContext('/workspace'));
 
     const result = await execute(tool, { path: '/tmp/external.txt' });
 
@@ -733,7 +733,7 @@ describe('ReadTool', () => {
 
   it('returns a friendly error for missing files before sniffing bytes', async () => {
     const { fs, readBytes, readLines } = createSpiedMapFs({});
-    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv(), IProjectContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace/missing.txt' });
 
@@ -749,7 +749,7 @@ describe('ReadTool', () => {
     const { fs, readBytes, readLines } = createSpiedMapFs({
       '/workspace/src': { bytes: Buffer.alloc(0), isFile: false, isDirectory: true },
     });
-    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv(), IProjectContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace/src' });
 
@@ -763,7 +763,7 @@ describe('ReadTool', () => {
 
   it('expands leading tilde paths using the kaos home directory', async () => {
     const { fs, readBytes, readLines } = createSpiedFs('home note');
-    const tool = createReadTool(fs, createTestEnv('/home/test'), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv('/home/test'), IProjectContext('/workspace'));
 
     const result = await execute(tool, { path: '~/notes/today.txt' });
 
@@ -779,7 +779,7 @@ describe('ReadTool', () => {
 
   it('blocks sensitive files independently from workspace access', async () => {
     const { fs, readText } = createSpiedFs('SECRET=value');
-    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv(), IProjectContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace/.env' });
 
@@ -1257,7 +1257,7 @@ describe('ReadTool', () => {
 
   it('reads files inside additional_dirs via absolute path', async () => {
     const { fs } = createSpiedFs('extra-dir note');
-    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace', ['/extra']));
+    const tool = createReadTool(fs, createTestEnv(), IProjectContext('/workspace', ['/extra']));
 
     const result = await execute(tool, { path: '/extra/notes.txt' });
 
@@ -1267,7 +1267,7 @@ describe('ReadTool', () => {
 
   it('reports nonexistent files with the expected does-not-exist phrasing', async () => {
     const { fs } = createSpiedMapFs({});
-    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv(), IProjectContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace/ghost.txt' });
 

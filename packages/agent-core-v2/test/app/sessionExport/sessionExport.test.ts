@@ -48,7 +48,7 @@ import {
   ISessionManager,
   type UnguardedSessionLifecycle,
 } from '#/app/sessionManager/sessionManager';
-import { IWorkspaceService } from '#/app/project/project';
+import { IProjectService } from '#/app/project/project';
 import { Error2 } from '#/errors';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
@@ -962,7 +962,7 @@ function registerSessionExportServices(
       throw new Error('createChild should not be called by session export');
     },
   });
-  reg.defineInstance(IWorkspaceService, {
+  reg.defineInstance(IProjectService, {
     _serviceBrand: undefined,
     list: async () => [],
     get: async (id) => ({

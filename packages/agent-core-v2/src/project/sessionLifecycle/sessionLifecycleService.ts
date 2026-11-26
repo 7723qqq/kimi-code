@@ -72,7 +72,7 @@ import {
 import { ISessionSkillCatalogData } from '#/features/skill/session/skillCatalogData';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
 import { ISessionWorkdir } from '#/session/workdir/workdir';
 import {
@@ -92,8 +92,8 @@ import { repairWireJournal } from '#/wire/repair';
 import { flattenChain } from '#/wire/tree/index';
 import { IModelService } from '#/llm-adapter/model/model';
 import { IProviderService } from '#/llm-adapter/provider/provider';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectTrust } from '#/project/projectTrust/projectTrust';
 import { IUserAgentProfileLoader } from '#/project/projectAgentProfileLoader/userAgentProfileLoader';
 import { IPluginAgentProfileLoader } from '#/project/projectAgentProfileLoader/pluginAgentProfileLoader';
 import {
@@ -102,7 +102,7 @@ import {
 import {
   IExtraAgentProfileLoader,
 } from '#/project/projectAgentProfileLoader/extraAgentProfileLoader';
-import { IWorkspaceMcpService } from '#/project/projectMcp/projectMcp';
+import { IProjectMcpService } from '#/project/projectMcp/projectMcp';
 import { PLUGIN_SKILL_SOURCE_ID } from '#/features/skill/catalog/skillSource';
 
 import { agentScopeOf, sessionDirOf, sessionScopeOf } from './internal/addressing';
@@ -134,7 +134,7 @@ type MaterializeSessionOptions = Omit<CreateSessionOptions, 'sessionId'> & {
   readonly sessionId: string;
 };
 
-type WorkdirWithMcp = ProgramWorkdir & { readonly mcp: IWorkspaceMcpService };
+type WorkdirWithMcp = ProgramWorkdir & { readonly mcp: IProjectMcpService };
 
 const NO_ABORT = new AbortController().signal;
 
@@ -187,7 +187,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
 
   constructor(
     private readonly instantiation: IInstantiationService,
-    @IWorkspaceContext private readonly workspaceContext: IWorkspaceContext,
+    @IProjectContext private readonly workspaceContext: IProjectContext,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IConfigService private readonly config: IConfigService,
     @ISessionIndex private readonly index: ISessionIndex,
@@ -213,7 +213,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     @IModelService private readonly models: IModelService,
     @IProviderService private readonly providers: IProviderService,
     private readonly environments: IEnvironmentService,
-    private readonly trust: IWorkspaceTrust,
+    private readonly trust: IProjectTrust,
     private readonly acquireWorkdir: (
       environmentId: string,
       cwd: string,
@@ -332,7 +332,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
           seeds: [
             ...sessionContextSeed(ctx),
             [IProjectLocalConfigService, workdir.localConfig],
-            [IWorkspaceTrust, this.trust],
+            [IProjectTrust, this.trust],
             [ITelemetryService, telemetryBinding.telemetry],
             ...sessionAgentProfileCatalogSeed({
               _serviceBrand: undefined,
@@ -342,7 +342,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
             [ISessionSkillCatalogData, workdir.skills.sessionData()],
             [ISessionInstructionsProvider, workdir.instructions.sessionProvider()],
             [ISessionMcpHandle, workdir.mcp.sessionHandle()],
-            [ISessionWorkspaceInfo, dirs.sessionInfo()],
+            [ISessionProjectInfo, dirs.sessionInfo()],
             [ISessionWorkdir, {
               _serviceBrand: undefined,
               environmentId: environment?.environmentId ?? LOCAL_ENVIRONMENT_ID,
@@ -408,7 +408,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     return resolveEffectiveWorkspaceRoots(
       { workspaceId: this.workspaceId, cwd: fallbackCwd },
       environment,
-      { primaryByWorkspace: { [this.workspaceId]: primary }, additionalDirs: [] },
+      { ISessionProjectInfo: { [this.workspaceId]: primary }, additionalDirs: [] },
     ).workDir;
   }
 

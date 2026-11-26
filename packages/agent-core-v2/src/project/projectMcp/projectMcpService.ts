@@ -17,21 +17,21 @@ import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
 import { MergedMcpConnectionView } from '#/session/mcp/mergedConnectionView';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import {
-  IWorkspaceMcpConfigService,
+  IProjectMcpConfigService,
   type McpServersChange,
 } from '#/project/projectMcpConfig/projectMcpConfig';
 
 import {
-  IWorkspaceMcpService,
+  IProjectMcpService,
   type ISessionMcpOverlay,
   type SessionMcpOverlayOptions,
 } from './projectMcp';
 
-export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpService {
+export class WorkspaceMcpService extends Disposable implements IProjectMcpService {
   declare readonly _serviceBrand: undefined;
 
   private readonly manager: McpConnectionManager;
@@ -47,10 +47,10 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
   private shutdown?: Promise<void>;
 
   constructor(
-    @IWorkspaceContext workspace: IWorkspaceContext,
-    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
+    @IProjectContext workspace: IProjectContext,
+    @IProjectDirs private readonly dirs: IProjectDirs,
     @IEnvironmentService private readonly environmentResolver: EnvironmentResolver,
-    @IWorkspaceMcpConfigService private readonly mcpConfig: IWorkspaceMcpConfigService,
+    @IProjectMcpConfigService private readonly mcpConfig: IProjectMcpConfigService,
     @IMcpOAuthService oauthService: McpOAuthService,
     @ILogService private readonly log: ILogService,
     @ITelemetryService private readonly telemetry: ITelemetryService,

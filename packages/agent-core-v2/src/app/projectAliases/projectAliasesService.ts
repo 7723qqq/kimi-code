@@ -3,17 +3,17 @@ import { LifecycleScope } from '#/app/scopes';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { encodeWorkDirKey, isWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
-import { IWorkspaceService, type Workspace } from '#/app/project/project';
+import { IProjectService, type Workspace } from '#/app/project/project';
 import {
   readSessionIndexEntries,
   SESSION_INDEX_KEY,
   SESSION_INDEX_SCOPE,
 } from '#/app/project/projectAlias';
-import { IWorkspacePersistence } from '#/app/project/projectPersistence';
+import { IProjectPersistence } from '#/app/project/projectPersistence';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import { IWorkspaceAliases } from './projectAliases';
+import { IProjectAliases } from './projectAliases';
 
 interface CatalogSnapshot {
   readonly byId: ReadonlyMap<string, Workspace>;
@@ -44,7 +44,7 @@ function rootKeyIndex<T>(
   return map;
 }
 
-export class WorkspaceAliasesService extends Disposable implements IWorkspaceAliases {
+export class WorkspaceAliasesService extends Disposable implements IProjectAliases {
   declare readonly _serviceBrand: undefined;
 
   private catalogCache: CatalogSnapshot | undefined;
@@ -59,8 +59,8 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
   private catalogMergePrimed = false;
 
   constructor(
-    @IWorkspaceService private readonly workspaces: IWorkspaceService,
-    @IWorkspacePersistence private readonly store: IWorkspacePersistence,
+    @IProjectService private readonly workspaces: IProjectService,
+    @IProjectPersistence private readonly store: IProjectPersistence,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @IAppendLogStore private readonly appendLogs: IAppendLogStore,
   ) {
@@ -180,7 +180,7 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
 
 registerScopedService(
   LifecycleScope.App,
-  IWorkspaceAliases,
+  IProjectAliases,
   WorkspaceAliasesService,
   ScopeActivation.OnScopeCreated,
   'workspaceAliases',

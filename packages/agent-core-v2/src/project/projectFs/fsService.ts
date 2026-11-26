@@ -72,11 +72,11 @@ import {
   type HostFileStat,
 } from '#/os/interface/hostFileSystem';
 import { isHostFsNotDirectory, isHostFsNotFound } from '#/os/interface/hostFsErrors';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
-import { IWorkspaceGitService } from '#/project/projectGit/projectGit';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectGitService } from '#/project/projectGit/projectGit';
 
-import { type FsDownloadResolved, type FsPathResolved, IWorkspaceFsService } from './fs';
+import { type FsDownloadResolved, type FsPathResolved, IProjectFsService } from './fs';
 import {
   ensureFdPath,
   suggestWithFd,
@@ -151,7 +151,7 @@ const FS_READ_MAX_BYTES = 10 * 1024 * 1024;
 const HIDDEN_NAME_RE = /^\./;
 const MACOS_NOISE = new Set(['.DS_Store', '.AppleDouble', '.LSOverride']);
 
-export class WorkspaceFsService implements IWorkspaceFsService {
+export class WorkspaceFsService implements IProjectFsService {
   declare readonly _serviceBrand: undefined;
 
   private readonly gitignoreCache = new Map<
@@ -170,15 +170,15 @@ export class WorkspaceFsService implements IWorkspaceFsService {
   private readonly path: EnvironmentPath;
 
   constructor(
-    @IWorkspaceContext workspace: Pick<IWorkspaceContext, 'workspaceId' | 'cwd'>,
-    @IWorkspaceDirs private readonly workspaceDirs: Pick<
-      IWorkspaceDirs,
+    @IProjectContext workspace: Pick<IProjectContext, 'workspaceId' | 'cwd'>,
+    @IProjectDirs private readonly workspaceDirs: Pick<
+      IProjectDirs,
       'additionalDirs' | 'primary'
     >,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @IEnvironmentService private readonly resolver: EnvironmentResolver,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IWorkspaceGitService private readonly git: IWorkspaceGitService,
+    @IProjectGitService private readonly git: IProjectGitService,
     private readonly environmentId = 'local',
   ) {
     this.workspaceId = workspace.workspaceId;

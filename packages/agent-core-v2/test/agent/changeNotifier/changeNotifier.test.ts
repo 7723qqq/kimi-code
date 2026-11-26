@@ -27,7 +27,7 @@ import type { SkillCatalog } from '#/features/skill/catalog/types';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
@@ -92,7 +92,7 @@ interface Harness {
   readonly secondaryModel: { value: SecondaryModelConfig | undefined };
   readonly workspaceInfo: {
     readonly additionalDirs: readonly string[];
-    readonly primaryByWorkspace: Readonly<Record<string, string>>;
+    readonly ISessionProjectInfo: Readonly<Record<string, string>>;
     set(dirs: readonly string[], primary: Readonly<Record<string, string>>): void;
   };
 }
@@ -218,17 +218,17 @@ function createHarness(options: {
         scope: (sub?: string): string =>
           sub ? `sessions/workspace-1/session-1/${sub}` : 'sessions/workspace-1/session-1',
       } satisfies ISessionContext);
-      reg.defineInstance(ISessionWorkspaceInfo, {
+      reg.defineInstance(ISessionProjectInfo, {
         _serviceBrand: undefined,
         ready: Promise.resolve(),
         get additionalDirs() {
           return workspaceDirs;
         },
-        get primaryByWorkspace() {
+        get ISessionProjectInfo() {
           return workspacePrimary;
         },
         onDidChange: workspaceInfoChange.event,
-      } satisfies ISessionWorkspaceInfo);
+      } satisfies ISessionProjectInfo);
       reg.defineInstance(IBootstrapService, {
         homeDir,
         getEnv: () => undefined,
@@ -314,7 +314,7 @@ function createHarness(options: {
       get additionalDirs() {
         return workspaceDirs;
       },
-      get primaryByWorkspace() {
+      get ISessionProjectInfo() {
         return workspacePrimary;
       },
       set(dirs: readonly string[], primary: Readonly<Record<string, string>>): void {

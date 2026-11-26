@@ -14,13 +14,13 @@ import type { SkillCatalog } from '#/features/skill/catalog/types';
 import { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
 import type { ISessionSkillCatalogData } from '#/features/skill/session/skillCatalogData';
 import { defineState } from '#/state/state';
-import { IWorkspaceStateService } from '#/project/state/projectState';
+import { IProjectStateService } from '#/project/state/projectState';
 
 import { IExplicitFileSkillSource } from './explicitFileSkillSource';
 import { IExtraFileSkillSource } from './extraFileSkillSource';
 import { IPluginSkillSource } from './pluginSkillSource';
-import { IWorkspaceRootSkillSource } from './rootFileSkillSource';
-import { IWorkspaceSkillCatalog } from './projectSkillCatalog';
+import { IProjectRootSkillSource } from './rootFileSkillSource';
+import { IProjectSkillCatalog } from './projectSkillCatalog';
 
 export const workspaceSkillCatalogContributionsKey = defineState<
   Map<string, { readonly c: SkillContribution; readonly priority: number }>
@@ -30,7 +30,7 @@ export const workspaceSkillCatalogMergedKey = defineState<InMemorySkillCatalog>(
   () => new InMemorySkillCatalog(),
 );
 
-export class WorkspaceSkillCatalogService extends Disposable implements IWorkspaceSkillCatalog {
+export class WorkspaceSkillCatalogService extends Disposable implements IProjectSkillCatalog {
   declare readonly _serviceBrand: undefined;
 
   private readonly sources: readonly ISkillSource[];
@@ -44,9 +44,9 @@ export class WorkspaceSkillCatalogService extends Disposable implements IWorkspa
     @IUserFileSkillSource user: IUserFileSkillSource,
     @IExplicitFileSkillSource explicit: IExplicitFileSkillSource,
     @IExtraFileSkillSource extra: IExtraFileSkillSource,
-    @IWorkspaceRootSkillSource workspace: IWorkspaceRootSkillSource,
+    @IProjectRootSkillSource workspace: IProjectRootSkillSource,
     @IPluginSkillSource plugin: IPluginSkillSource,
-    @IWorkspaceStateService private readonly states: IWorkspaceStateService,
+    @IProjectStateService private readonly states: IProjectStateService,
     @IConfigService private readonly config: IConfigService,
   ) {
     super();

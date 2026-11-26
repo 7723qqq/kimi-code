@@ -2,7 +2,7 @@ import type { Workspace } from '#/app/project/project';
 import { Program, type ProgramSnapshot } from '#/program/program';
 import type { ProgramDependencies } from '#/program/programDependencies';
 import type { IEnvironmentService } from '#/app/environment/environment';
-import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
+import type { IProjectContext } from '#/project/projectContext/projectContext';
 
 export type WorkspaceInstanceLifecycle = 'materializing' | 'active' | 'closing' | 'disposed';
 
@@ -20,7 +20,7 @@ export class WorkspaceInstance {
   constructor(
     metadata: Workspace,
     environments: IEnvironmentService,
-    context: IWorkspaceContext,
+    context: IProjectContext,
     dependencies: ProgramDependencies,
   ) {
     this.metadataValue = metadata;

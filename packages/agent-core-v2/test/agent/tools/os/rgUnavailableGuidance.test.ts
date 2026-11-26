@@ -10,7 +10,7 @@ import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import * as rgLocator from '#/os/backends/host/tools/rgLocator';
 import { GlobTool } from '#/agent/tools/os/glob/globTool';
 import { GrepTool } from '#/agent/tools/os/grep/grepTool';
-import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../environment/stubs';
 
 
@@ -85,7 +85,7 @@ const TOOLS: readonly {
       finish(
         await new GlobTool(
           stubAgentEnvironment(backend),
-          stubWorkspaceContext('/workspace'),
+          IProjectContext('/workspace'),
           noopTelemetryService,
         ).resolveExecution({ pattern: '**/*.ts' }),
       ),
@@ -96,7 +96,7 @@ const TOOLS: readonly {
       finish(
         await new GrepTool(
           stubAgentEnvironment(backend),
-          stubWorkspaceContext('/workspace'),
+          IProjectContext('/workspace'),
           noopTelemetryService,
         ).resolveExecution({ pattern: 'needle' }),
       ),

@@ -23,16 +23,16 @@ import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { type HostDirEntry, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError } from '#/os/interface/hostFsErrors';
 import { IHostProcessService, type IHostProcess } from '#/os/interface/hostProcess';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
-import { IWorkspaceFsService } from '#/project/projectFs/fs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectFsService } from '#/project/projectFs/fs';
 import { WorkspaceFsService } from '#/project/projectFs/fsService';
-import { IWorkspaceGitService } from '#/project/projectGit/projectGit';
+import { IProjectGitService } from '#/project/projectGit/projectGit';
 import { WorkspaceGitService } from '#/project/projectGit/projectGitService';
 
 const WORK_DIR = '/repo';
 
-function stubWorkspaceContext(): IWorkspaceContext {
+function IWorkspaceContext(): IProjectContext {
   return {
     _serviceBrand: undefined,
     workspaceId: 'w',
@@ -43,14 +43,14 @@ function stubWorkspaceContext(): IWorkspaceContext {
   };
 }
 
-function stubWorkspaceDirs(additionalDirs: readonly string[] = []): IWorkspaceDirs {
+function IWorkspaceDirs(additionalDirs: readonly string[] = []): IProjectDirs {
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
     primary: WORK_DIR,
     additionalDirs: [...additionalDirs],
     sharedAdditionalDirs: [...additionalDirs],
-    primaryByWorkspace: {},
+    ISessionProjectInfo: {},
     onDidChange: () => ({ dispose: () => {} }),
     addDir: () => Promise.reject(new Error('not supported in tests')),
     mergeAdditionalDirs: () => Promise.resolve({ dispose: () => {} }),
@@ -61,7 +61,7 @@ function stubWorkspaceDirs(additionalDirs: readonly string[] = []): IWorkspaceDi
   };
 }
 
-function workspaceGitStub(git: IGitService): IWorkspaceGitService {
+function workspaceGitStub(git: IGitService): IProjectGitService {
   return {
     _serviceBrand: undefined,
     status: (pathFilter) => git.status(WORK_DIR, { pathFilter }),
@@ -404,7 +404,7 @@ beforeEach(() => {
   _clearScopedRegistryForTests();
   registerScopedService(
     'program',
-    IWorkspaceFsService,
+    IProjectFsService,
     WorkspaceFsService,
     ScopeActivation.OnDemand,
     'workspaceFs',
@@ -447,7 +447,7 @@ function makeSession(
   additionalDirs: readonly string[] = [],
   pathClass: 'posix' | 'win32' = 'posix',
   mtimes: Record<string, number> = {},
-): IWorkspaceFsService {
+): IProjectFsService {
   host = createScopedTestHost([
     stubPair(IHostEnvironment, {
       _serviceBrand: undefined,
@@ -468,14 +468,14 @@ function makeSession(
   Object.defineProperty(environment, 'process', { value: runner ?? fakeRunner(handler) });
   host.app.instantiation.provide(IEnvironmentService, resolverFor(environment));
   const workspace = host.child('program', 'w1', [
-    stubPair(IWorkspaceContext, stubWorkspaceContext()),
-    stubPair(IWorkspaceDirs, stubWorkspaceDirs(additionalDirs)),
+    stubPair(IProjectContext, IWorkspaceContext()),
+    stubPair(IProjectDirs, IWorkspaceDirs(additionalDirs)),
     stubPair(IHostFileSystem, fakeFs(files, symlinks, symlinkTargets, mtimes)),
     stubPair(IHostProcessService, runner ?? fakeRunner(handler)),
     stubPair(ITelemetryService, telemetryStub(events)),
-    stubPair(IWorkspaceGitService, workspaceGitStub(git)),
+    stubPair(IProjectGitService, workspaceGitStub(git)),
   ]);
-  const service = workspace.accessor.get(IWorkspaceFsService);
+  const service = workspace.accessor.get(IProjectFsService);
   Object.defineProperty(service, 'fdResolution', {
     value: null,
     configurable: true,
@@ -506,7 +506,7 @@ function makeRemoteSession(
   environmentId = 'ssh-dev',
   homeDir = '/home/target',
   hostFs?: IHostFileSystem,
-): IWorkspaceFsService {
+): IProjectFsService {
   const environment = new FakeEnvironment(
     { environmentId, generation: 'test' },
     { capabilities: ['process'], host: { homeDir } },
@@ -514,8 +514,8 @@ function makeRemoteSession(
   Object.defineProperty(environment, 'process', { value: fakeRunner(handler) });
   const resolver = resolverFor(environment);
   const service = new WorkspaceFsService(
-    stubWorkspaceContext(),
-    stubWorkspaceDirs(),
+    IWorkspaceContext(),
+    IWorkspaceDirs(),
     hostFs ?? fakeFs(files),
     resolver,
     telemetryStub(events),
@@ -530,7 +530,7 @@ function makeRemoteSession(
   return service;
 }
 
-function makeRemoteWalkSession(backend: IHostFileSystem): IWorkspaceFsService {
+function makeRemoteWalkSession(backend: IHostFileSystem): IProjectFsService {
   return makeRemoteSession(
     {},
     () => ({ stdout: '', exitCode: 127 }),
@@ -571,7 +571,7 @@ describe('WorkspaceGitService', () => {
 });
 
 describe('WorkspaceFsService.gitStatus', () => {
-  it('delegates to IWorkspaceGitService with the handler root and a confined filter', async () => {
+  it('delegates to IProjectGitService with the handler root and a confined filter', async () => {
     const calls: Array<{ cwd: string; filter: ReadonlySet<string> | undefined }> = [];
     const git: IGitService = {
       _serviceBrand: undefined,
@@ -928,7 +928,7 @@ describe('WorkspaceFsService.diff', () => {
     },
   );
 
-  it('delegates to IWorkspaceGitService with confined rel and abs paths', async () => {
+  it('delegates to IProjectGitService with confined rel and abs paths', async () => {
     const calls: Array<{ cwd: string; rel: string; abs: string }> = [];
     const git: IGitService = {
       _serviceBrand: undefined,
@@ -2668,7 +2668,7 @@ describe('WorkspaceFsService.read', () => {
       { capabilities: ['fs', 'process'] },
     );
     const fs = new WorkspaceFsService(
-      stubWorkspaceContext(),
+      IWorkspaceContext(),
       dirs,
       fakeFs({ 'a.txt': 'old primary', '/other/b.txt': 'new primary' }),
       resolverFor(environment),
@@ -2952,7 +2952,7 @@ describe('WorkspaceFsService.resolveDownload', () => {
 describe('WorkspaceFsService symlink confinement', () => {
   const escapeTargets = { docs: '/outside' };
 
-  function escapeSession(): IWorkspaceFsService {
+  function escapeSession(): IProjectFsService {
     return makeSession(
       { 'src/a.ts': '' },
       emptyHandler,

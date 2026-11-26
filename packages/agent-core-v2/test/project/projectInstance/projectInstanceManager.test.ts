@@ -15,7 +15,7 @@ async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: numb
 }
 
 
-import type { Workspace, IWorkspaceService } from '#/app/project/project';
+import type { Workspace, IProjectService } from '#/app/project/project';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { Environment } from '#/environment/environment';
 import { WorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManagerService';
@@ -54,7 +54,7 @@ function manager(
   environments = environmentService(ready),
 ): WorkspaceInstanceManager {
   const byId = new Map(values.map((value) => [value.id, value]));
-  const workspaces: IWorkspaceService = {
+  const workspaces: IProjectService = {
     _serviceBrand: undefined,
     list: async () => values,
     get: mock(async (id: string) => {

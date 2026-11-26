@@ -5,7 +5,7 @@ export interface WorkspaceTrustChange {
   readonly trusted: boolean;
 }
 
-export interface IWorkspaceTrust {
+export interface IProjectTrust {
   readonly _serviceBrand: undefined;
 
   readonly ready: Promise<void>;
@@ -20,5 +20,5 @@ export interface IWorkspaceTrust {
   readonly onDidChange: Event<WorkspaceTrustChange>;
 }
 
-export const IWorkspaceTrust: ServiceIdentifier<IWorkspaceTrust> =
-  createDecorator<IWorkspaceTrust>('workspaceTrust');
+export const IProjectTrust: ServiceIdentifier<IProjectTrust> =
+  createDecorator<IProjectTrust>('workspaceTrust');

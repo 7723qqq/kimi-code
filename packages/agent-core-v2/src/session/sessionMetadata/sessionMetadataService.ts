@@ -12,7 +12,7 @@ import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import { defineState } from '#/state/state';
 
 import { isUntitled } from './promptMetadata';
@@ -60,7 +60,7 @@ export class SessionMetadata extends Service implements ISessionMetadata {
     @ILogService private readonly log: ILogService,
     @ISessionIndexMirror private readonly mirror: ISessionIndexMirror,
     @ISessionLockService private readonly sessionLocks: ISessionLockService,
-    @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
+    @ISessionProjectInfo private readonly workspaceInfo: ISessionProjectInfo,
   ) {
     super();
     this._register({

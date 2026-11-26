@@ -8,7 +8,7 @@ import type { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfi
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
+import { IProjectContext } from '#/project/projectContext/projectContext';
 
 import { discoverAgentFiles } from './internal/agentFileDiscovery';
 import { profilesFromDiscovery } from './internal/agentProfileFromFile';
@@ -33,7 +33,7 @@ export class UserAgentProfileLoaderService
     @IHostFileSystem private readonly fs: IHostFileSystem,
     @ILogService log: ILogService,
     @IBuiltinAgentProfileLoader private readonly builtin: IBuiltinAgentProfileLoader,
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
+    @IProjectContext private readonly workspace: IProjectContext,
     registry?: IAgentProfileRegistry,
   ) {
     super(log, registry);

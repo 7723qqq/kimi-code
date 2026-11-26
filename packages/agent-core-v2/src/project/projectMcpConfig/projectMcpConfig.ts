@@ -19,7 +19,7 @@ export interface McpTunables {
   readonly reconnectMaxDelayMs?: number;
 }
 
-export interface IWorkspaceMcpConfigService {
+export interface IProjectMcpConfigService {
   readonly _serviceBrand: undefined;
 
   readonly ready: Promise<void>;
@@ -33,5 +33,5 @@ export interface IWorkspaceMcpConfigService {
   readonly onDidChangeTunables: Event<McpTunables>;
 }
 
-export const IWorkspaceMcpConfigService: ServiceIdentifier<IWorkspaceMcpConfigService> =
-  createDecorator<IWorkspaceMcpConfigService>('workspaceMcpConfigService');
+export const IProjectMcpConfigService: ServiceIdentifier<IProjectMcpConfigService> =
+  createDecorator<IProjectMcpConfigService>('workspaceMcpConfigService');

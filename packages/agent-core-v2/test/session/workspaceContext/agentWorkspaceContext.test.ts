@@ -16,7 +16,7 @@ import {
   makeSessionContext,
 } from '#/session/sessionContext/sessionContext';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import { ISessionWorkdir } from '#/session/workdir/workdir';
 import {
   ISessionWorkspaceContext,
@@ -26,7 +26,7 @@ import {
   workspaceContextAdditionalDirsKey,
   workspaceContextWorkDirKey,
 } from '#/session/workspaceContext/workspaceContextService';
-import type { IWorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManager';
+import type { IProjectInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 
 interface AgentHarness {
@@ -36,7 +36,7 @@ interface AgentHarness {
 
 function setup(options: {
   readonly sessionCwd?: string;
-  readonly primaryByWorkspace?: Readonly<Record<string, string>>;
+  readonly ISessionProjectInfo?: Readonly<Record<string, string>>;
 } = {}) {
   const registry = new EnvironmentRegistry();
   registry.register(fakeEnvironment('local', 'local-one'));
@@ -57,7 +57,7 @@ function setup(options: {
   const workspaceInfo = {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    primaryByWorkspace: options.primaryByWorkspace ?? {},
+    ISessionProjectInfo: options.ISessionProjectInfo ?? {},
     additionalDirs: ['/extra'],
     onDidChange: () => ({ dispose: () => {} }),
   };
@@ -65,7 +65,7 @@ function setup(options: {
     _serviceBrand: undefined,
     onDidChange: () => ({ dispose: () => {} }),
     get: () => ({ environments: registry }),
-  } as unknown as IWorkspaceInstanceManager;
+  } as unknown as IProjectInstanceManager;
   const busHandlers = new Map<string, ((event: { readonly agentId?: string }) => void)[]>();
   const eventBus = {
     subscribe: (cls: { readonly type: string }, handler: (event: { readonly agentId?: string }) => void) => {
@@ -158,17 +158,17 @@ describe('ISessionWorkspaceContext scope resolution', () => {
   const workspaceInfo = {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    primaryByWorkspace: {},
+    ISessionProjectInfo: {},
     additionalDirs: [],
     onDidChange: Event.None,
-  } as unknown as ISessionWorkspaceInfo;
+  } as unknown as ISessionProjectInfo;
 
   it('resolves the session service at session scope and the binding-derived shadow at agent scope', () => {
     const host = createScopedTestHost();
     try {
       const session = host.child(LifecycleScope.Session, 'session-1', [
         [ISessionContext, sessionContext],
-        [ISessionWorkspaceInfo, workspaceInfo],
+        [ISessionProjectInfo, workspaceInfo],
         [ISessionWorkdir, { _serviceBrand: undefined, environmentId: 'local' } as ISessionWorkdir],
       ]);
       const fromSession = session.accessor.get(ISessionWorkspaceContext);

@@ -42,16 +42,16 @@ import { MergedMcpConnectionView } from '#/session/mcp/mergedConnectionView';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import type { SessionWillCreateEvent } from '#/project/sessionLifecycle/sessionLifecycle';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import {
-  IWorkspaceMcpService,
+  IProjectMcpService,
   type ISessionMcpOverlay,
 } from '#/project/projectMcp/projectMcp';
 import { WorkspaceMcpService } from '#/project/projectMcp/projectMcpService';
 import {
-  IWorkspaceMcpConfigService,
+  IProjectMcpConfigService,
   type McpServersChangeEvent,
   type McpTunables,
 } from '#/project/projectMcpConfig/projectMcpConfig';
@@ -106,7 +106,7 @@ describe('WorkspaceMcpService', () => {
   let oauthScheduler: ManualMcpOAuthScheduler;
   let manager: InstanceType<typeof McpConnectionManager> | undefined;
   let trackedSessions: Array<string | undefined>;
-  let primaryDirs: IWorkspaceDirs;
+  let primaryDirs: IProjectDirs;
   let dirsChanges: Emitter<void>;
 
   beforeEach(() => {
@@ -118,7 +118,7 @@ describe('WorkspaceMcpService', () => {
       ready: Promise.resolve(),
       primary: cwd,
       onDidChange: dirsChanges.event,
-    } as unknown as IWorkspaceDirs;
+    } as unknown as IProjectDirs;
     current = {};
     trackedSessions = [];
     tunablesValue = {};
@@ -142,7 +142,7 @@ describe('WorkspaceMcpService', () => {
     await rm(cwd, { recursive: true, force: true });
   });
 
-  function mcpConfigStub(): IWorkspaceMcpConfigService {
+  function mcpConfigStub(): IProjectMcpConfigService {
     return {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
@@ -153,13 +153,13 @@ describe('WorkspaceMcpService', () => {
     };
   }
 
-  function createService(): IWorkspaceMcpService {
+  function createService(): IProjectMcpService {
     const ix = createServices(disposables, {
       strict: true,
       additionalServices: (reg) => {
-        reg.definePartialInstance(IWorkspaceContext, { cwd, workspaceId: 'test-workspace' });
-        reg.defineInstance(IWorkspaceDirs, primaryDirs);
-        reg.defineInstance(IWorkspaceMcpConfigService, mcpConfigStub());
+        reg.definePartialInstance(IProjectContext, { cwd, workspaceId: 'test-workspace' });
+        reg.defineInstance(IProjectDirs, primaryDirs);
+        reg.defineInstance(IProjectMcpConfigService, mcpConfigStub());
         reg.definePartialInstance(IMcpOAuthService, oauthService);
         reg.defineInstance(ILogService, stubLog());
         reg.defineInstance(ITelemetryService, noopTelemetryService);
@@ -197,10 +197,10 @@ describe('WorkspaceMcpService', () => {
           onWillCreateSession: assemblyEvents.event,
         });
         registerAgentIdentityStub(reg);
-        reg.define(IWorkspaceMcpService, WorkspaceMcpService);
+        reg.define(IProjectMcpService, WorkspaceMcpService);
       },
     });
-    return ix.get(IWorkspaceMcpService);
+    return ix.get(IProjectMcpService);
   }
 
   it('connects the config snapshot in the initial load', async () => {

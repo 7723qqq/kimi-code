@@ -38,10 +38,10 @@ import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStor
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
-import { IWorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManager';
+import { IProjectInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import {
-  IWorkspaceTrustStore,
+  IProjectTrustStore,
   WorkspaceTrustStore,
 } from '#/project/projectTrust/projectTrustStore';
 
@@ -155,8 +155,8 @@ describe('McpManagementService', () => {
   let identityReady: Promise<AgentIdentitySnapshot>;
   let identitySnapshot: AgentIdentitySnapshot;
   let trusted: boolean;
-  let acquire: Mock<IWorkspaceInstanceManager['acquire']>;
-  let findContaining: Mock<IWorkspaceInstanceManager['findContaining']>;
+  let acquire: Mock<IProjectInstanceManager['acquire']>;
+  let findContaining: Mock<IProjectInstanceManager['findContaining']>;
   let management: IMcpManagementService;
   let timers: AdvancedHostTimers;
 
@@ -175,11 +175,11 @@ describe('McpManagementService', () => {
     identitySnapshot = stubAgentIdentity({ slug: 'test-agent' }).current();
     identityReady = Promise.resolve(identitySnapshot);
     trusted = true;
-    acquire = mock<IWorkspaceInstanceManager['acquire']>(async () => ({
+    acquire = mock<IProjectInstanceManager['acquire']>(async () => ({
       instance: { id: 'test-workspace' } as unknown as WorkspaceInstance,
       dispose: () => {},
     }));
-    findContaining = mock<IWorkspaceInstanceManager['findContaining']>(() => undefined);
+    findContaining = mock<IProjectInstanceManager['findContaining']>(() => undefined);
     const hostProcess = new HostProcessService();
     const environment = Object.assign(
       new FakeEnvironment(
@@ -223,10 +223,10 @@ describe('McpManagementService', () => {
           get: async <T>() => (trusted ? ({} as T) : undefined),
           list: async () => [],
         });
-        reg.definePartialInstance(IWorkspaceTrustStore, {
+        reg.definePartialInstance(IProjectTrustStore, {
           forRoot: () =>
             ({ refresh: async () => trusted }) as unknown as ReturnType<
-              IWorkspaceTrustStore['forRoot']
+              IProjectTrustStore['forRoot']
             >,
         });
         reg.define(IMcpRegistryService, McpRegistryService);
@@ -248,7 +248,7 @@ describe('McpManagementService', () => {
           acquire: () => ({ environment, track: (resource) => resource, dispose: () => {} }),
           acquireWhenReady: async () => ({ environment, track: (resource) => resource, dispose: () => {} }),
         });
-        reg.definePartialInstance(IWorkspaceInstanceManager, { findContaining, acquire });
+        reg.definePartialInstance(IProjectInstanceManager, { findContaining, acquire });
         reg.defineInstance(ILogService, stubLog());
         reg.defineInstance(IHostTimers, timers);
         reg.define(IMcpManagementService, McpManagementService);

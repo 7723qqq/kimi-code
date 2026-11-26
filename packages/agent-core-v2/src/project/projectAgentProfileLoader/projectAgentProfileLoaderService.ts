@@ -15,18 +15,18 @@ import {
   projectAgentRoots,
 } from '#/project/projectAgentProfileLoader/internal/agentRoots';
 import { IUserAgentProfileLoader } from '#/project/projectAgentProfileLoader/userAgentProfileLoader';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import { watchCandidates } from '#human/utils/watch';
 
 import { profilesFromDiscovery } from './internal/agentProfileFromFile';
-import type { IWorkspaceAgentProfileLoader } from './projectAgentProfileLoader';
+import type { IProjectAgentProfileLoader } from './projectAgentProfileLoader';
 
 const WATCH_DEBOUNCE_MS = 200;
 
 export class WorkspaceAgentProfileLoaderService
   extends AgentProfileLoaderBase
-  implements IWorkspaceAgentProfileLoader
+  implements IProjectAgentProfileLoader
 {
   declare readonly _serviceBrand: undefined;
 
@@ -40,9 +40,9 @@ export class WorkspaceAgentProfileLoaderService
   private primaryReloadTail: Promise<void> = Promise.resolve();
 
   constructor(
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
+    @IProjectContext private readonly workspace: IProjectContext,
     @IHostFileSystem private readonly fs: IHostFileSystem,
-    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
+    @IProjectDirs private readonly dirs: IProjectDirs,
     @ILogService log: ILogService,
     @IUserAgentProfileLoader private readonly user: IUserAgentProfileLoader,
     registry?: IAgentProfileRegistry,

@@ -25,19 +25,19 @@ import { FileSkillDiscovery } from '#/features/skill/catalog/fileSkillDiscovery'
 import { UserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
 import { fakeEnvironment } from '../environment/stubs';
 import { noopLogger } from '../wire/stubs';
-import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { writeWorkspaceTrust } from '#/project/projectTrust/trustRecord';
+import type { IProjectContext } from '#/project/projectContext/projectContext';
+import { writeProjectTrust } from '#/project/projectTrust/trustRecord';
 import { restoreEnvs, setEnv } from '../helpers/stubs';
 import { waitForAssertion } from '../helpers/waitFor';
 import { WorkspaceTrustStore } from '#/project/projectTrust/projectTrustStore';
-import type { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
-import type { IWorkspaceFsService } from '#/project/projectFs/fs';
-import type { IWorkspaceGitService } from '#/project/projectGit/projectGit';
-import type { IWorkspaceInstructionsService } from '#/project/projectInstructions/projectInstructions';
-import type { IWorkspaceMcpConfigService } from '#/project/projectMcpConfig/projectMcpConfig';
+import type { IProjectDirs } from '#/project/projectDirs/projectDirs';
+import type { IProjectFsService } from '#/project/projectFs/fs';
+import type { IProjectGitService } from '#/project/projectGit/projectGit';
+import type { IProjectInstructionsService } from '#/project/projectInstructions/projectInstructions';
+import type { IProjectMcpConfigService } from '#/project/projectMcpConfig/projectMcpConfig';
 import type { IUserAgentProfileLoader } from '#/project/projectAgentProfileLoader/userAgentProfileLoader';
-import type { IWorkspaceAgentProfileLoader } from '#/project/projectAgentProfileLoader/projectAgentProfileLoader';
-import type { IWorkspaceSkillCatalog } from '#/features/skill/project/projectSkillCatalog';
+import type { IProjectAgentProfileLoader } from '#/project/projectAgentProfileLoader/projectAgentProfileLoader';
+import type { IProjectSkillCatalog } from '#/features/skill/project/projectSkillCatalog';
 
 beforeEach(() => { setEnv('KIMI_CODE_WATCH', 'false'); });
 afterEach(() => { restoreEnvs(); });
@@ -52,7 +52,7 @@ function deferred(): { readonly promise: Promise<void>; resolve(): void; reject(
   return { promise, resolve, reject };
 }
 
-function programWorkspace(cwd: string): IWorkspaceContext {
+function IWorkspaceContext(cwd: string): IProjectContext {
   return {
     _serviceBrand: undefined,
     workspaceId: 'workspace',
@@ -79,7 +79,7 @@ function setup(readiness = new Map<string, Promise<void>>(), order: string[] = [
   const program = new Program(
     'workspace',
     registry as unknown as IEnvironmentService,
-    programWorkspace('/workspace'),
+    IWorkspaceContext('/workspace'),
     {
       agentProfiles: { entries: () => [] },
       createSessionController: (input: ProgramSessionControllerInput) => {
@@ -307,13 +307,13 @@ describe('Program', () => {
 const execFileAsync = promisify(execFile);
 
 interface GenerationAccess {
-  readonly fs: IWorkspaceFsService;
-  readonly git: IWorkspaceGitService;
+  readonly fs: IProjectFsService;
+  readonly git: IProjectGitService;
   readonly mcp: { servers(): Readonly<Record<string, unknown>> };
-  readonly instructions: IWorkspaceInstructionsService;
-  readonly skills: IWorkspaceSkillCatalog;
-  readonly dirs: IWorkspaceDirs;
-  readonly agentProfiles: IWorkspaceAgentProfileLoader;
+  readonly instructions: IProjectInstructionsService;
+  readonly skills: IProjectSkillCatalog;
+  readonly dirs: IProjectDirs;
+  readonly agentProfiles: IProjectAgentProfileLoader;
   readonly userAgentProfiles: IUserAgentProfileLoader;
 }
 
@@ -437,7 +437,7 @@ async function localityFixture(options: { readonly remoteCwd?: string } = {}): P
     set: async <T,>(scope: string, key: string, value: T) => { docsRecords.set(`${scope}/${key}`, value); },
     delete: async (scope: string, key: string) => { docsRecords.delete(`${scope}/${key}`); },
   };
-  await writeWorkspaceTrust(docs as never, localRoot, Date.now());
+  await writeProjectTrust(docs as never, localRoot, Date.now());
 
   const localGitCalls: string[] = [];
   const localGit = {
@@ -470,7 +470,7 @@ async function localityFixture(options: { readonly remoteCwd?: string } = {}): P
   const program = new Program(
     'workspace',
     registry as unknown as IEnvironmentService,
-    programWorkspace(localRoot),
+    IWorkspaceContext(localRoot),
     {
       appState: undefined,
       bootstrap,

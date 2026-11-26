@@ -3,7 +3,7 @@ import type { Event } from '#/_base/event';
 
 import type { Workspace } from './project';
 
-export interface PersistedWorkspaceEntry {
+export interface PersistedProjectEntry {
   readonly root: string;
   readonly name: string;
   readonly kind?: string;
@@ -14,7 +14,7 @@ export interface PersistedWorkspaceEntry {
 
 export interface PersistedWorkspaceFile {
   readonly version?: number;
-  readonly workspaces: Record<string, PersistedWorkspaceEntry>;
+  readonly workspaces: Record<string, PersistedProjectEntry>;
   readonly deleted_workspace_ids: string[];
   readonly idempotency_keys?: Record<string, string>;
 }
@@ -28,7 +28,7 @@ export interface PersistedWorkspaceMigration {
 
 export interface PersistedProjectsFile {
   readonly schema_version: number;
-  readonly projects: Record<string, PersistedWorkspaceEntry>;
+  readonly projects: Record<string, PersistedProjectEntry>;
   readonly deleted_project_ids: string[];
   readonly idempotency_keys?: Record<string, string>;
   readonly migration?: PersistedWorkspaceMigration;
@@ -44,7 +44,7 @@ export type WorkspaceCatalogMutator = (
   current: WorkspaceCatalog,
 ) => WorkspaceCatalog | Promise<WorkspaceCatalog>;
 
-export interface IWorkspacePersistence {
+export interface IProjectPersistence {
   readonly _serviceBrand: undefined;
 
   readonly onDidChange: Event<void>;
@@ -53,5 +53,5 @@ export interface IWorkspacePersistence {
   update(mutator: WorkspaceCatalogMutator): Promise<void>;
 }
 
-export const IWorkspacePersistence: ServiceIdentifier<IWorkspacePersistence> =
-  createDecorator<IWorkspacePersistence>('workspacePersistence');
+export const IProjectPersistence: ServiceIdentifier<IProjectPersistence> =
+  createDecorator<IProjectPersistence>('workspacePersistence');

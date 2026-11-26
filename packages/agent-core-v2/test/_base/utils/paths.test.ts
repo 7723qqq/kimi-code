@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import nodePath, { win32 } from 'node:path';
 
 import {
-  canonicalWorkspaceRoot,
+  canonicalProjectRoot,
   findUpwardRoot,
   resolvePath,
   subtreeWatchFilter,
@@ -194,24 +194,24 @@ describe('resolvePath', () => {
   });
 });
 
-describe('canonicalWorkspaceRoot', () => {
+describe('canonicalProjectRoot', () => {
   it('case-folds drive-letter spellings and strips trailing separators', () => {
-    expect(canonicalWorkspaceRoot('C:\\Users\\Foo\\Repo')).toBe('c:/users/foo/repo');
-    expect(canonicalWorkspaceRoot('C:/Users/Foo/Repo/')).toBe('c:/users/foo/repo');
+    expect(canonicalProjectRoot('C:\\Users\\Foo\\Repo')).toBe('c:/users/foo/repo');
+    expect(canonicalProjectRoot('C:/Users/Foo/Repo/')).toBe('c:/users/foo/repo');
   });
 
   it('keeps the UNC share slash and case-folds', () => {
-    expect(canonicalWorkspaceRoot('//server/share/repo')).toBe('//server/share/repo');
-    expect(canonicalWorkspaceRoot('\\\\SERVER\\SHARE\\REPO')).toBe('//server/share/repo');
+    expect(canonicalProjectRoot('//server/share/repo')).toBe('//server/share/repo');
+    expect(canonicalProjectRoot('\\\\SERVER\\SHARE\\REPO')).toBe('//server/share/repo');
   });
 
   it('resolves dot segments in Windows spellings', () => {
-    expect(canonicalWorkspaceRoot('C:/Users/Foo/../Foo/Repo')).toBe('c:/users/foo/repo');
+    expect(canonicalProjectRoot('C:/Users/Foo/../Foo/Repo')).toBe('c:/users/foo/repo');
   });
 
   it('keeps POSIX roots untouched apart from trailing-slash and dot-segment cleanup', () => {
-    expect(canonicalWorkspaceRoot('/Repo/Sub')).toBe('/Repo/Sub');
-    expect(canonicalWorkspaceRoot('/Repo/Sub/')).toBe('/Repo/Sub');
-    expect(canonicalWorkspaceRoot('/Repo/Sub/../Other')).toBe('/Repo/Other');
+    expect(canonicalProjectRoot('/Repo/Sub')).toBe('/Repo/Sub');
+    expect(canonicalProjectRoot('/Repo/Sub/')).toBe('/Repo/Sub');
+    expect(canonicalProjectRoot('/Repo/Sub/../Other')).toBe('/Repo/Other');
   });
 });

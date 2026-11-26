@@ -38,7 +38,7 @@ import { HostTimersService } from '#/os/backends/host/hostTimersService';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../../environment/stubs';
 import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
@@ -868,7 +868,7 @@ function bashTool(
     },
   );
   const environment = stubAgentEnvironment(backend, { workDir: ctx.cwd });
-  return new BashTool(environment, ctx, stubWorkspaceContext(ctx.cwd), background, toolPolicy, config, flags);
+  return new BashTool(environment, ctx, IProjectContext(ctx.cwd), background, toolPolicy, config, flags);
 }
 
 describe('BashTool', () => {
@@ -1667,7 +1667,7 @@ describe('BashTool display cwd', () => {
     return new BashTool(
       environment,
       ctx,
-      stubWorkspaceContext(workDir),
+      IProjectContext(workDir),
       {} as unknown as IAgentTaskService,
       {} as unknown as IAgentToolPolicyService,
       {} as unknown as IConfigService,
@@ -1710,7 +1710,7 @@ describe('BashTool spawn cwd', () => {
     return new BashTool(
       stubAgentEnvironment(backend),
       createTestCtx('/Users/mac/project'),
-      stubWorkspaceContext(workDir),
+      IProjectContext(workDir),
       createFakeTaskService().service,
       stubToolPolicy(),
       stubConfig(),

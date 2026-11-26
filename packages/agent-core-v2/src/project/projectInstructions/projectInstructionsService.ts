@@ -9,12 +9,12 @@ import { IHostEnvironment, type HostEnvironmentInfo } from '#/os/interface/hostE
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { defineState } from '#/state/state';
-import { IWorkspaceStateService } from '#/project/state/projectState';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectStateService } from '#/project/state/projectState';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import { watchCandidates, type WatchChange } from '#human/utils/watch';
 
 import {
-  IWorkspaceInstructionsService,
+  IProjectInstructionsService,
   type WorkspaceInstructionsSnapshot,
 } from './projectInstructions';
 
@@ -27,7 +27,7 @@ export const workspaceInstructionsCurrentKey = defineState<WorkspaceInstructions
 
 export class WorkspaceInstructionsService
   extends Disposable
-  implements IWorkspaceInstructionsService
+  implements IProjectInstructionsService
 {
   declare readonly _serviceBrand: undefined;
 
@@ -45,12 +45,12 @@ export class WorkspaceInstructionsService
   private watchedPrimary: string | undefined;
 
   constructor(
-    @IWorkspaceDirs private readonly dirs: Pick<IWorkspaceDirs, 'primary' | 'onDidChange'>,
+    @IProjectDirs private readonly dirs: Pick<IProjectDirs, 'primary' | 'onDidChange'>,
     @IHostFileSystem private readonly fs: IHostFileSystem,
     @IHostEnvironment private readonly env: HostEnvironmentInfo,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ILogService private readonly log: ILogService,
-    @IWorkspaceStateService private readonly states: IWorkspaceStateService,
+    @IProjectStateService private readonly states: IProjectStateService,
     private readonly personalFs?: IHostFileSystem,
     private readonly watchEnabled = true,
   ) {

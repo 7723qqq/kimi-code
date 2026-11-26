@@ -24,7 +24,7 @@ export interface WorkspaceUpdate {
   readonly additionalDirs?: readonly string[];
 }
 
-export interface IWorkspaceService {
+export interface IProjectService {
   readonly _serviceBrand: undefined;
 
   list(): Promise<readonly Workspace[]>;
@@ -38,5 +38,5 @@ export interface IWorkspaceService {
   delete(id: string): Promise<void>;
 }
 
-export const IWorkspaceService: ServiceIdentifier<IWorkspaceService> =
-  createDecorator<IWorkspaceService>('workspaceService');
+export const IProjectService: ServiceIdentifier<IProjectService> =
+  createDecorator<IProjectService>('workspaceService');

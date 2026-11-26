@@ -8,7 +8,7 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { IWorkspaceService } from '#/app/project/project';
+import { IProjectService } from '#/app/project/project';
 import { ErrorCodes, Error2 } from '#/errors';
 import { FILE_HISTORY_BLOB_PREFIX } from '#/features/fileHistory/fileHistoryService';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
@@ -48,7 +48,7 @@ export class SessionExportService implements ISessionExportService {
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ISessionIndex private readonly index: ISessionIndex,
     @ISessionManager private readonly sessions: ISessionManager,
-    @IWorkspaceService private readonly workspaces: IWorkspaceService,
+    @IProjectService private readonly workspaces: IProjectService,
     @ILogService private readonly log: ILogService,
   ) {}
 

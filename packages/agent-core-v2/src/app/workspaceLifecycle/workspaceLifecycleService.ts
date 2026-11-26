@@ -9,7 +9,7 @@ import { ISessionLifecycleService } from '#/project/sessionLifecycle/sessionLife
 import type { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
 import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
 import {
-  IWorkspaceInstanceManager,
+  IProjectInstanceManager,
   type WorkspaceInstanceLease,
 } from '#/project/projectInstance/projectInstanceManager';
 
@@ -43,7 +43,7 @@ export class WorkspaceLifecycleService extends Service implements IWorkspaceLife
   };
 
   constructor(
-    @IWorkspaceInstanceManager private readonly manager: IWorkspaceInstanceManager,
+    @IProjectInstanceManager private readonly manager: IProjectInstanceManager,
     @ISessionManager private readonly sessionManager: ISessionManager,
   ) {
     super();

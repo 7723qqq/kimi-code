@@ -18,11 +18,11 @@ import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDo
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { FileWorkspacePersistence } from '#/app/project/fileProjectPersistence';
+import { FileProjectPersistence } from '#/app/project/fileProjectPersistence';
 import { WorkspaceService } from '#/app/project/projectService';
 import type { Workspace } from '#/app/project/project';
 import { WorkspaceStateService } from '#/project/state/projectStateService';
-import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
+import type { IProjectContext } from '#/project/projectContext/projectContext';
 import { WorkspaceDirsService } from '#/project/projectDirs/projectDirsService';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
@@ -47,7 +47,7 @@ describe('WorkspaceDirsService (registry source)', () => {
   let dirB: string;
   let dirC: string;
   let disposables: DisposableStore;
-  let persistence: FileWorkspacePersistence;
+  let persistence: FileProjectPersistence;
   let workspaces: WorkspaceService;
 
   beforeEach(async () => {
@@ -60,7 +60,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     const hostFs = new HostFileSystem();
     const bootstrap = stubBootstrap(homeDir);
     persistence = disposables.add(
-      new FileWorkspacePersistence(new JsonAtomicDocumentStore(storage), storage, bootstrap),
+      new FileProjectPersistence(new JsonAtomicDocumentStore(storage), storage, bootstrap),
     );
     const localConfig = new FileProjectLocalConfigService(bootstrap, hostFs);
     workspaces = new WorkspaceService(
@@ -100,7 +100,7 @@ describe('WorkspaceDirsService (registry source)', () => {
           source: 'local',
           meta: { id: workspaceId, root: cwd, name: 'test', kind, createdAt: 0, lastOpenedAt: 0 },
           persistenceScope: `sessions/${workspaceId}`,
-        } as unknown as IWorkspaceContext,
+        } as unknown as IProjectContext,
         new FileProjectLocalConfigService(bootstrap, hostFs),
         noopLog,
         new WorkspaceStateService(),
@@ -141,17 +141,17 @@ describe('WorkspaceDirsService (registry source)', () => {
     const primary = createDirs(dirA, project.id, 'managed');
     await primary.ready;
     expect(primary.additionalDirs).toEqual([dirB]);
-    expect(primary.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirA });
+    expect(primary.sessionInfo().ISessionProjectInfo).toEqual({ [project.id]: dirA });
 
     const member = createDirs(dirB, 'wd_other_000000000000');
     await member.ready;
     expect(member.additionalDirs).toEqual([dirA]);
-    expect(member.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirA });
+    expect(member.sessionInfo().ISessionProjectInfo).toEqual({ [project.id]: dirA });
 
     const outsider = createDirs(dirC, 'wd_else_000000000000');
     await outsider.ready;
     expect(outsider.additionalDirs).toEqual([]);
-    expect(outsider.sessionInfo().primaryByWorkspace).toEqual({});
+    expect(outsider.sessionInfo().ISessionProjectInfo).toEqual({});
   });
 
   it('keeps same-root managed workspaces scoped to their workspace id', async () => {
@@ -162,9 +162,9 @@ describe('WorkspaceDirsService (registry source)', () => {
     await Promise.all([firstDirs.ready, secondDirs.ready]);
 
     expect(firstDirs.additionalDirs).toEqual([dirB]);
-    expect(firstDirs.sessionInfo().primaryByWorkspace).toEqual({ [first.id]: dirA });
+    expect(firstDirs.sessionInfo().ISessionProjectInfo).toEqual({ [first.id]: dirA });
     expect(secondDirs.additionalDirs).toEqual([dirC]);
-    expect(secondDirs.sessionInfo().primaryByWorkspace).toEqual({ [second.id]: dirA });
+    expect(secondDirs.sessionInfo().ISessionProjectInfo).toEqual({ [second.id]: dirA });
 
     await workspaces.update(first.id, { additionalDirs: [] });
     await waitFor(() => {
@@ -384,7 +384,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     await Promise.all([dirs.ready, oldPrimaryMember.ready]);
     expect(dirs.additionalDirs).toEqual([dirA]);
     expect(oldPrimaryMember.additionalDirs).toEqual([dirB]);
-    expect(dirs.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirA });
+    expect(dirs.sessionInfo().ISessionProjectInfo).toEqual({ [project.id]: dirA });
     let fired = 0;
     dirs.onDidChange(() => {
       fired += 1;
@@ -392,7 +392,7 @@ describe('WorkspaceDirsService (registry source)', () => {
 
     await workspaces.setPrimary(project.id, dirB);
     await waitFor(() => {
-      expect(dirs.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirB });
+      expect(dirs.sessionInfo().ISessionProjectInfo).toEqual({ [project.id]: dirB });
     });
 
     expect(dirs.additionalDirs).toEqual([dirA]);
@@ -410,7 +410,7 @@ describe('WorkspaceDirsService (registry source)', () => {
 
     expect(pinned.primary).toBe(dirC);
     expect(pinned.additionalDirs).toEqual([]);
-    expect(pinned.sessionInfo().primaryByWorkspace).toEqual({});
+    expect(pinned.sessionInfo().ISessionProjectInfo).toEqual({});
     expect(following.primary).toBe(dirA);
     expect(following.additionalDirs).toEqual([dirB]);
 
@@ -420,7 +420,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     });
     expect(pinned.primary).toBe(dirC);
     expect(pinned.additionalDirs).toEqual([]);
-    expect(pinned.sessionInfo().primaryByWorkspace).toEqual({});
+    expect(pinned.sessionInfo().ISessionProjectInfo).toEqual({});
     expect(following.additionalDirs).toEqual([dirA]);
   });
 
@@ -439,7 +439,7 @@ describe('WorkspaceDirsService (registry source)', () => {
     });
 
     expect(dirs.additionalDirs).toEqual([dirA]);
-    expect(dirs.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirB });
+    expect(dirs.sessionInfo().ISessionProjectInfo).toEqual({ [project.id]: dirB });
 
     await workspaces.update(project.id, { additionalDirs: [dirA, dirC] });
     await waitFor(() => {
@@ -460,7 +460,7 @@ describe('WorkspaceDirsService (registry source)', () => {
 
     expect(dirs.primary).toBe(remoteCwd);
     expect(dirs.additionalDirs).toEqual([]);
-    expect(dirs.sessionInfo().primaryByWorkspace).toEqual({});
+    expect(dirs.sessionInfo().ISessionProjectInfo).toEqual({});
   });
 
   it('does not fire for project rename or touch', async () => {
@@ -483,7 +483,7 @@ describe('WorkspaceDirsService (registry source)', () => {
 
     expect(fired).toBe(0);
     expect(dirs.additionalDirs).toEqual([dirB]);
-    expect(dirs.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirA });
+    expect(dirs.sessionInfo().ISessionProjectInfo).toEqual({ [project.id]: dirA });
   });
 
   it('coalesces local config and registry changes into one explicit reload event', async () => {
@@ -565,7 +565,7 @@ describe('WorkspaceDirsService (registry source)', () => {
       expect(dirs.additionalDirs).toEqual([]);
     });
 
-    expect(dirs.sessionInfo().primaryByWorkspace).toEqual({});
+    expect(dirs.sessionInfo().ISessionProjectInfo).toEqual({});
   });
 
   it('keeps an initial local config failure on ready without an unhandled watcher rejection', async () => {

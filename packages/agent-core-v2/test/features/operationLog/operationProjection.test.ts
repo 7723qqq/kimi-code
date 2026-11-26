@@ -15,7 +15,7 @@ import type { SnapshotRecord } from '#/features/snapshot/snapshot';
 import { SnapshotService } from '#/features/snapshot/snapshotService';
 import { makeSessionContext } from '#/session/sessionContext/sessionContext';
 
-import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../session/workspaceContext/stub-workspace-context';
 
 const roots: string[] = [];
 
@@ -84,7 +84,7 @@ function contexts(repo: string) {
     sessionScope: 'session-1',
     cwd: repo,
   });
-  const workspace = stubWorkspaceContext(repo);
+  const workspace = IProjectContext(repo);
   return { agent, session, workspace };
 }
 

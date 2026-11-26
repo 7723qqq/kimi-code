@@ -6,7 +6,7 @@ import type {
   GitStatusOptions,
 } from '#/app/git/git';
 
-export interface IWorkspaceGitService {
+export interface IProjectGitService {
   readonly _serviceBrand: undefined;
 
   status(pathFilter?: ReadonlySet<string>): Promise<FsGitStatusResponse>;
@@ -16,5 +16,5 @@ export interface IWorkspaceGitService {
   diffAt(cwd: string, relPath: string, absPath: string): Promise<FsDiffResponse>;
 }
 
-export const IWorkspaceGitService: ServiceIdentifier<IWorkspaceGitService> =
-  createDecorator<IWorkspaceGitService>('workspaceGitService');
+export const IProjectGitService: ServiceIdentifier<IProjectGitService> =
+  createDecorator<IProjectGitService>('workspaceGitService');

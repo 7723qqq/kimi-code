@@ -216,7 +216,7 @@ export function summaryEquals(a: SessionSummary, b: SessionSummary): boolean {
   );
 }
 
-export async function listWorkspaceIds(
+export async function listProjectIds(
   storage: IFileSystemStorageService,
   sessionsScope: string,
 ): Promise<readonly string[]> {
@@ -267,7 +267,7 @@ export async function readSessionSummary(
       : resolveEffectiveWorkspaceRoots(
           { workspaceId, cwd: originalCwd ?? primaryDir },
           { environmentId, cwd: environmentCwd },
-          { primaryByWorkspace: { [workspaceId]: primaryDir }, additionalDirs: [] },
+          { ISessionProjectInfo: { [workspaceId]: primaryDir }, additionalDirs: [] },
         ).workDir;
   return buildSessionSummary({
     id: sessionId,

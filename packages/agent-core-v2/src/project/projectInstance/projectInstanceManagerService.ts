@@ -21,8 +21,8 @@ import { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSour
 import { IAppStateService } from '#/app/state/appState';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { LifecycleScope } from '#/app/scopes';
-import { IWorkspaceService, type Workspace } from '#/app/project/project';
-import { IWorkspacePersistence } from '#/app/project/projectPersistence';
+import { IProjectService, type Workspace } from '#/app/project/project';
+import { IProjectPersistence } from '#/app/project/projectPersistence';
 import { IModelService } from '#/llm-adapter/model/model';
 import { IProviderService } from '#/llm-adapter/provider/provider';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -33,14 +33,14 @@ import { Error2, ErrorCodes } from '#/errors';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IEnvironmentService } from '#/app/environment/environment';
-import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
+import { canonicalProjectRoot } from '#/_base/utils/paths';
 import { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
-import { IWorkspaceTrustStore } from '#/project/projectTrust/projectTrustStore';
+import { IProjectTrustStore } from '#/project/projectTrust/projectTrustStore';
 
 import { WorkspaceInstance } from './projectInstance';
-import { IWorkspaceInstanceManager, type WorkspaceInstanceLease, type WorkspaceInstanceRef } from './projectInstanceManager';
+import { IProjectInstanceManager, type WorkspaceInstanceLease, type WorkspaceInstanceRef } from './projectInstanceManager';
 
-export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
+export class WorkspaceInstanceManager implements IProjectInstanceManager {
   declare readonly _serviceBrand: undefined;
   private readonly instances = new Map<string, WorkspaceInstance>();
   private readonly requests = new Map<string, Promise<Workspace>>();
@@ -55,7 +55,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
   constructor(
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IWorkspaceService private readonly workspaces: IWorkspaceService,
+    @IProjectService private readonly workspaces: IProjectService,
     @IHostEnvironment private readonly environment: IHostEnvironment,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @IAppStateService private readonly appState: IAppStateService,
@@ -83,8 +83,8 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @IEnvironmentService private readonly environments: IEnvironmentService,
-    @IWorkspacePersistence private readonly workspaceStore: IWorkspacePersistence,
-    @IWorkspaceTrustStore private readonly trustStore: IWorkspaceTrustStore,
+    @IProjectPersistence private readonly workspaceStore: IProjectPersistence,
+    @IProjectTrustStore private readonly trustStore: IProjectTrustStore,
   ) {
     this.workspaceStoreSubscription = this.workspaceStore.onDidChange(() => {
       for (const instance of this.instances.values()) {
@@ -112,11 +112,11 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
   }
 
   findContaining(cwd: string): WorkspaceInstance | undefined {
-    const probe = canonicalWorkspaceRoot(cwd);
+    const probe = canonicalProjectRoot(cwd);
     let best: { readonly instance: WorkspaceInstance; readonly rootLength: number } | undefined;
     for (const instance of this.instances.values()) {
       for (const dir of [instance.root, ...instance.program.dirs.additionalDirs]) {
-        const root = canonicalWorkspaceRoot(dir);
+        const root = canonicalProjectRoot(dir);
         const prefix = root.endsWith('/') ? root : `${root}/`;
         if (probe !== root && !probe.startsWith(prefix)) continue;
         if (best === undefined || root.length > best.rootLength) {
@@ -330,4 +330,4 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
   }
 }
 
-registerScopedService(LifecycleScope.App, IWorkspaceInstanceManager, WorkspaceInstanceManager, ScopeActivation.OnScopeCreated, 'workspaceInstanceManager');
+registerScopedService(LifecycleScope.App, IProjectInstanceManager, WorkspaceInstanceManager, ScopeActivation.OnScopeCreated, 'workspaceInstanceManager');

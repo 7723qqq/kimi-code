@@ -1,6 +1,6 @@
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
-export function stubWorkspaceContext(
+export function IProjectContext(
   workDir: string,
   additionalDirs: readonly string[] = [],
 ): ISessionWorkspaceContext {

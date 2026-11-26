@@ -24,7 +24,7 @@ import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 
 import { IAgentEnvironmentBindingService } from './environmentBinding';
 import { EnvironmentStatusChanged } from './environmentEvents';
@@ -135,7 +135,7 @@ export class AgentEnvironmentService implements IAgentEnvironmentService {
     @IEnvironmentService private readonly resolver: IEnvironmentService,
     @ISessionEventBus private readonly eventBus: ISessionEventBus,
     @ISessionContext private readonly session: ISessionContext,
-    @ISessionWorkspaceInfo private readonly workspaceInfo: ISessionWorkspaceInfo,
+    @ISessionProjectInfo private readonly workspaceInfo: ISessionProjectInfo,
     @IAgentEnvironmentOverlay private readonly overlay: IAgentEnvironmentOverlay,
   ) {
     this.bindingSubscription = this.binding.onDidChange(() => this.changeEmitter.fire());

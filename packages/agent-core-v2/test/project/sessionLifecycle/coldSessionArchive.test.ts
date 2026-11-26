@@ -30,7 +30,7 @@ import {
 import type { SessionCreatedEvent } from '#/project/sessionLifecycle/sessionLifecycle';
 import type { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
 import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
-import type { IWorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManager';
+import type { IProjectInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 function accessor(
@@ -251,7 +251,7 @@ function sessionManagerResuming(sessionId: string): SessionManager {
     {
       acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
-    } as unknown as IWorkspaceInstanceManager,
+    } as unknown as IProjectInstanceManager,
     { get: async () => summary } as unknown as ISessionIndex,
     new EnvironmentDeclarationService(
       { _serviceBrand: undefined, ready: Promise.resolve(), assertValid: () => {}, get: () => undefined } as unknown as IConfigService,

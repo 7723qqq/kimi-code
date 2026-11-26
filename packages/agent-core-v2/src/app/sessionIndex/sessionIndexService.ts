@@ -8,8 +8,8 @@ import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
 import type { SessionIndexDegradedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IWorkspaceService } from '#/app/project/project';
-import { IWorkspacePersistence } from '#/app/project/projectPersistence';
+import { IProjectService } from '#/app/project/project';
+import { IProjectPersistence } from '#/app/project/projectPersistence';
 import {
   SESSION_INDEX_KEY,
   SESSION_INDEX_SCOPE,
@@ -48,12 +48,12 @@ import {
   sessionCollection,
   sessionCountersCollection,
   stripRecencyField,
-  type SessionWorkspaceCounts,
+  type SessionProjectCounts,
 } from './sessionIndexModel';
 import { SessionIndexProjector, type ReconcileResult } from './sessionIndexProjector';
 import {
   listSessionIds,
-  listWorkspaceIds,
+  listProjectIds,
   readSessionSummary,
   summaryMatchesChildOf,
 } from './sessionIndexSource';
@@ -110,8 +110,8 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     @ISessionIndexMirror private readonly mirror: ISessionIndexMirror,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ILogService private readonly log: ILogService,
-    @ref(IWorkspaceService) private readonly workspaces: LiveRef<IWorkspaceService>,
-    @ref(IWorkspacePersistence) private readonly workspaceStore: LiveRef<IWorkspacePersistence>,
+    @ref(IProjectService) private readonly workspaces: LiveRef<IProjectService>,
+    @ref(IProjectPersistence) private readonly workspaceStore: LiveRef<IProjectPersistence>,
   ) {
     super();
     this.projector = new SessionIndexProjector({
@@ -120,7 +120,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       queryStore,
       log,
       sessionsScope: bootstrap.scope('sessions'),
-      primaryByWorkspace: () => this.primaryByWorkspace(),
+      ISessionProjectInfo: () => this.ISessionProjectInfo(),
     });
     const subscribe = (): void => {
       this.workspacePersistenceSubscription.value = this.workspaceStore.current?.onDidChange(() => {
@@ -164,7 +164,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     if (this.state === 'ready') return this.status();
     this.state = 'preparing';
     try {
-      this.primarySnapshot ??= await this.primaryByWorkspace();
+      this.primarySnapshot ??= await this.ISessionProjectInfo();
       const manifest = await this.queryStore.getCheckpoint(SESSION_INDEX_MANIFEST);
       if (manifest !== undefined && manifest.schemaVersion !== SESSION_INDEX_SCHEMA_VERSION) {
         this.markSchemaMismatch();
@@ -234,7 +234,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   }
 
   private async manifestPrimariesFresh(manifest: Checkpoint): Promise<boolean> {
-    return samePrimaryByWorkspace(manifest.workspacePrimaries, await this.primaryByWorkspace());
+    return samePrimaryByProject(manifest.workspacePrimaries, await this.ISessionProjectInfo());
   }
 
   private async manifestFresh(manifest: Checkpoint): Promise<boolean> {
@@ -243,10 +243,10 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     try {
       const [marks, workspaceIds, primaries] = await Promise.all([
         listDirtyMarks(this.storage, this.sessionsScope),
-        listWorkspaceIds(this.storage, this.sessionsScope),
-        this.primaryByWorkspace(),
+        listProjectIds(this.storage, this.sessionsScope),
+        this.ISessionProjectInfo(),
       ]);
-      if (!samePrimaryByWorkspace(manifest.workspacePrimaries, primaries)) return false;
+      if (!samePrimaryByProject(manifest.workspacePrimaries, primaries)) return false;
       if (marks.length > 0) return false;
       if (workspaceIds.length !== Object.keys(signals).length) return false;
       for (const workspaceId of workspaceIds) {
@@ -574,7 +574,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     const counters = sessionCountersCollection(generation);
     const restricted = query.workspaceIds;
     const workspaceIds = restricted ?? (await this.queryStore.listKeys(counters));
-    const counts = await this.queryStore.getMany<SessionWorkspaceCounts>(counters, workspaceIds);
+    const counts = await this.queryStore.getMany<SessionProjectCounts>(counters, workspaceIds);
     let total = 0;
     for (const entry of counts.values()) {
       total += query.includeArchived === true ? entry.active + entry.archived : entry.active;
@@ -737,17 +737,17 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   }
 
   private async refreshPrimaries(): Promise<void> {
-    const next = await this.primaryByWorkspace();
+    const next = await this.ISessionProjectInfo();
     const previous = this.primarySnapshot;
     this.primarySnapshot = next;
-    if (previous !== undefined && samePrimaryByWorkspace(previous, next)) return;
+    if (previous !== undefined && samePrimaryByProject(previous, next)) return;
     if (!this.readModelEnabled() || this.state === 'uninitialized' || this.state === 'preparing') {
       return;
     }
     await this.ensureProjection();
   }
 
-  private async primaryByWorkspace(): Promise<Readonly<Record<string, string>>> {
+  private async ISessionProjectInfo(): Promise<Readonly<Record<string, string>>> {
     const workspaces = this.workspaces.current;
     if (workspaces === undefined) return {};
     return Object.fromEntries(
@@ -756,7 +756,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   }
 
   private async getLegacy(id: string): Promise<SessionSummary | undefined> {
-    const primaryByWorkspace = await this.primaryByWorkspace();
+    const ISessionProjectInfo = await this.ISessionProjectInfo();
     const hinted = await this.workspaceHintFor(id);
     if (hinted !== undefined) {
       const summary = await readSessionSummary(
@@ -764,18 +764,18 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
         this.sessionsScope,
         hinted,
         id,
-        primaryByWorkspace[hinted],
+        ISessionProjectInfo[hinted],
       );
       if (summary !== undefined) return summary;
     }
-    for (const workspaceId of await listWorkspaceIds(this.storage, this.sessionsScope)) {
+    for (const workspaceId of await listProjectIds(this.storage, this.sessionsScope)) {
       if (workspaceId === hinted) continue;
       const summary = await readSessionSummary(
         this.docs,
         this.sessionsScope,
         workspaceId,
         id,
-        primaryByWorkspace[workspaceId],
+        ISessionProjectInfo[workspaceId],
       );
       if (summary !== undefined) return summary;
     }
@@ -836,7 +836,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   private async collectAuthoritative(
     workspaceIds: readonly string[] | undefined,
   ): Promise<SessionSummary[]> {
-    const primaryByWorkspace = await this.primaryByWorkspace();
+    const ISessionProjectInfo = await this.ISessionProjectInfo();
     let collected: SessionSummary[];
     if (this.readModelEnabled() && (this.state === 'uninitialized' || this.state === 'preparing')) {
       const { summaries } = await this.projector.sharedScanForRead();
@@ -845,7 +845,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
           ? summaries
           : summaries.filter((summary) => workspaceIds.includes(summary.workspaceId));
     } else {
-      const ids = workspaceIds ?? (await listWorkspaceIds(this.storage, this.sessionsScope));
+      const ids = workspaceIds ?? (await listProjectIds(this.storage, this.sessionsScope));
       collected = [];
       for (const workspaceId of ids) {
         for (const sessionId of await listSessionIds(
@@ -858,7 +858,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
             this.sessionsScope,
             workspaceId,
             sessionId,
-            primaryByWorkspace[workspaceId],
+            ISessionProjectInfo[workspaceId],
           );
           if (summary !== undefined) collected.push(summary);
         }
@@ -879,7 +879,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   }
 }
 
-function samePrimaryByWorkspace(
+function samePrimaryByProject(
   left: Readonly<Record<string, string>> | undefined,
   right: Readonly<Record<string, string>>,
 ): boolean {

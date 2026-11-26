@@ -30,7 +30,7 @@ import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 import { stubConfigService } from '../../../app/config/stubs';
 import { stubToolResultTruncationService } from '../../toolResultTruncation/stubs';
 import { makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../../session/workspaceContext/stub-workspace-context';
 
 void mock.module('#/os/backends/host/tools/rgLocator', () => ({
   ensureRgPath: mock(),
@@ -186,7 +186,7 @@ const editService = {
 } as unknown as IFileEditService;
 
 function toolCases(): readonly ToolCase[] {
-  const workspace = stubWorkspaceContext('/workspace');
+  const workspace = IProjectContext('/workspace');
   return [
     {
       name: 'Read',
@@ -369,7 +369,7 @@ describe('tilde resolution against the reconnected host', () => {
 
   it('resolves ~ against the reconnected host home instead of /', async () => {
     const { service, calls } = pendingThenReadyHarness({ homeDir: '/home/me' });
-    const tool = new GlobTool(service, stubWorkspaceContext('/workspace'), noopTelemetryService);
+    const tool = new GlobTool(service, IProjectContext('/workspace'), noopTelemetryService);
     const execution = await tool.resolveExecution({ pattern: '**/*.ts', path: '~/projects' });
     expect(calls).toEqual(['connect']);
     expect((execution as Extract<ToolExecution, { execute: unknown }>).accesses).toEqual(
@@ -392,7 +392,7 @@ describe('tilde resolution against the reconnected host', () => {
       },
     );
     registry.register(pending);
-    const tool = new GlobTool(registryBackedService(registry), stubWorkspaceContext('/workspace'), noopTelemetryService);
+    const tool = new GlobTool(registryBackedService(registry), IProjectContext('/workspace'), noopTelemetryService);
     await expect(tool.resolveExecution({ pattern: '**/*.ts', path: '~/projects' })).rejects.toThrow(
       'connection refused',
     );
@@ -410,7 +410,7 @@ describe('Bash environment generation guard', () => {
         sessionScope: 'ses',
         cwd: '/workspace',
       }),
-      stubWorkspaceContext('/workspace'),
+      IProjectContext('/workspace'),
       {} as never,
       toolPolicy,
       stubConfigService(),

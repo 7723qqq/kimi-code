@@ -27,15 +27,15 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IEventService } from '#/app/event/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
-import { IWorkspaceService, type Workspace } from '#/app/project/project';
+import { IProjectService, type Workspace } from '#/app/project/project';
 import { WorkspaceService } from '#/app/project/projectService';
-import { FileWorkspacePersistence } from '#/app/project/fileProjectPersistence';
+import { FileProjectPersistence } from '#/app/project/fileProjectPersistence';
 import {
-  IWorkspacePersistence,
-  type PersistedWorkspaceEntry,
+  IProjectPersistence,
+  type PersistedProjectEntry,
   type WorkspaceCatalog,
 } from '#/app/project/projectPersistence';
-import { IWorkspaceAliases } from '#/app/projectAliases/projectAliases';
+import { IProjectAliases } from '#/app/projectAliases/projectAliases';
 import { WorkspaceAliasesService } from '#/app/projectAliases/projectAliasesService';
 import { stubBootstrap } from '../bootstrap/stubs';
 
@@ -55,21 +55,21 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     _clearScopedRegistryForTests();
     registerScopedService(
       LifecycleScope.App,
-      IWorkspacePersistence,
-      FileWorkspacePersistence,
+      IProjectPersistence,
+      FileProjectPersistence,
       ScopeActivation.OnDemand,
       'workspace',
     );
     registerScopedService(
       LifecycleScope.App,
-      IWorkspaceService,
+      IProjectService,
       WorkspaceService,
       ScopeActivation.OnDemand,
       'workspace',
     );
     registerScopedService(
       LifecycleScope.App,
-      IWorkspaceAliases,
+      IProjectAliases,
       WorkspaceAliasesService,
       ScopeActivation.OnDemand,
       'workspaceAliases',
@@ -94,8 +94,8 @@ describe('WorkspaceAliasesService (file-backed)', () => {
   function build(
     hostFs: IHostFileSystem = new HostFileSystem(),
     fileStorage: FileStorageService = new FileStorageService(homeDir),
-    persistence?: IWorkspacePersistence,
-  ): IWorkspaceAliases {
+    persistence?: IProjectPersistence,
+  ): IProjectAliases {
     const noopLog = {
       error: () => {},
       warn: () => {},
@@ -108,7 +108,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(IAppendLogStore, new AppendLogStore(fileStorage, noopLog)),
       stubPair(ILogService, noopLog),
-      ...(persistence !== undefined ? [stubPair(IWorkspacePersistence, persistence)] : []),
+      ...(persistence !== undefined ? [stubPair(IProjectPersistence, persistence)] : []),
       stubPair(IHostFileSystem, hostFs),
       stubPair(
         IProjectLocalConfigService,
@@ -120,7 +120,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       } as unknown as IEventService),
     ]);
     currentHost = host;
-    return host.app.accessor.get(IWorkspaceAliases);
+    return host.app.accessor.get(IProjectAliases);
   }
 
   async function seedSessionIndex(entries: SessionIndexLine[]): Promise<void> {
@@ -129,7 +129,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
   }
 
   async function writeWorkspacesJson(
-    workspaces: Record<string, PersistedWorkspaceEntry>,
+    workspaces: Record<string, PersistedProjectEntry>,
     extra?: { readonly deleted_workspace_ids?: unknown },
   ): Promise<void> {
     await fsp.writeFile(
@@ -140,7 +140,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
   }
 
   async function writeProjectsJson(
-    projects: Record<string, PersistedWorkspaceEntry>,
+    projects: Record<string, PersistedProjectEntry>,
     deletedIds: readonly string[] = [],
   ): Promise<void> {
     await fsp.writeFile(
@@ -155,7 +155,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     const typedRoot = 'C:\\Users\\Foo\\Proj';
     const legacyId = 'wd_proj_deadbeef0002';
     const canonicalId = encodeWorkDirKey(lowerRoot);
-    const entry = (root: string): PersistedWorkspaceEntry => ({
+    const entry = (root: string): PersistedProjectEntry => ({
       root,
       name: 'proj',
       created_at: '2026-01-01T00:00:00.000Z',
@@ -294,7 +294,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
   });
 
   it('resolveAliasIds follows in-process catalog writes synchronously', async () => {
-    const entry = (root: string): PersistedWorkspaceEntry => ({
+    const entry = (root: string): PersistedProjectEntry => ({
       root,
       name: 'proj',
       created_at: '2026-01-01T00:00:00.000Z',
@@ -307,7 +307,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     const aliases = build();
     expect(await aliases.resolveAliasIds(typedId)).toEqual([typedId]);
 
-    const persistence = currentHost!.app.accessor.get(IWorkspacePersistence);
+    const persistence = currentHost!.app.accessor.get(IProjectPersistence);
     await persistence.update(() => ({
       workspaces: [
         { id: typedId, root: typedRoot, name: 'proj', kind: 'implicit', additionalDirs: [], createdAt: 0, lastOpenedAt: 0 },
@@ -321,15 +321,15 @@ describe('WorkspaceAliasesService (file-backed)', () => {
   });
 
   it('resolveAliasIds retries a shared load that spanned a write', async () => {
-    class GatedPersistence implements IWorkspacePersistence {
+    class GatedPersistence implements IProjectPersistence {
       declare readonly _serviceBrand: undefined;
       loads = 0;
       gate: Promise<void> | undefined;
-      constructor(private readonly inner: IWorkspacePersistence) {}
-      get onDidChange(): IWorkspacePersistence['onDidChange'] {
+      constructor(private readonly inner: IProjectPersistence) {}
+      get onDidChange(): IProjectPersistence['onDidChange'] {
         return this.inner.onDidChange;
       }
-      async load(): ReturnType<IWorkspacePersistence['load']> {
+      async load(): ReturnType<IProjectPersistence['load']> {
         this.loads += 1;
         const catalog = await this.inner.load();
         if (this.gate !== undefined) await this.gate;
@@ -341,7 +341,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
         return this.inner.update(mutator);
       }
     }
-    const entry = (root: string): PersistedWorkspaceEntry => ({
+    const entry = (root: string): PersistedProjectEntry => ({
       root,
       name: 'proj',
       created_at: '2026-01-01T00:00:00.000Z',
@@ -353,7 +353,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     await writeWorkspacesJson({ [typedId]: entry(typedRoot) });
     const storage = new FileStorageService(homeDir);
     const persistence = new GatedPersistence(
-      new FileWorkspacePersistence(new JsonAtomicDocumentStore(storage), storage, stubBootstrap(homeDir)),
+      new FileProjectPersistence(new JsonAtomicDocumentStore(storage), storage, stubBootstrap(homeDir)),
     );
     const aliases = build(undefined, storage, persistence);
     const ws = (id: string, root: string): Workspace => ({
@@ -402,7 +402,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
         return super.read(scope, key);
       }
     }
-    const entry = (root: string): PersistedWorkspaceEntry => ({
+    const entry = (root: string): PersistedProjectEntry => ({
       root,
       name: 'proj',
       created_at: '2026-01-01T00:00:00.000Z',
@@ -414,7 +414,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     await writeWorkspacesJson({ [typedId]: entry(typedRoot) });
     const storage = new GatedStorage(homeDir);
     const aliases = build(undefined, storage);
-    const persistence = currentHost!.app.accessor.get(IWorkspacePersistence);
+    const persistence = currentHost!.app.accessor.get(IProjectPersistence);
     const appendLogs = currentHost!.app.accessor.get(IAppendLogStore);
     const ws = (id: string, root: string): Workspace => ({
       id,
@@ -453,7 +453,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
   });
 
   it('resolveAliasIds follows in-process session-index writes synchronously', async () => {
-    const entry = (root: string): PersistedWorkspaceEntry => ({
+    const entry = (root: string): PersistedProjectEntry => ({
       root,
       name: 'proj',
       created_at: '2026-01-01T00:00:00.000Z',
@@ -479,7 +479,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
   });
 
   it.skipIf(process.platform === 'win32')('resolveAliasIds picks up catalog and session index changes', async () => {
-    const entry = (root: string): PersistedWorkspaceEntry => ({
+    const entry = (root: string): PersistedProjectEntry => ({
       root,
       name: 'proj',
       created_at: '2026-01-01T00:00:00.000Z',

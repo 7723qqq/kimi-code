@@ -35,7 +35,7 @@ import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionT
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { SENSITIVE_DOT_VARIANT_SUFFIXES } from '#/tool/path-access';
 import { PathSecurityError, type WorkspaceConfig } from '#/tool/path-access';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { stubAgentEnvironment } from '../../../../environment/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../../../app/telemetry/stubs';
 import { registerStateServices } from '../../../../state/stubs';
@@ -287,7 +287,7 @@ class GrepTool extends ProductionGrepTool {
     });
     super(
       environmentService,
-      stubWorkspaceContext(workspaceConfig.workspaceDir, workspaceConfig.additionalDirs),
+      IProjectContext(workspaceConfig.workspaceDir, workspaceConfig.additionalDirs),
       telemetry,
     );
   }
@@ -430,7 +430,7 @@ describe('GrepTool', () => {
             { process: processService, fs, host: environment },
           );
           reg.defineInstance(IAgentEnvironmentService, stubAgentEnvironment(backend));
-          reg.defineInstance(ISessionWorkspaceContext, stubWorkspaceContext('/workspace'));
+          reg.defineInstance(ISessionWorkspaceContext, IProjectContext('/workspace'));
           reg.defineInstance(ITelemetryService, noopTelemetryService);
           reg.definePartialInstance(IOAuthService, {
             getRegion: () => 'mainland-cn',

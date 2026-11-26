@@ -6,15 +6,15 @@ import {
   type GitStatusOptions,
   IGitService,
 } from '#/app/git/git';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 
-import type { IWorkspaceGitService } from './projectGit';
+import type { IProjectGitService } from './projectGit';
 
-export class WorkspaceGitService implements IWorkspaceGitService {
+export class WorkspaceGitService implements IProjectGitService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IWorkspaceDirs private readonly dirs: Pick<IWorkspaceDirs, 'primary'>,
+    @IProjectDirs private readonly dirs: Pick<IProjectDirs, 'primary'>,
     @ref(IGitService) private readonly git: LiveRef<IGitService>,
   ) {}
 

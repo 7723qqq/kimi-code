@@ -5,16 +5,16 @@ import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { workspaceRootKey } from '#/_base/utils/workdir-slug';
 import { TimeoutTimer } from '#/_base/utils/timer';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
-import { IWorkspaceService } from '#/app/project/project';
-import { IWorkspacePersistence } from '#/app/project/projectPersistence';
+import { IProjectService } from '#/app/project/project';
+import { IProjectPersistence } from '#/app/project/projectPersistence';
 import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
-import type { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import type { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import { defineState } from '#/state/state';
-import { IWorkspaceStateService } from '#/project/state/projectState';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
+import { IProjectStateService } from '#/project/state/projectState';
+import { IProjectContext } from '#/project/projectContext/projectContext';
 import { watchCandidates } from '#human/utils/watch';
 
-import type { IWorkspaceDirs } from './projectDirs';
+import type { IProjectDirs } from './projectDirs';
 import { type WorkspaceAddDirInput, type WorkspaceAdditionalDirsResult } from './projectDirs';
 
 const WATCH_DEBOUNCE_MS = 200;
@@ -32,11 +32,11 @@ export const workspaceDirsRegistryDirsKey = defineState<readonly string[]>(
   () => [],
 );
 export const workspaceDirsPrimaryByWorkspaceKey = defineState<Readonly<Record<string, string>>>(
-  'workspaceDirs.primaryByWorkspace',
+  'workspaceDirs.ISessionProjectInfo',
   () => ({}),
 );
 
-export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
+export class WorkspaceDirsService extends Disposable implements IProjectDirs {
   declare readonly _serviceBrand: undefined;
 
   private projectRoot: string;
@@ -53,12 +53,12 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
   private changePending = false;
 
   constructor(
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
+    @IProjectContext private readonly workspace: IProjectContext,
     @IProjectLocalConfigService private readonly localConfig: IProjectLocalConfigService,
     @ILogService private readonly log: ILogService,
-    @IWorkspaceStateService private readonly states: IWorkspaceStateService,
-    @IWorkspaceService private readonly workspaces: IWorkspaceService,
-    @IWorkspacePersistence private readonly workspaceStore: IWorkspacePersistence,
+    @IProjectStateService private readonly states: IProjectStateService,
+    @IProjectService private readonly workspaces: IProjectService,
+    @IProjectPersistence private readonly workspaceStore: IProjectPersistence,
     private readonly environmentId = LOCAL_ENVIRONMENT_ID,
     private readonly followsPrimary = environmentId === LOCAL_ENVIRONMENT_ID,
   ) {
@@ -109,11 +109,11 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     this.states.set(workspaceDirsRegistryDirsKey, value);
   }
 
-  get primaryByWorkspace(): Readonly<Record<string, string>> {
+  get ISessionProjectInfo(): Readonly<Record<string, string>> {
     return this.states.get(workspaceDirsPrimaryByWorkspaceKey);
   }
 
-  private set primaryByWorkspace(value: Readonly<Record<string, string>>) {
+  private set ISessionProjectInfo(value: Readonly<Record<string, string>>) {
     this.states.set(workspaceDirsPrimaryByWorkspaceKey, value);
   }
 
@@ -123,7 +123,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     if (this.environmentId !== LOCAL_ENVIRONMENT_ID || !this.followsPrimary) {
       return this.workspace.cwd;
     }
-    return this.primaryByWorkspace[this.workspace.workspaceId] ?? this.workspace.meta.root;
+    return this.ISessionProjectInfo[this.workspace.workspaceId] ?? this.workspace.meta.root;
   }
 
   get sharedAdditionalDirs(): readonly string[] {
@@ -192,9 +192,9 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     });
   }
 
-  sessionInfo(): ISessionWorkspaceInfo {
+  sessionInfo(): ISessionProjectInfo {
     const currentDirs = (): readonly string[] => this.additionalDirs;
-    const currentPrimary = (): Readonly<Record<string, string>> => this.primaryByWorkspace;
+    const currentPrimary = (): Readonly<Record<string, string>> => this.ISessionProjectInfo;
     return {
       _serviceBrand: undefined,
       ready: this.ready,
@@ -202,7 +202,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
       get additionalDirs() {
         return currentDirs();
       },
-      get primaryByWorkspace() {
+      get ISessionProjectInfo() {
         return currentPrimary();
       },
     };
@@ -292,12 +292,12 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
       }
     }
     const beforeDirs = this.sharedAdditionalDirs;
-    const beforePrimary = this.primaryByWorkspace;
+    const beforePrimary = this.ISessionProjectInfo;
     this.registryDirs = dirs;
-    this.primaryByWorkspace = primary;
+    this.ISessionProjectInfo = primary;
     if (
       !sameStringList(beforeDirs, this.sharedAdditionalDirs) ||
-      !samePrimaryByWorkspace(beforePrimary, primary)
+      !samePrimaryByProject(beforePrimary, primary)
     ) {
       this.fireChange();
     }
@@ -392,7 +392,7 @@ function sameStringList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
-function samePrimaryByWorkspace(
+function samePrimaryByProject(
   a: Readonly<Record<string, string>>,
   b: Readonly<Record<string, string>>,
 ): boolean {

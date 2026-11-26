@@ -16,7 +16,7 @@ import {
   type SkillContribution,
 } from '#/features/skill/catalog/skillSource';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
+import { IProjectContext } from '#/project/projectContext/projectContext';
 
 import { ConfiguredSkillRootWatcher } from './configuredSkillRootWatcher';
 
@@ -40,7 +40,7 @@ export class ExtraFileSkillSource extends Disposable implements IExtraFileSkillS
   constructor(
     @ISkillDiscovery private readonly discovery: ISkillDiscovery,
     @IConfigService private readonly config: IConfigService,
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
+    @IProjectContext private readonly workspace: IProjectContext,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     private readonly fs: IHostFileSystem,
     private readonly log?: ILogService,

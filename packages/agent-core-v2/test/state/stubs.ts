@@ -5,7 +5,7 @@ import { IAppStateService } from '#/app/state/appState';
 import { AppStateService } from '#/app/state/appStateService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { IWorkspaceStateService } from '#/project/state/projectState';
+import { IProjectStateService } from '#/project/state/projectState';
 import { WorkspaceStateService } from '#/project/state/projectStateService';
 
 export function registerStateServices(reg: ServiceRegistration) {
@@ -14,7 +14,7 @@ export function registerStateServices(reg: ServiceRegistration) {
   const session = new SessionStateService();
   const agent = new AgentStateService(session);
   reg.defineInstance(IAppStateService, app);
-  reg.defineInstance(IWorkspaceStateService, workspace);
+  reg.defineInstance(IProjectStateService, workspace);
   reg.defineInstance(ISessionStateService, session);
   reg.defineInstance(IAgentStateService, agent);
   return { app, workspace, session, agent };

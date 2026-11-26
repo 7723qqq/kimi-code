@@ -13,9 +13,9 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceStateService } from '#/project/state/projectState';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
-import { IWorkspaceInstructionsService } from '#/project/projectInstructions/projectInstructions';
+import { IProjectStateService } from '#/project/state/projectState';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectInstructionsService } from '#/project/projectInstructions/projectInstructions';
 import {
   WorkspaceInstructionsService,
   workspaceInstructionsCurrentKey,
@@ -75,8 +75,8 @@ describe('WorkspaceInstructionsService', () => {
   }
 
   function createService(hostFs: IHostFileSystem = new HostFileSystem()): {
-    service: IWorkspaceInstructionsService;
-    states: IWorkspaceStateService;
+    service: IProjectInstructionsService;
+    states: IProjectStateService;
     dirs: { primary: string };
     dirsChange: Emitter<void>;
   } {
@@ -86,7 +86,7 @@ describe('WorkspaceInstructionsService', () => {
       strict: true,
       additionalServices: (reg) => {
         registerStateServices(reg);
-        reg.definePartialInstance(IWorkspaceDirs, {
+        reg.definePartialInstance(IProjectDirs, {
           get primary() {
             return dirs.primary;
           },
@@ -96,12 +96,12 @@ describe('WorkspaceInstructionsService', () => {
         reg.definePartialInstance(IHostEnvironment, { homeDir: osHomeDir });
         reg.definePartialInstance(IBootstrapService, { homeDir: brandHomeDir });
         reg.defineInstance(ILogService, stubLog());
-        reg.define(IWorkspaceInstructionsService, WorkspaceInstructionsService);
+        reg.define(IProjectInstructionsService, WorkspaceInstructionsService);
       },
     });
     return {
-      service: ix.get(IWorkspaceInstructionsService),
-      states: ix.get(IWorkspaceStateService),
+      service: ix.get(IProjectInstructionsService),
+      states: ix.get(IProjectStateService),
       dirs,
       dirsChange,
     };

@@ -1,15 +1,15 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
-import { IWorkspaceAliases } from '#/app/projectAliases/projectAliases';
+import { IProjectAliases } from '#/app/projectAliases/projectAliases';
 
-import { IWorkspaceSessions, RECENT_SESSIONS_LIMIT } from './projectSessions';
+import { IProjectSessions, RECENT_SESSIONS_LIMIT } from './projectSessions';
 
-export class WorkspaceSessionsService implements IWorkspaceSessions {
+export class WorkspaceSessionsService implements IProjectSessions {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IWorkspaceAliases private readonly aliases: IWorkspaceAliases,
+    @IProjectAliases private readonly aliases: IProjectAliases,
     @ISessionIndex private readonly index: ISessionIndex,
   ) {}
 
@@ -27,7 +27,7 @@ export class WorkspaceSessionsService implements IWorkspaceSessions {
 
 registerScopedService(
   LifecycleScope.App,
-  IWorkspaceSessions,
+  IProjectSessions,
   WorkspaceSessionsService,
   ScopeActivation.OnScopeCreated,
   'workspaceSessions',

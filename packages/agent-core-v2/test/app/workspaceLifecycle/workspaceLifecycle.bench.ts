@@ -2,7 +2,7 @@ import type { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
 import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
 import type {
-  IWorkspaceInstanceManager,
+  IProjectInstanceManager,
   WorkspaceInstanceLease,
 } from '#/project/projectInstance/projectInstanceManager';
 
@@ -18,7 +18,7 @@ function reset(): void {
 
 const instance = { id: 'wd-bench', root: '/wd-bench' } as unknown as WorkspaceInstance;
 
-function stubManager(): IWorkspaceInstanceManager {
+function stubManager(): IProjectInstanceManager {
   return {
     _serviceBrand: undefined,
     acquire: async () => {
@@ -37,7 +37,7 @@ function stubManager(): IWorkspaceInstanceManager {
     },
     list: () => [],
     onDidChange: () => ({ dispose: () => {} }),
-  } as unknown as IWorkspaceInstanceManager;
+  } as unknown as IProjectInstanceManager;
 }
 
 const sessions = {} as unknown as ISessionManager;

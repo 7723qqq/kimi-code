@@ -55,20 +55,20 @@ import {
   PluginSkillSource,
 } from '#/features/skill/project/pluginSkillSource';
 import {
-  IWorkspaceRootSkillSource,
+  IProjectRootSkillSource,
   WorkspaceRootSkillSource,
 } from '#/features/skill/project/rootFileSkillSource';
-import { IWorkspaceSkillCatalog } from '#/features/skill/project/projectSkillCatalog';
+import { IProjectSkillCatalog } from '#/features/skill/project/projectSkillCatalog';
 import {
   WorkspaceSkillCatalogService,
   workspaceSkillCatalogContributionsKey,
   workspaceSkillCatalogMergedKey,
 } from '#/features/skill/project/projectSkillCatalogService';
 import { IProviderService } from '#/llm-adapter/provider/provider';
-import { IWorkspaceStateService } from '#/project/state/projectState';
+import { IProjectStateService } from '#/project/state/projectState';
 import { WorkspaceStateService } from '#/project/state/projectStateService';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import * as watchNamespace from '#human/utils/watch';
 import { type WatchChange, type WatchOptions } from '#human/utils/watch';
 import { waitForAssertion } from '#test/helpers/waitFor';
@@ -235,7 +235,7 @@ function pluginStub(
   };
 }
 
-function workspaceContextStub(workDir: string): IWorkspaceContext {
+function workspaceContextStub(workDir: string): IProjectContext {
   return {
     _serviceBrand: undefined,
     workspaceId: 'wd_test',
@@ -246,14 +246,14 @@ function workspaceContextStub(workDir: string): IWorkspaceContext {
   };
 }
 
-function workspaceDirsStub(additionalDirs: readonly string[] = []): IWorkspaceDirs {
+function workspaceDirsStub(additionalDirs: readonly string[] = []): IProjectDirs {
   return {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
     primary: '/workspace',
     additionalDirs,
     sharedAdditionalDirs: additionalDirs,
-    primaryByWorkspace: {},
+    ISessionProjectInfo: {},
     onDidChange: () => ({ dispose: () => {} }),
     addDir: async () => ({ projectRoot: '', configPath: '', additionalDirs, persisted: false }),
     mergeAdditionalDirs: async () => {},
@@ -262,19 +262,19 @@ function workspaceDirsStub(additionalDirs: readonly string[] = []): IWorkspaceDi
       _serviceBrand: undefined,
       ready: Promise.resolve(),
       additionalDirs,
-      primaryByWorkspace: {},
+      ISessionProjectInfo: {},
       onDidChange: () => ({ dispose: () => {} }),
     }),
-  } as unknown as IWorkspaceDirs;
+  } as unknown as IProjectDirs;
 }
 
 function makeHost(
   store: ISkillDiscovery,
-  ws: IWorkspaceContext,
+  ws: IProjectContext,
   pluginRoots: readonly SkillRoot[] = [],
   explicitDirs?: readonly string[],
   pluginReloadEmitter?: Emitter<PluginReloadEvent>,
-  dirs: IWorkspaceDirs = workspaceDirsStub(),
+  dirs: IProjectDirs = workspaceDirsStub(),
 ) {
   const config = configStub();
   const host = createScopedTestHost([
@@ -285,7 +285,7 @@ function makeHost(
     stubPair(IPluginService, pluginStub(pluginRoots, pluginReloadEmitter)),
   ]);
   const workspaceHandle = createScopedChildHandle(host.app.instantiation, 'program', 'w1', {
-    seeds: [stubPair(IWorkspaceContext, ws), stubPair(IWorkspaceDirs, dirs)],
+    seeds: [stubPair(IProjectContext, ws), stubPair(IProjectDirs, dirs)],
   });
   const disposeHost = host.dispose.bind(host);
   host.dispose = () => {
@@ -362,13 +362,13 @@ describe('WorkspaceSkillCatalogService', () => {
     registerScopedService(LifecycleScope.App, IBuiltinSkillSource, BuiltinSkillSource);
     registerScopedService(LifecycleScope.App, IUserFileSkillSource, UserFileSkillSource);
     registerScopedService(LifecycleScope.App, IPluginService, PluginService);
-    registerScopedService('program', IWorkspaceSkillCatalog, WorkspaceSkillCatalogService);
+    registerScopedService('program', IProjectSkillCatalog, WorkspaceSkillCatalogService);
     registerScopedService('program', IExplicitFileSkillSource, ExplicitFileSkillSource);
     registerScopedService('program', IExtraFileSkillSource, ExtraFileSkillSource);
-    registerScopedService('program', IWorkspaceRootSkillSource, WorkspaceRootSkillSource);
+    registerScopedService('program', IProjectRootSkillSource, WorkspaceRootSkillSource);
     registerScopedService('program', IPluginSkillSource, PluginSkillSource);
     registerScopedService(LifecycleScope.App, IAppStateService, AppStateService);
-    registerScopedService('program', IWorkspaceStateService, WorkspaceStateService);
+    registerScopedService('program', IProjectStateService, WorkspaceStateService);
   });
 
   async function seedCatalogSkill(
@@ -396,7 +396,7 @@ describe('WorkspaceSkillCatalogService', () => {
       config.setHiddenFromModel(['demo']);
 
       try {
-        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        const catalog = workspace.accessor.get(IProjectSkillCatalog);
         await catalog.load();
 
         const listing = catalog.catalog.getModelSkillListing();
@@ -420,7 +420,7 @@ describe('WorkspaceSkillCatalogService', () => {
       config.setSubSkills(['genre-*']);
 
       try {
-        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        const catalog = workspace.accessor.get(IProjectSkillCatalog);
         await catalog.load();
 
         const listing = catalog.catalog.getModelSkillListing();
@@ -446,7 +446,7 @@ describe('WorkspaceSkillCatalogService', () => {
       );
 
       try {
-        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        const catalog = workspace.accessor.get(IProjectSkillCatalog);
         await catalog.load();
         expect(catalog.catalog.getModelSkillListing()).toContain('demo');
 
@@ -482,7 +482,7 @@ describe('WorkspaceSkillCatalogService', () => {
     );
 
     try {
-      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      const catalog = workspace.accessor.get(IProjectSkillCatalog);
       await catalog.load();
 
       expect(catalog.catalog.getSkill('primary-only')?.description).toBe('from primary');
@@ -533,7 +533,7 @@ describe('WorkspaceSkillCatalogService', () => {
     const ws = workspaceContextStub('/work');
     const { host, workspace } = makeHost(store, ws);
 
-    const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+    const catalog = workspace.accessor.get(IProjectSkillCatalog);
     await catalog.load();
 
     const names = catalog.catalog.listSkills().map((s) => s.name);
@@ -550,10 +550,10 @@ describe('WorkspaceSkillCatalogService', () => {
     const ws = workspaceContextStub('/work');
     const { host, workspace } = makeHost(store, ws);
 
-    const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+    const catalog = workspace.accessor.get(IProjectSkillCatalog);
     await catalog.load();
 
-    const states = workspace.accessor.get(IWorkspaceStateService);
+    const states = workspace.accessor.get(IProjectStateService);
     const contributions = states.get(workspaceSkillCatalogContributionsKey);
     expect([...contributions.keys()]).toContain('workspace');
     expect(states.get(workspaceSkillCatalogMergedKey)).toBe(
@@ -601,7 +601,7 @@ describe('WorkspaceSkillCatalogService', () => {
     const { host, workspace, config } = makeHost(store, ws, [pluginRoot]);
     config.setExtraSkillDirs(['/']);
 
-    const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+    const catalog = workspace.accessor.get(IProjectSkillCatalog);
     await catalog.load();
 
     expect(catalog.catalog.getSkill('shared')?.description).toBe('from project');
@@ -631,7 +631,7 @@ describe('WorkspaceSkillCatalogService', () => {
     const { host, workspace, config } = makeHost(store, ws, [pluginRoot], ['/']);
     config.setExtraSkillDirs(['/']);
 
-    const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+    const catalog = workspace.accessor.get(IProjectSkillCatalog);
     await catalog.load();
 
     expect(catalog.catalog.getSkill('from-explicit')?.description).toBe('from explicit');
@@ -658,7 +658,7 @@ describe('WorkspaceSkillCatalogService', () => {
       if (source === 'extra') config.setExtraSkillDirs([skillRoot]);
 
       try {
-        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        const catalog = workspace.accessor.get(IProjectSkillCatalog);
         await catalog.load();
         const sessionData = catalog.sessionData();
         expect(sessionData.catalog.getSkill('new-skill')).toBeUndefined();
@@ -708,7 +708,7 @@ describe('WorkspaceSkillCatalogService', () => {
           source === 'explicit' ? [skillRoot] : undefined,
         );
         if (source === 'extra') config.setExtraSkillDirs([skillRoot]);
-        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        const catalog = workspace.accessor.get(IProjectSkillCatalog);
         const loaded = catalog.load();
 
         try {
@@ -775,7 +775,7 @@ describe('WorkspaceSkillCatalogService', () => {
       );
 
       try {
-        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        const catalog = workspace.accessor.get(IProjectSkillCatalog);
         await catalog.load();
         const sessionData = catalog.sessionData();
         expect(sessionData.catalog.getSkill('seed')?.description).toBe(
@@ -919,11 +919,11 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IPluginService, pluginStub()),
     ]);
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, ws),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, ws),
+      stubPair(IProjectDirs, workspaceDirsStub()),
     ]);
 
-    const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+    const catalog = workspace.accessor.get(IProjectSkillCatalog);
     let settled = false;
     const loading = catalog.load().then(() => {
       settled = true;
@@ -964,11 +964,11 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IPluginService, pluginStub()),
     ]);
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, ws),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, ws),
+      stubPair(IProjectDirs, workspaceDirsStub()),
     ]);
 
-    const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+    const catalog = workspace.accessor.get(IProjectSkillCatalog);
     await catalog.load();
     const afterLoad = store.calls;
 
@@ -987,7 +987,7 @@ describe('WorkspaceSkillCatalogService', () => {
     const ws = workspaceContextStub('/work1');
     const { host, workspace } = makeHost(store, ws);
 
-    const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+    const catalog = workspace.accessor.get(IProjectSkillCatalog);
     await catalog.load();
     expect(catalog.catalog.getSkill('first')).toBeDefined();
 
@@ -1010,7 +1010,7 @@ describe('WorkspaceSkillCatalogService', () => {
     const ws = workspaceContextStub('/work');
     const { host, workspace } = makeHost(store, ws);
 
-    const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+    const catalog = workspace.accessor.get(IProjectSkillCatalog);
     await catalog.load();
 
     store.setProjectSkills([stubSkill('second')]);
@@ -1050,7 +1050,7 @@ describe('WorkspaceSkillCatalogService', () => {
     const ws = workspaceContextStub('/work');
     const { host, workspace } = makeHost(store, ws, [pluginRoot]);
 
-    const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+    const catalog = workspace.accessor.get(IProjectSkillCatalog);
     await catalog.load();
 
     expect(store.receivedRoots).toEqual([pluginRoot]);
@@ -1079,7 +1079,7 @@ describe('WorkspaceSkillCatalogService', () => {
       const { host, workspace } = makeHost(new RootDiscovery(), ws);
 
       try {
-        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        const catalog = workspace.accessor.get(IProjectSkillCatalog);
         await catalog.load();
 
         expect(catalog.catalog.getSkillRoots()).toEqual([skillRoot]);
@@ -1113,8 +1113,8 @@ describe('WorkspaceSkillCatalogService', () => {
     const dirs = {
       ...workspaceDirsStub([extra, sessionOnly]),
       sharedAdditionalDirs: [extra],
-      primaryByWorkspace: { wd_test: primary },
-    } as unknown as IWorkspaceDirs;
+      ISessionProjectInfo: { wd_test: primary },
+    } as unknown as IProjectDirs;
     const source = new WorkspaceRootSkillSource(
       new RootDiscovery(),
       workspaceContextStub(primary),
@@ -1167,7 +1167,7 @@ describe('WorkspaceSkillCatalogService', () => {
       const { host, workspace } = makeHost(new SkippingDiscovery(), ws);
 
       try {
-        const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+        const catalog = workspace.accessor.get(IProjectSkillCatalog);
         await catalog.load();
 
         expect(catalog.catalog.getSkippedByPolicy()).toEqual([skippedEntry]);
@@ -1190,7 +1190,7 @@ describe('WorkspaceSkillCatalogService', () => {
     const { host, workspace } = makeHost(store, ws, [pluginRoot], undefined, reloadEmitter);
 
     try {
-      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      const catalog = workspace.accessor.get(IProjectSkillCatalog);
       await catalog.load();
       expect(catalog.catalog.getPluginSkill('demo', 'demo-skill')).toBeDefined();
 
@@ -1246,13 +1246,13 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IPluginService, pluginStub()),
     ]);
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, ws),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, ws),
+      stubPair(IProjectDirs, workspaceDirsStub()),
       stubPair(IPluginSkillSource, pluginSource),
     ]);
 
     try {
-      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      const catalog = workspace.accessor.get(IProjectSkillCatalog);
       const loading = catalog.load();
       await initialStarted.promise;
       const sourceIds: string[] = [];
@@ -1300,8 +1300,8 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IPluginService, pluginService),
     ]);
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, ws),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, ws),
+      stubPair(IProjectDirs, workspaceDirsStub()),
     ]);
 
     try {
@@ -1363,12 +1363,12 @@ describe('WorkspaceSkillCatalogService', () => {
     ]);
     const ws = workspaceContextStub('/work');
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, ws),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, ws),
+      stubPair(IProjectDirs, workspaceDirsStub()),
     ]);
 
     try {
-      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      const catalog = workspace.accessor.get(IProjectSkillCatalog);
       await catalog.load();
       expect(catalog.catalog.getSkill('global-only')).toBeDefined();
       expect(catalog.catalog.getPluginSkill('demo', 'demo-skill')).toBeUndefined();
@@ -1463,7 +1463,7 @@ describe('WorkspaceSkillCatalogService', () => {
     };
 
     _clearScopedRegistryForTests();
-    registerScopedService('program', IWorkspaceRootSkillSource, WorkspaceRootSkillSource);
+    registerScopedService('program', IProjectRootSkillSource, WorkspaceRootSkillSource);
     const host = createScopedTestHost([
       stubPair(IFlagService, stubFlag(true)),
       stubPair(ISkillDiscovery, discovery),
@@ -1471,12 +1471,12 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IConfigService, configStub()),
     ]);
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, workspaceContextStub(workDir)),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, workspaceContextStub(workDir)),
+      stubPair(IProjectDirs, workspaceDirsStub()),
     ]);
 
     try {
-      const loading = workspace.accessor.get(IWorkspaceRootSkillSource).load();
+      const loading = workspace.accessor.get(IProjectRootSkillSource).load();
       await replacementStarted.promise;
       const initialHandle = handles[0];
       const replacementHandle = handles[1];
@@ -1521,12 +1521,12 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(ISkillDiscovery, new FileSkillDiscovery(stubLog())),
     ]);
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, workspaceContextStub(workDir)),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, workspaceContextStub(workDir)),
+      stubPair(IProjectDirs, workspaceDirsStub()),
     ]);
 
     try {
-      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      const catalog = workspace.accessor.get(IProjectSkillCatalog);
       await catalog.load();
 
       const ignored = watchMockState.calls.at(-1)?.options?.ignored;
@@ -1554,7 +1554,7 @@ describe('WorkspaceSkillCatalogService', () => {
     config.setExtraSkillDirs(['/']);
 
     try {
-      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      const catalog = workspace.accessor.get(IProjectSkillCatalog);
       await catalog.load();
       expect(catalog.catalog.getSkill('user-skill')?.description).toBe('v1');
       expect(catalog.catalog.getSkill('extra-skill')?.description).toBe('v1');
@@ -1586,7 +1586,7 @@ describe('WorkspaceSkillCatalogService', () => {
     const { host, workspace } = makeHost(store, ws);
 
     try {
-      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      const catalog = workspace.accessor.get(IProjectSkillCatalog);
       await catalog.load();
 
       const fired: string[] = [];
@@ -1610,12 +1610,12 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(ISkillDiscovery, new FileSkillDiscovery(stubLog())),
     ]);
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, workspaceContextStub('/work')),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, workspaceContextStub('/work')),
+      stubPair(IProjectDirs, workspaceDirsStub()),
     ]);
 
     try {
-      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      const catalog = workspace.accessor.get(IProjectSkillCatalog);
       await catalog.load();
 
       const homeCall = watchMockState.calls.find((call) => call.path === '/home');
@@ -1641,12 +1641,12 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(ISkillDiscovery, new FileSkillDiscovery(stubLog())),
     ]);
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, workspaceContextStub('/work')),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, workspaceContextStub('/work')),
+      stubPair(IProjectDirs, workspaceDirsStub()),
     ]);
 
     try {
-      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      const catalog = workspace.accessor.get(IProjectSkillCatalog);
       await catalog.load();
 
       const homeCalls = watchMockState.calls.filter((call) => call.path === '/home');
@@ -1673,12 +1673,12 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(ISkillDiscovery, new FileSkillDiscovery(stubLog())),
     ]);
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, workspaceContextStub('/work')),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, workspaceContextStub('/work')),
+      stubPair(IProjectDirs, workspaceDirsStub()),
     ]);
 
     try {
-      const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+      const catalog = workspace.accessor.get(IProjectSkillCatalog);
       await catalog.load();
 
       const watchedPaths = watchMockState.calls.map((call) => call.path);
@@ -1712,11 +1712,11 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(ISkillDiscovery, new FileSkillDiscovery(stubLog())),
     ]);
     const workspace = host.child('program', 'w1', [
-      stubPair(IWorkspaceContext, workspaceContextStub('/work')),
-      stubPair(IWorkspaceDirs, workspaceDirsStub()),
+      stubPair(IProjectContext, workspaceContextStub('/work')),
+      stubPair(IProjectDirs, workspaceDirsStub()),
     ]);
 
-    const catalog = workspace.accessor.get(IWorkspaceSkillCatalog);
+    const catalog = workspace.accessor.get(IProjectSkillCatalog);
     await catalog.load();
     expect(handles.length).toBeGreaterThan(0);
 

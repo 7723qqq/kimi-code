@@ -15,8 +15,8 @@ import { discoverAgentFiles } from '#/project/projectAgentProfileLoader/internal
 import { AgentProfileLoaderBase } from '#/project/projectAgentProfileLoader/internal/agentProfileLoader';
 import { configuredAgentRoots } from '#/project/projectAgentProfileLoader/internal/agentRoots';
 import { IUserAgentProfileLoader } from '#/project/projectAgentProfileLoader/userAgentProfileLoader';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 
 import type { IExtraAgentProfileLoader } from './extraAgentProfileLoader';
 import { profilesFromDiscovery } from './internal/agentProfileFromFile';
@@ -32,8 +32,8 @@ export class ExtraAgentProfileLoaderService
 
   constructor(
     @IConfigService private readonly configService: IConfigService,
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
-    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
+    @IProjectContext private readonly workspace: IProjectContext,
+    @IProjectDirs private readonly dirs: IProjectDirs,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IHostFileSystem private readonly fs: IHostFileSystem,
     @ILogService log: ILogService,

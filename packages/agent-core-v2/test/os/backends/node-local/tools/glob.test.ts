@@ -33,7 +33,7 @@ import type {
   ToolExecution,
 } from '#/tool/toolContract';
 
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../../../session/workspaceContext/stub-workspace-context';
 
 const realEnsureRgPath = rgLocator.ensureRgPath;
 const ensureRgPath = spyOn(rgLocator, 'ensureRgPath').mockImplementation(async () => ({
@@ -45,7 +45,7 @@ spyOn(rgLocator, 'rgUnavailableMessage').mockImplementation(
 );
 
 const signal = new AbortController().signal;
-const workspace = stubWorkspaceContext('/workspace', ['/extra']);
+const workspace = IProjectContext('/workspace', ['/extra']);
 
 interface FakeTimerHandle extends IHostTimerHandle {
   readonly id: number;
@@ -410,7 +410,7 @@ describe('GlobTool', () => {
 
   it('uses the backend path class when displaying paths relative to a windows root', async () => {
     const exec = execReturning('C:\\workspace\\src\\old.ts\n');
-    const { tool, withCwd } = makeTool(stubWorkspaceContext('C:\\workspace'), {
+    const { tool, withCwd } = makeTool(IProjectContext('C:\\workspace'), {
       pathClass: 'win32',
       exec,
     });
@@ -512,7 +512,7 @@ describe('GlobTool', () => {
         '\n',
       ) + '\n';
     const exec = execReturning(stdout);
-    const { tool } = makeTool(stubWorkspaceContext('/workspace'), { exec });
+    const { tool } = makeTool(IProjectContext('/workspace'), { exec });
 
     const result = await execute(tool, { pattern: '*.ts' });
 
@@ -528,7 +528,7 @@ describe('GlobTool', () => {
         (_, i) => `/workspace/file_${String(i)}.txt`,
       ).join('\n') + '\n';
     const exec = execReturning(stdout);
-    const { tool } = makeTool(stubWorkspaceContext('/workspace'), { exec });
+    const { tool } = makeTool(IProjectContext('/workspace'), { exec });
 
     const result = await execute(tool, { pattern: '*.txt' });
 
@@ -543,7 +543,7 @@ describe('GlobTool', () => {
         '\n',
       ) + '\n';
     const exec = execReturning(stdout);
-    const { tool } = makeTool(stubWorkspaceContext('/workspace'), { exec });
+    const { tool } = makeTool(IProjectContext('/workspace'), { exec });
 
     const result = await execute(tool, { pattern: '*.py' });
 
@@ -766,7 +766,7 @@ describe('GlobTool', () => {
   });
 
   describe('skills / additional dirs', () => {
-    const skillsWorkspace = stubWorkspaceContext('/workspace', ['/skills']);
+    const skillsWorkspace = IProjectContext('/workspace', ['/skills']);
 
     it('searches inside a registered additionalDir entry', async () => {
       const exec = execReturning('/skills/read_content.py\n/skills/utils.py\n');
@@ -795,7 +795,7 @@ describe('GlobTool', () => {
 
     it('rejects a relative path that escapes both workspace and additionalDirs', async () => {
       const exec = mock();
-      const { tool, withCwd } = makeTool(stubWorkspaceContext('/workspace/project', ['/skills']), {
+      const { tool, withCwd } = makeTool(IProjectContext('/workspace/project', ['/skills']), {
         exec,
       });
 
@@ -979,7 +979,7 @@ describe('GlobTool', () => {
 
   it('shows absolute paths when explicit search root is outside all workspace roots', async () => {
     const exec = execReturning('/extra/test.py\n');
-    const { tool, withCwd } = makeTool(stubWorkspaceContext('/workspace'), { exec });
+    const { tool, withCwd } = makeTool(IProjectContext('/workspace'), { exec });
 
     const result = await execute(tool, { pattern: '*.py', path: '/extra' });
     expect(result.isError).toBeFalsy();
@@ -988,7 +988,7 @@ describe('GlobTool', () => {
   });
 
   it('keeps absolute paths when explicit search root is an additionalDir', async () => {
-    const registered = stubWorkspaceContext('/workspace', ['/extra']);
+    const registered = IProjectContext('/workspace', ['/extra']);
     const exec = execReturning('/extra/test.py\n');
     const { tool } = makeTool(registered, { exec });
 
@@ -1011,7 +1011,7 @@ describe('GlobTool', () => {
 
   it('expands a leading "~/" path before searching outside the workspace', async () => {
     const exec = execReturning('');
-    const { tool, withCwd } = makeTool(stubWorkspaceContext('/workspace'), {
+    const { tool, withCwd } = makeTool(IProjectContext('/workspace'), {
       home: '/home/test',
       exec,
     });
@@ -1026,7 +1026,7 @@ describe('GlobTool', () => {
 
   it('allows a path sharing the workspace prefix when it is absolute', async () => {
     const exec = execReturning('');
-    const { tool, withCwd } = makeTool(stubWorkspaceContext('/parent/workdir'), { exec });
+    const { tool, withCwd } = makeTool(IProjectContext('/parent/workdir'), { exec });
 
     const result = await execute(tool, { pattern: '*.py', path: '/parent/workdir-sneaky' });
 
@@ -1119,7 +1119,7 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
     await fs.utimes(full, mtime, mtime);
   }
 
-  const ws = () => stubWorkspaceContext(tmpDir!);
+  const ws = () => IProjectContext(tmpDir!);
 
   it('continues through every match beyond the default page without duplicates', async () => {
     const expected = Array.from(
@@ -1269,8 +1269,8 @@ describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripg
       }
     }
     const environment = createRuntime(realFs, realEnv, realProcessService);
-    const normal = new GlobTool(environment, stubWorkspaceContext(shortRoot), noopTelemetryService);
-    const long = new GlobTool(environment, stubWorkspaceContext(longRoot), noopTelemetryService);
+    const normal = new GlobTool(environment, IProjectContext(shortRoot), noopTelemetryService);
+    const long = new GlobTool(environment, IProjectContext(longRoot), noopTelemetryService);
     for (const include_ignored of [false, true]) {
       for (const pattern of ['*.ts', '/top.ts', 'src/*.ts', '/src/**/*.ts', '{src,nested}/*.ts', '!src/*.ts', '**', '!']) {
         const args = { pattern, include_ignored, head_limit: 0 };

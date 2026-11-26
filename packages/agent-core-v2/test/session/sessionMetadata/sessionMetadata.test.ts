@@ -22,7 +22,7 @@ import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataServic
 import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { stubLog } from '../../_base/log/stubs';
@@ -77,10 +77,10 @@ describe('SessionMetadata', () => {
     mirror = stubSessionIndexMirror();
     ix.stub(ILogService, stubLog());
     ix.stub(ISessionContext, makeContext());
-    ix.stub(ISessionWorkspaceInfo, {
+    ix.stub(ISessionProjectInfo, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
-      primaryByWorkspace: {},
+      ISessionProjectInfo: {},
       additionalDirs: [],
       onDidChange: () => ({ dispose: () => {} }),
     });
@@ -110,11 +110,11 @@ describe('SessionMetadata', () => {
   });
 
   it('exposes the live effective cwd while preserving explicit and remote bindings', async () => {
-    const primaryByWorkspace: Record<string, string> = { wd_test: '/old' };
-    ix.stub(ISessionWorkspaceInfo, {
+    const sessionProjectInfo: Record<string, string> = { wd_test: '/old' };
+    ix.stub(ISessionProjectInfo, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
-      primaryByWorkspace,
+      ISessionProjectInfo: sessionProjectInfo,
       additionalDirs: [],
       onDidChange: () => ({ dispose: () => {} }),
     });
@@ -122,7 +122,7 @@ describe('SessionMetadata', () => {
     await meta.ready;
     expect(meta.effectiveCwd).toBe('/old');
 
-    primaryByWorkspace['wd_test'] = '/new';
+    sessionProjectInfo['wd_test'] = '/new';
     expect(meta.effectiveCwd).toBe('/new');
 
     await meta.update({ environmentCwd: '/explicit' });

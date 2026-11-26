@@ -37,7 +37,7 @@ import {
 } from '../../agent/toolExecutor/stubs';
 import { recordingTelemetry } from '../../app/telemetry/stubs';
 import { type TelemetryRecord } from '../../app/telemetry/stubs';
-import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../session/workspaceContext/stub-workspace-context';
 import { createFakeHostFs } from '../../tools/fixtures/fake-exec';
 import { registerTestAgentWireServices } from '../../wire/stubs';
 import { createReminderStub } from '../reminder/stubs';
@@ -170,7 +170,7 @@ describe('AgentSpecService write guard', () => {
             }),
           }),
         );
-        reg.defineInstance(ISessionWorkspaceContext, stubWorkspaceContext(WORK_DIR));
+        reg.defineInstance(ISessionWorkspaceContext, IProjectContext(WORK_DIR));
         reg.defineInstance(IBlobStore, new BlobStoreService(new InMemoryStorageService()));
         reg.definePartialInstance(IAgentContextMemoryService, {});
         reg.defineInstance(IAgentReminderService, createReminderStub());

@@ -40,7 +40,7 @@ import {
 } from '#/project/sessionLifecycle/sessionLifecycle';
 import type { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
 import {
-  IWorkspaceInstanceManager,
+  IProjectInstanceManager,
   type WorkspaceInstanceLease,
   type WorkspaceInstanceRef,
 } from '#/project/projectInstance/projectInstanceManager';
@@ -90,7 +90,7 @@ export class SessionManager implements ISessionManager {
   readonly onDidForkSession = this.didForkEmitter.event;
 
   constructor(
-    @IWorkspaceInstanceManager private readonly workspaces: IWorkspaceInstanceManager,
+    @IProjectInstanceManager private readonly workspaces: IProjectInstanceManager,
     @ISessionIndex private readonly index: ISessionIndex,
     @IEnvironmentDeclarationService
     private readonly environmentDeclarations: IEnvironmentDeclarationService,

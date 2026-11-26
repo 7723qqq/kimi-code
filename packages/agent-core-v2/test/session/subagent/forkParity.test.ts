@@ -47,7 +47,7 @@ import type {
 } from '#/environment/environment';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { WireRecord } from '#/wire/record';
-import { IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/project/projectInstance/projectInstanceManager';
+import { IProjectInstanceManager, type WorkspaceInstanceChange } from '#/project/projectInstance/projectInstanceManager';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
 import { stubFlag } from '../../app/flag/stubs';
@@ -227,7 +227,7 @@ describe('subagent task reminders and btw request parity', () => {
       telemetryServices(recordingTelemetry(telemetry)),
       sessionServices((reg) => {
         reg.defineDescriptor(IEnvironmentService, new SyncDescriptor(TestEnvironmentResolver));
-        reg.definePartialInstance(IWorkspaceInstanceManager, {
+        reg.definePartialInstance(IProjectInstanceManager, {
           onDidChange: Event.None as Event<WorkspaceInstanceChange>,
           get: () => undefined,
         });

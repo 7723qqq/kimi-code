@@ -12,9 +12,9 @@ import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventService } from '#/app/event/event';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
-import { IWorkspaceService, type Workspace } from '#/app/project/project';
-import { FileWorkspacePersistence } from '#/app/project/fileProjectPersistence';
-import { IWorkspacePersistence } from '#/app/project/projectPersistence';
+import { IProjectService, type Workspace } from '#/app/project/project';
+import { FileProjectPersistence } from '#/app/project/fileProjectPersistence';
+import { IProjectPersistence } from '#/app/project/projectPersistence';
 import { WorkspaceService } from '#/app/project/projectService';
 import { ErrorCodes, Error2 } from '#/errors';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
@@ -23,8 +23,8 @@ import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { FileProjectLocalConfigService } from '#/persistence/backends/node-fs/projectLocalConfigService';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 import { WorkspaceDirsService } from '#/project/projectDirs/projectDirsService';
 import { WorkspaceStateService } from '#/project/state/projectStateService';
 import { expectRejection } from '#test/helpers/assertions';
@@ -63,7 +63,7 @@ describe('WorkspaceDirsService session sandbox', () => {
       strict: true,
       additionalServices: (reg) => {
         registerStateServices(reg);
-        reg.definePartialInstance(IWorkspaceContext, {
+        reg.definePartialInstance(IProjectContext, {
           cwd: workspaceDir,
           workspaceId: 'ws_test',
           meta: {
@@ -86,14 +86,14 @@ describe('WorkspaceDirsService session sandbox', () => {
           withContext: () => ix.get(ILogService),
         } as never);
         reg.define(IProjectLocalConfigService, FileProjectLocalConfigService);
-        reg.definePartialInstance(IWorkspaceService, {
+        reg.definePartialInstance(IProjectService, {
           list: listWorkspaces,
           get: async (id: string) => registered.find((entry) => entry.id === id),
         } as never);
-        reg.definePartialInstance(IWorkspacePersistence, {
+        reg.definePartialInstance(IProjectPersistence, {
           onDidChange: registryChanges.event,
         });
-        reg.define(IWorkspaceDirs, WorkspaceDirsService);
+        reg.define(IProjectDirs, WorkspaceDirsService);
       },
     });
   });
@@ -103,8 +103,8 @@ describe('WorkspaceDirsService session sandbox', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  async function service(): Promise<IWorkspaceDirs> {
-    const dirs = ix.get(IWorkspaceDirs);
+  async function service(): Promise<IProjectDirs> {
+    const dirs = ix.get(IProjectDirs);
     await dirs.ready;
     return dirs;
   }
@@ -262,7 +262,7 @@ describe('WorkspaceDirsService primary lifecycle', () => {
   let dirB: string;
   let dirC: string;
   let disposables: DisposableStore;
-  let persistence: FileWorkspacePersistence;
+  let persistence: FileProjectPersistence;
   let workspaces: WorkspaceService;
 
   const normalize = (path: string): string => path.split(sep).join('/');
@@ -287,7 +287,7 @@ describe('WorkspaceDirsService primary lifecycle', () => {
       subscribe: () => ({ dispose: () => {} }),
     } as unknown as IEventService;
     persistence = disposables.add(
-      new FileWorkspacePersistence(
+      new FileProjectPersistence(
         new JsonAtomicDocumentStore(storage),
         storage,
         bootstrap,
@@ -327,7 +327,7 @@ describe('WorkspaceDirsService primary lifecycle', () => {
           workspaceId,
           cwd,
           meta: { id: workspaceId, root: cwd, name: 'test', kind, createdAt: 0, lastOpenedAt: 0 },
-        } as unknown as IWorkspaceContext,
+        } as unknown as IProjectContext,
         new FileProjectLocalConfigService(bootstrap, hostFs),
         {
           error: () => {},
@@ -350,17 +350,17 @@ describe('WorkspaceDirsService primary lifecycle', () => {
     const primary = createDirs(dirA, project.id, 'managed');
     await primary.ready;
     expect(primary.additionalDirs.map(normalize)).toEqual([normalize(dirB)]);
-    expect(primary.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirA });
+    expect(primary.sessionInfo().ISessionProjectInfo).toEqual({ [project.id]: dirA });
 
     const member = createDirs(dirB, 'wd_other_000000000000');
     await member.ready;
     expect(member.additionalDirs).toEqual([dirA]);
-    expect(member.sessionInfo().primaryByWorkspace).toEqual({ [project.id]: dirA });
+    expect(member.sessionInfo().ISessionProjectInfo).toEqual({ [project.id]: dirA });
 
     const outsider = createDirs(dirC, 'wd_else_000000000000');
     await outsider.ready;
     expect(outsider.additionalDirs).toEqual([]);
-    expect(outsider.sessionInfo().primaryByWorkspace).toEqual({});
+    expect(outsider.sessionInfo().ISessionProjectInfo).toEqual({});
   });
 
   it('moves legacy local config and its watcher when the associated primary changes', async () => {
@@ -412,7 +412,7 @@ describe('WorkspaceDirsService primary lifecycle', () => {
 
     expect(pinned.primary).toBe(dirC);
     expect(pinned.additionalDirs).toEqual([]);
-    expect(pinned.sessionInfo().primaryByWorkspace).toEqual({});
+    expect(pinned.sessionInfo().ISessionProjectInfo).toEqual({});
     expect(following.primary).toBe(dirA);
     expect(following.additionalDirs.map(normalize)).toEqual([normalize(dirB)]);
 
@@ -425,7 +425,7 @@ describe('WorkspaceDirsService primary lifecycle', () => {
     );
     expect(pinned.primary).toBe(dirC);
     expect(pinned.additionalDirs).toEqual([]);
-    expect(pinned.sessionInfo().primaryByWorkspace).toEqual({});
+    expect(pinned.sessionInfo().ISessionProjectInfo).toEqual({});
     expect(following.additionalDirs.map(normalize)).toEqual([normalize(dirA)]);
   }, 15_000);
 
@@ -449,7 +449,7 @@ describe('WorkspaceDirsService primary lifecycle', () => {
     expect(dirs.additionalDirs.map(normalize)).toEqual([normalize(dirA)]);
     expect(
       Object.fromEntries(
-        Object.entries(dirs.sessionInfo().primaryByWorkspace).map(([key, value]) => [
+        Object.entries(dirs.sessionInfo().ISessionProjectInfo).map(([key, value]) => [
           key,
           normalize(value),
         ]),
@@ -478,7 +478,7 @@ describe('WorkspaceDirsService primary lifecycle', () => {
 
     expect(dirs.primary).toBe(remoteCwd);
     expect(dirs.additionalDirs).toEqual([]);
-    expect(dirs.sessionInfo().primaryByWorkspace).toEqual({});
+    expect(dirs.sessionInfo().ISessionProjectInfo).toEqual({});
   });
 });
 

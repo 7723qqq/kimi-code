@@ -2,30 +2,30 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
 import { IConfigService } from '#/app/config/config';
 import { defineState } from '#/state/state';
-import { IWorkspaceStateService } from '#/project/state/projectState';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectStateService } from '#/project/state/projectState';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 
 import { workspaceTrustRequired } from './configSection';
-import { IWorkspaceTrust, type WorkspaceTrustChange } from './projectTrust';
-import { IWorkspaceTrustStore, type IWorkspaceTrustEntry } from './projectTrustStore';
+import { IProjectTrust, type WorkspaceTrustChange } from './projectTrust';
+import { IProjectTrustStore, type IProjectTrustEntry } from './projectTrustStore';
 
 export { TRUST_WORKSPACE_ENV, trustWorkspaceEnvTrusted } from './trustEnv';
 
 export const workspaceTrustTrustedKey = defineState<boolean>('workspaceTrust.trusted', () => false);
 
-export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust {
+export class WorkspaceTrustService extends Disposable implements IProjectTrust {
   declare readonly _serviceBrand: undefined;
 
   private initialization?: Promise<void>;
-  private inner: IWorkspaceTrustEntry;
+  private inner: IProjectTrustEntry;
   private innerSubscription?: { dispose(): void };
   private readonly changeEmitter = this._register(new Emitter<WorkspaceTrustChange>());
   readonly onDidChange = this.changeEmitter.event;
 
   constructor(
-    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
-    @IWorkspaceTrustStore private readonly trustStore: IWorkspaceTrustStore,
-    @IWorkspaceStateService private readonly states: IWorkspaceStateService,
+    @IProjectDirs private readonly dirs: IProjectDirs,
+    @IProjectTrustStore private readonly trustStore: IProjectTrustStore,
+    @IProjectStateService private readonly states: IProjectStateService,
     @IConfigService private readonly config: IConfigService,
   ) {
     super();
@@ -35,7 +35,7 @@ export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust
     this._register(this.dirs.onDidChange(() => this.rebindTrust()));
   }
 
-  private bindTrust(onDidChange?: () => void): IWorkspaceTrustEntry {
+  private bindTrust(onDidChange?: () => void): IProjectTrustEntry {
     this.innerSubscription?.dispose();
     const inner = this.trustStore.forRoots([this.dirs.primary, ...this.dirs.additionalDirs]);
     this.innerSubscription = inner.onDidChange((change) => {

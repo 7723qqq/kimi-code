@@ -1,17 +1,17 @@
 import type { IEnvironmentService } from '#/app/environment/environment';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import type { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
-import type { IWorkspaceMcpService } from '#/project/projectMcp/projectMcp';
+import type { IProjectContext } from '#/project/projectContext/projectContext';
+import type { IProjectDirs } from '#/project/projectDirs/projectDirs';
+import type { IProjectMcpService } from '#/project/projectMcp/projectMcp';
 import { WorkspaceMcpService } from '#/project/projectMcp/projectMcpService';
 import { WorkspaceMcpConfigService } from '#/project/projectMcpConfig/projectMcpConfigService';
-import type { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
+import type { IProjectTrust } from '#/project/projectTrust/projectTrust';
 
 import type { ProgramDependencies } from './programDependencies';
 
 export interface ProgramMcpLease {
-  readonly service: IWorkspaceMcpService;
+  readonly service: IProjectMcpService;
   dispose(): void;
 }
 
@@ -28,11 +28,11 @@ export class ProgramMcp {
 
   constructor(
     private readonly environments: IEnvironmentService,
-    private readonly context: IWorkspaceContext,
+    private readonly context: IProjectContext,
     private readonly dependencies: ProgramDependencies,
     private readonly hostFs: IHostFileSystem,
-    private readonly dirs: IWorkspaceDirs,
-    private readonly trust: IWorkspaceTrust,
+    private readonly dirs: IProjectDirs,
+    private readonly trust: IProjectTrust,
   ) {}
 
   async acquire(): Promise<ProgramMcpLease> {

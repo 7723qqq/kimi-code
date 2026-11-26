@@ -17,7 +17,7 @@ import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
-import { IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/project/projectInstance/projectInstanceManager';
+import { IProjectInstanceManager, type WorkspaceInstanceChange } from '#/project/projectInstance/projectInstanceManager';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import type { Environment } from '#/environment/environment';
 
@@ -56,7 +56,7 @@ describe('GitService', () => {
           acquire: () => ({ environment, track: (resource) => resource, dispose: () => {} }),
           acquireWhenReady: async () => ({ environment, track: (resource) => resource, dispose: () => {} }),
         });
-        reg.definePartialInstance(IWorkspaceInstanceManager, {
+        reg.definePartialInstance(IProjectInstanceManager, {
           findByRoot: () => ({ id: 'workspace-1' }) as never,
           onDidChange: Event.None as Event<WorkspaceInstanceChange>,
         });

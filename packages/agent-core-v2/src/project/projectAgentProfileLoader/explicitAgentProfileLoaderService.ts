@@ -12,8 +12,8 @@ import { agentProfileFromFile } from '#/project/projectAgentProfileLoader/intern
 import { AgentProfileLoaderBase } from '#/project/projectAgentProfileLoader/internal/agentProfileLoader';
 import { resolveAgentPath } from '#/project/projectAgentProfileLoader/internal/paths';
 import { IUserAgentProfileLoader } from '#/project/projectAgentProfileLoader/userAgentProfileLoader';
-import { IWorkspaceContext } from '#/project/projectContext/projectContext';
-import { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 
 import type { IExplicitAgentProfileLoader } from './explicitAgentProfileLoader';
 
@@ -28,8 +28,8 @@ export class ExplicitAgentProfileLoaderService
   protected override readonly fatal = true;
 
   constructor(
-    @IWorkspaceContext private readonly workspace: IWorkspaceContext,
-    @IWorkspaceDirs private readonly dirs: IWorkspaceDirs,
+    @IProjectContext private readonly workspace: IProjectContext,
+    @IProjectDirs private readonly dirs: IProjectDirs,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IHostFileSystem private readonly fs: IHostFileSystem,
     @ILogService log: ILogService,

@@ -7,7 +7,7 @@ import { join, relative } from 'pathe';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
+import { canonicalProjectRoot } from '#/_base/utils/paths';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
@@ -29,7 +29,7 @@ import {
   TRUST_WORKSPACE_ENV,
   trustWorkspaceEnvTrusted,
 } from '#/project/projectTrust/projectTrustService';
-import { IWorkspaceTrustStore } from '#/project/projectTrust/projectTrustStore';
+import { IProjectTrustStore } from '#/project/projectTrust/projectTrustStore';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 function stdioServer(name: string, command = 'npx'): GlobalMcpServerConfig {
@@ -86,22 +86,22 @@ describe('McpRegistryService', () => {
           },
         });
         reg.defineInstance(IHostFileSystem, new HostFileSystem());
-        reg.definePartialInstance(IWorkspaceTrustStore, {
+        reg.definePartialInstance(IProjectTrustStore, {
           forRoot: (root: string) =>
             ({
               refresh: async () =>
                 (trusted &&
                   (trustedKey === undefined ||
-                    canonicalWorkspaceRoot(trustedKey) === canonicalWorkspaceRoot(root))) ||
+                    canonicalProjectRoot(trustedKey) === canonicalProjectRoot(root))) ||
                 trustWorkspaceEnvTrusted((name: string) => env[name]),
-            }) as unknown as ReturnType<IWorkspaceTrustStore['forRoot']>,
+            }) as unknown as ReturnType<IProjectTrustStore['forRoot']>,
         });
         reg.definePartialInstance(IAtomicDocumentStore, {
           get: async <T>(_scope: string, key: string) => {
             if (
               !trusted ||
               (trustedKey !== undefined &&
-                key !== encodeWorkDirKey(canonicalWorkspaceRoot(trustedKey)))
+                key !== encodeWorkDirKey(canonicalProjectRoot(trustedKey)))
             ) {
               return undefined;
             }

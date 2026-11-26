@@ -114,7 +114,7 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkdir } from '#/session/workdir/workdir';
-import { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
+import { IProjectTrust } from '#/project/projectTrust/projectTrust';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { createWireMetadataRecord, type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
@@ -133,12 +133,12 @@ import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolC
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import '#/agent/toolActivation/toolActivationService';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+import { ISessionProjectInfo } from '#/session/projectInfo/projectInfo';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { EnvironmentBinding } from '#/environment/environment';
 import { EnvironmentError } from '#/environment/environmentRegistry';
 import { ScopeUnits, type Fiber } from '#/_base/di/fiber';
-import { IWorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManager';
+import { IProjectInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
@@ -276,13 +276,13 @@ describe('AgentLifecycleService', () => {
           ? 'sessions/ws_test/sess_test'
           : `sessions/ws_test/sess_test/${subKey}`,
     } as unknown as ISessionContext);
-    ix.stub(ISessionWorkspaceInfo, {
+    ix.stub(ISessionProjectInfo, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
-      primaryByWorkspace: {},
+      ISessionProjectInfo: {},
       additionalDirs: [],
       onDidChange: Event.None,
-    } as ISessionWorkspaceInfo);
+    } as ISessionProjectInfo);
     ix.stub(IEnvironmentService, {
       onDidChange: () => ({ dispose: () => {} }),
       _serviceBrand: undefined,
@@ -299,16 +299,16 @@ describe('AgentLifecycleService', () => {
       environmentId: 'local',
       fs: undefined,
     } as unknown as ISessionWorkdir);
-    ix.stub(IWorkspaceTrust, {
+    ix.stub(IProjectTrust, {
       get: async () => false,
-    } as unknown as IWorkspaceTrust);
+    } as unknown as IProjectTrust);
     ix.stub(IProjectPermissionRulesService, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
       rules: [],
       appendRules: async () => {},
     });
-    ix.stub(IWorkspaceInstanceManager, {
+    ix.stub(IProjectInstanceManager, {
       _serviceBrand: undefined,
       onDidChange: () => ({ dispose: () => {} }),
       get: () => undefined,

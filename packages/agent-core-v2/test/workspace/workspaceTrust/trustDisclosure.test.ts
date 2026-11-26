@@ -4,18 +4,18 @@ import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
 
-import type { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
-import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
+import type { IProjectDirs } from '#/project/projectDirs/projectDirs';
+import type { IProjectContext } from '#/project/projectContext/projectContext';
 import type { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IConfigService } from '#/app/config/config';
 import type { ILogService } from '#/_base/log/log';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IWorkspaceSkillCatalog } from '#/features/skill/project/projectSkillCatalog';
-import type { IWorkspaceAgentProfileLoader } from '#/project/projectAgentProfileLoader/projectAgentProfileLoader';
+import type { IProjectSkillCatalog } from '#/features/skill/project/projectSkillCatalog';
+import type { IProjectAgentProfileLoader } from '#/project/projectAgentProfileLoader/projectAgentProfileLoader';
 import type { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
-import type { IWorkspaceInstructionsService } from '#/project/projectInstructions/projectInstructions';
-import type { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
+import type { IProjectInstructionsService } from '#/project/projectInstructions/projectInstructions';
+import type { IProjectTrust } from '#/project/projectTrust/projectTrust';
 import { WorkspaceTrustDisclosureService } from '#/project/projectTrust/trustDisclosureService';
 
 const missing = async (path: string): Promise<never> => {
@@ -52,7 +52,7 @@ function service(
   sharedAdditionalDirs: readonly string[],
 ): WorkspaceTrustDisclosureService {
   return new WorkspaceTrustDisclosureService(
-    { _serviceBrand: undefined, workspaceId: 'wd_test', cwd } as unknown as IWorkspaceContext,
+    { _serviceBrand: undefined, workspaceId: 'wd_test', cwd } as unknown as IProjectContext,
     fsStub(),
     { homeDir: cwd, osHomeDir: cwd, args: {} } as unknown as IBootstrapService,
     { get: () => undefined } as unknown as IConfigService,
@@ -71,20 +71,20 @@ function service(
       ready: Promise.resolve(),
       primary: cwd,
       sharedAdditionalDirs,
-    } as unknown as IWorkspaceDirs,
-    { get: async () => false } as unknown as IWorkspaceTrust,
+    } as unknown as IProjectDirs,
+    { get: async () => false } as unknown as IProjectTrust,
     {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
       reloadSources: async () => {},
       catalog: { listSkills: () => [], getSkillRoots: () => [] },
-    } as unknown as IWorkspaceSkillCatalog,
-    { ready: Promise.resolve() } as unknown as IWorkspaceAgentProfileLoader,
+    } as unknown as IProjectSkillCatalog,
+    { ready: Promise.resolve() } as unknown as IProjectAgentProfileLoader,
     { entries: () => [] } as unknown as IAgentProfileRegistry,
     {
       ready: Promise.resolve(),
       snapshot: { agentsMdPaths: [] },
-    } as unknown as IWorkspaceInstructionsService,
+    } as unknown as IProjectInstructionsService,
     { warn: () => {} } as unknown as ILogService,
   );
 }

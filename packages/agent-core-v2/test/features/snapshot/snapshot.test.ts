@@ -20,7 +20,7 @@ import type { IHostClock } from '#/os/interface/hostClock';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { hostWorkspacePathSemantics } from '#/session/workspaceContext/workspacePaths';
 
-import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
+import { IProjectContext } from '../../session/workspaceContext/stub-workspace-context';
 
 const roots: string[] = [];
 
@@ -536,7 +536,7 @@ describe('SnapshotService', () => {
             dispose: () => {},
           }),
       } as unknown as IAgentEnvironmentService,
-      stubWorkspaceContext(root),
+      IProjectContext(root),
       { now: () => new Date(5_000), timeZone: () => 'UTC' } as unknown as IHostClock,
       {
         onWillExecuteTool: () => {
