@@ -240,7 +240,7 @@ describe('GoalInjection content', () => {
     await injectDynamic(ctx, true);
     const sparse = lastGoalReminder(context)!;
     expect(sparse).toContain('The full contract is in the earlier goal reminder.');
-    expect(sparse).toContain('Do not stop after one bounded slice');
+    expect(sparse).toContain('Do not stop when one part is finished');
 
     await goals.editGoalObjective({ objective: 'new task' });
     await injectDynamic(ctx, false);

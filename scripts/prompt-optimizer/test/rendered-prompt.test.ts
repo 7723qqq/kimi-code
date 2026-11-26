@@ -55,7 +55,7 @@ describe('full profile', () => {
     expect(rendered.reminderSourceId).toBeUndefined();
   });
 
-  test('delivers all six core contracts in the system text', async () => {
+  test('delivers all core contracts in the system text', async () => {
     const rendered = await renderProfile({ profile: 'full', model: FULL_MODEL, fixture });
     const channels = new Map(rendered.contractDelivery.map((e) => [e.id, e.channel]));
     for (const id of CORE_BEHAVIOR_CONTRACT_IDS) {
@@ -74,7 +74,7 @@ describe('full profile', () => {
 describe('a family-adapted model', () => {
   // Every model family renders the same `system.md`, so a DeepSeek run is not a
   // different prompt shape: its curated guidance arrives through
-  // `${model_adaptation_section}` inside the one system text, and all six core
+  // `${model_adaptation_section}` inside the one system text, and all core
   // contracts arrive there too. There is no reminder channel to measure.
   test('renders the one system prompt with the family guidance embedded', async () => {
     const rendered = await renderProfile({ profile: 'full', model: MINIMAL_MODEL, fixture });

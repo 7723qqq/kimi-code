@@ -40,7 +40,7 @@ Three project files carry agent guidance, and each owns one job. Only the first 
 
 Precedence when they disagree: `DEVELOP.md` and `CONVENTIONS.md` describe the same repository and must not contradict each other; when a document is stale, the code wins and the document is fixed in the same change. A subdirectory `DEVELOP.md` narrows this file for its subtree; it cannot widen permissions or override the runtime system prompt.
 
-User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md` override are separate surfaces: they belong to the user, are never committed here, and are not part of any repository fixture. The runtime composition is the authority for both — `packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts` owns the six core behavior rules, and `profile-shared.ts` decides what each profile receives in the system prompt, in a reminder, or intentionally omits.
+User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md` override are separate surfaces: they belong to the user, are never committed here, and are not part of any repository fixture. The runtime composition is the authority for both — `packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts` owns the five core behavior rules, and `profile-shared.ts` decides what each profile receives in the system prompt, in a reminder, or intentionally omits.
 
 ---
 
@@ -635,7 +635,7 @@ A prompt rule has exactly one owner; templates and project files reference it in
 
 | Concern | Owner |
 | --- | --- |
-| The six core behavior rules (`authority_and_untrusted_content`, `act_and_verify`, `tools_and_repository_context`, `safety_and_scope`, `failure_and_partial_progress`, `communication`) | `packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts` |
+| The five core behavior rules (`authority_and_untrusted_content`, `act_and_verify`, `tools_and_repository_context`, `safety_and_scope`, `communication`) | `packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts` |
 | The prompt skeleton: persona, Communicating, Tool use, Risky actions, Context management, Environment, and the placeholders the sections below are injected through | `packages/agent-core-v2/src/app/agentProfileCatalog/system.md` |
 | Coding guidance, injected through `${coding_section}`; rendered empty for read-only profiles | `coding.md` beside `system.md` |
 | Change-work guidance and TodoList guidance, injected through `${delivering_work_section}`; a read-only profile receives the short variant instead | `delivering-work.md` / `delivering-work-read-only.md` beside `system.md` |

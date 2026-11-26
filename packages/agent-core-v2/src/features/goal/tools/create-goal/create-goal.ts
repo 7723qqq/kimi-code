@@ -8,11 +8,15 @@ export const CreateGoalToolInputSchema = z
     objective: z
       .string()
       .min(1)
-      .describe('The objective to pursue. Must have a verifiable end state.'),
+      .describe(
+        'The work to pursue, used as context. Keep it concise and reference long task descriptions by file path.',
+      ),
     completionCriterion: z
       .string()
       .optional()
-      .describe('How to verify the goal is complete. Include when the user provides one.'),
+      .describe(
+        'The single verifiable condition that defines completion. The independent judge evaluates this condition after every turn. Provide it whenever the user states or implies a checkable end state; it must be observable from tool results, files, commands, or tests.',
+      ),
     replace: z
       .boolean()
       .optional()

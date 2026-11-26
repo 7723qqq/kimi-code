@@ -33,7 +33,7 @@ import { GoalErrors } from '#/features/goal/errors';
 import { IGoalDeadlineScheduler } from '#/features/goal/goalDeadlineScheduler';
 import { GoalUpdate, GoalUpdated } from '#/features/goal/goalOps';
 import { AgentGoalService, IAgentGoalService } from '#/features/goal/goalService';
-import { IAgentGoalJudgeService } from '#/agent/goal/judge/goalJudgeService';
+import { IAgentGoalJudgeService, type JudgeVerdict } from '#/agent/goal/judge/goalJudgeService';
 import { UpdateGoalToolInputSchema } from '#/features/goal/tools/update-goal/update-goal';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { APIConnectionError, APIStatusError } from '#/llm-adapter/contract/errors';
@@ -69,7 +69,9 @@ import {
   type TestAgentServiceOverride,
   wireRecordPersistenceServices,
 } from '../../harness';
-import { stubAgentSwarm, stubGoalJudge } from './stubs';
+import { stubAgentSwarm, stubGoalJudgeDynamic } from './stubs';
+
+const judgeVerdicts: JudgeVerdict[] = [];
 
 function createUnrestoredTestAgent(
   ...inputs: readonly (TestAgentServiceOverride | TestAgentOptions)[]
@@ -81,7 +83,7 @@ function createTestAgent(
   ...inputs: readonly (TestAgentServiceOverride | TestAgentOptions)[]
 ): TestAgentContext {
   const context = createUnrestoredTestAgent(
-    agentService(IAgentGoalJudgeService, stubGoalJudge()),
+    agentService(IAgentGoalJudgeService, stubGoalJudgeDynamic(() => judgeVerdicts.shift())),
     ...inputs,
   );
   return context;
@@ -312,6 +314,7 @@ describe('AgentGoalService', () => {
   let telemetry: TelemetryRecord[];
 
   beforeEach(() => {
+    judgeVerdicts.length = 0;
     const persistence = new InMemoryWireRecordPersistence();
     telemetry = [];
     events = [];
@@ -576,6 +579,37 @@ describe('AgentGoalService', () => {
       expect(continuationTurnIds).toEqual(endedTurnIds);
       expect(endedTurnReasons).toEqual(['completed', 'completed']);
       expect(goals.getGoal().goal).toBeNull();
+    });
+
+    it('judges a criterion goal after each turn and injects the rejection reason into the continuation', async () => {
+      await ctx.restorePersisted();
+      ctx.configure({ tools: [] });
+      ctx.mockNextResponse({ type: 'text', text: 'First pass finished.' });
+      ctx.mockNextResponse({ type: 'text', text: 'Second pass finished.' });
+      judgeVerdicts.push(
+        { ok: false, reason: 'No test output proves the criterion yet.' },
+        { ok: true, reason: 'The transcript shows the test suite passing.' },
+      );
+      const continuationTexts: string[] = [];
+      ctx.get(IEventBus).subscribe(TurnStarted, (event) => {
+        if (event.origin.kind === 'system_trigger' && event.origin.name === 'goal_continuation') {
+          continuationTexts.push(JSON.stringify(context.get()));
+        }
+      });
+
+      await goals.createGoal({
+        objective: 'ship the parser fix',
+        completionCriterion: 'the parser test suite reports 12 passing tests',
+      });
+      await goals.markBlocked({ reason: 'need credentials' });
+      await goals.resumeGoal({ continueIfBlocked: true });
+
+      await waitForAssertion(() => {
+        expect(goals.getGoal().goal).toBeNull();
+      });
+      expect(continuationTexts).toHaveLength(2);
+      expect(continuationTexts[1]).toContain('No test output proves the criterion yet.');
+      expect(continuationTexts[1]).toContain('<untrusted_goal_condition>');
     });
 
     it('pauseOnInterrupt parks active goals and no-ops for stopped goals', async () => {

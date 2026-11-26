@@ -15,6 +15,7 @@ import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { ContextAppendMessage } from '#/agent/contextMemory/contextEvents';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
+import { IAgentGoalJudgeService, type JudgeVerdict } from '#/agent/goal/judge/goalJudgeService';
 import { GoalPauseReason } from '#/agent/interaction/engineMessages';
 import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
 import { LoopErrors } from '#/agent/loop/errors';
@@ -132,15 +133,16 @@ export const GOAL_OBJECTIVE_EDITED_TOOL_RESULT =
 
 const GOAL_CONTINUATION_PROMPT = [
   'Continue working toward the active goal.',
-  'Do not stop after one bounded slice and do not end the turn merely to report progress.',
-  'Keep working until the completion condition is met and the separate judge accepts it, or a',
+  'Do not stop when one part is finished and do not end the turn merely to report progress.',
+  'Keep working until the completion condition is met and the independent judge accepts it, or a',
   'genuine impasse needs the user, or the goal is impossible, unsafe, or contradictory.',
-  'A separate judge verifies the completion condition from the transcript. `UpdateGoal complete`',
-  'is a request, not a self-certification; if the judge rejects it, continue from the judge reason.',
+  'The judge evaluates the completion condition after a turn and when you submit completion.',
+  '`UpdateGoal complete` is a request, not a self-certification; if the judge rejects it, continue',
+  'from the judge reason.',
   'Do not treat a runtime continuation as permission to stop early: when the turn ends with work',
   'remaining, the runtime continues automatically. If you are waiting for background work, call',
   'WaitFor inside the turn.',
-  'Do not mark complete after only a plan, a summary, a first pass, or a partial result. Do not',
+  'Do not submit completion after only a plan, a summary, a first pass, or a partial result. Do not',
   'use `blocked` because the work is large, hard, slow, uncertain, or needs more turns; use it',
   'only for a genuine impasse or a safety boundary, and do not leave the goal active while',
   'repeating the same blocker.',
@@ -153,6 +155,38 @@ const GOAL_STEP_CAP_CONTINUATION_PROMPT = [
   'completion signal.',
   GOAL_CONTINUATION_PROMPT,
 ].join(' ');
+
+const MAX_GOAL_JUDGE_REASON_LENGTH = 2000;
+
+const GOAL_CHECKIN_LEAD = [
+  'The previous turn ended, but the independent judge did not confirm that the goal condition is met.',
+  'Continue from the current state and do not repeat work that is already complete.',
+  'Do not ask the user whether to continue, and do not end the turn merely to report progress.',
+].join(' ');
+
+function buildContinuationPrompt(
+  state: GoalState,
+  stepCapped: boolean,
+  judgeReason: string | undefined,
+): string {
+  const base = stepCapped ? GOAL_STEP_CAP_CONTINUATION_PROMPT : GOAL_CONTINUATION_PROMPT;
+  if (judgeReason === undefined) return base;
+  const condition = state.completionCriterion?.trim() || state.objective;
+  return [
+    GOAL_CHECKIN_LEAD,
+    `<untrusted_goal_condition>\n${escapeGoalData(condition)}\n</untrusted_goal_condition>`,
+    `Judge reason: ${escapeGoalData(truncateGoalText(judgeReason, MAX_GOAL_JUDGE_REASON_LENGTH))}`,
+    base,
+  ].join('\n\n');
+}
+
+function truncateGoalText(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}\u2026`;
+}
+
+function escapeGoalData(text: string): string {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
 
 export interface GoalForkNoticeState {
   readonly goalPresent: boolean;
@@ -734,7 +768,40 @@ async function handleTurnEnded(
   const state = context.runtime.getState().goal;
   if (state === null || state.status !== 'active' || state.goalId !== lifecycleGoalId) return;
   if (blockIfBudgetReached(context, state) !== null) return;
-  launchContinuationTurn(context, lifecycleGoalId, stepCapped);
+  const verdict =
+    state.completionCriterion === undefined || state.completionCriterion.trim().length === 0
+      ? null
+      : await evaluateGoalCondition(context, state);
+  if (verdict !== null) {
+    if (verdict.impossible === true) {
+      await markBlocked(context, { reason: verdict.reason }, 'runtime');
+      return;
+    }
+    if (verdict.ok) {
+      await markComplete(context, { reason: verdict.reason }, 'runtime');
+      return;
+    }
+  }
+  launchContinuationTurn(context, lifecycleGoalId, stepCapped, verdict?.reason);
+}
+
+async function evaluateGoalCondition(
+  context: GoalOperationContext,
+  state: GoalState,
+): Promise<JudgeVerdict | null> {
+  const condition = state.completionCriterion?.trim();
+  if (condition === undefined || condition.length === 0) return null;
+  let judge: IAgentGoalJudgeService;
+  try {
+    judge = context.runtime.get(IAgentGoalJudgeService);
+  } catch {
+    return null;
+  }
+  try {
+    return await judge.evaluate(toSnapshot(context, state));
+  } catch {
+    return null;
+  }
 }
 
 function clearTurnTracking(
@@ -812,10 +879,17 @@ function launchContinuationTurn(
   context: GoalOperationContext,
   goalId: string,
   stepCapped = false,
+  judgeReason?: string,
 ): void {
   if (!isActiveGoal(context, goalId)) return;
   if (context.effects.pendingContinuation !== undefined) return;
-  const prompt = stepCapped ? GOAL_STEP_CAP_CONTINUATION_PROMPT : GOAL_CONTINUATION_PROMPT;
+  const state = context.runtime.getState().goal;
+  const prompt =
+    state === null
+      ? stepCapped
+        ? GOAL_STEP_CAP_CONTINUATION_PROMPT
+        : GOAL_CONTINUATION_PROMPT
+      : buildContinuationPrompt(state, stepCapped, judgeReason);
   const message: ContextMessage = {
     role: 'user',
     content: [

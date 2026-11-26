@@ -284,7 +284,6 @@ const CORE_CONTRACT_ORDER = [
   'act_and_verify',
   'tools_and_repository_context',
   'safety_and_scope',
-  'failure_and_partial_progress',
   'communication',
 ] as const;
 

@@ -42,7 +42,6 @@ const ids = [
   'act_and_verify',
   'tools_and_repository_context',
   'safety_and_scope',
-  'failure_and_partial_progress',
   'communication',
 ];
 for (const id of ids) {

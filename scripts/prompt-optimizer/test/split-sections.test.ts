@@ -176,7 +176,7 @@ describe('the benchmark can render either prompt shape', () => {
     expect(readOnly.fixtureSummary.readOnly).toBe(true);
   });
 
-  test('both shapes keep all six core contracts in the system text', async () => {
+  test('both shapes keep all core contracts in the system text', async () => {
     for (const readOnly of [false, true]) {
       const rendered = await renderProfile({
         profile: 'full',

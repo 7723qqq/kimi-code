@@ -112,8 +112,9 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
         error: error instanceof Error ? error.message : String(error),
       });
       return {
-        ok: true,
-        reason: 'Judge evaluation failed (network/timeout) \u2014 allowing completion.',
+        ok: false,
+        reason:
+          'The judge could not evaluate the goal because its request failed; continue working toward the condition.',
       };
     }
 
@@ -160,8 +161,8 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
 
     this.log.warn('goal.judge.transcript.retryFailed', { goalId: goal.goalId });
     return {
-      ok: true,
-      reason: `Judge response could not be parsed after retry \u2014 allowing completion. Response: ${responseText.slice(0, 200)}`,
+      ok: false,
+      reason: `The judge response could not be parsed after retry; continue working toward the condition. Response: ${responseText.slice(0, 200)}`,
     };
   }
 }

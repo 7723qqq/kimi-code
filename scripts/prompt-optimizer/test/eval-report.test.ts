@@ -19,7 +19,6 @@ const MINIMAL_DELIVERY = [
   { id: 'act_and_verify', channel: 'system' },
   { id: 'tools_and_repository_context', channel: 'reminder' },
   { id: 'safety_and_scope', channel: 'reminder' },
-  { id: 'failure_and_partial_progress', channel: 'reminder' },
   { id: 'communication', channel: 'reminder' },
 ];
 
@@ -276,7 +275,7 @@ describe('nothing secret reaches a report', () => {
     );
     const text = formatEvaluationReport(report);
     expect(text).toContain('Effectiveness: available');
-    expect(text).toContain('Contract coverage (6/6 core ids)');
+    expect(text).toContain('Contract coverage (5/5 core ids)');
     expect(containsSecretLike(text)).toBe(false);
     expect(text).not.toContain('supersecretvalue123');
   });

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import {
-  type IAgentGoalJudgeService,
+  IAgentGoalJudgeService,
   type JudgeVerdict,
 } from '#/agent/goal/judge/goalJudgeService';
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -54,6 +54,7 @@ describe('goal tools', () => {
     ctx = createTestAgent(
       agentService(IAgentLoopService, loopService),
       agentService(IAgentSwarmService, stubAgentSwarm()),
+      agentService(IAgentGoalJudgeService, judgeStub),
       permissionModeServices('auto'),
     );
     goals = ctx.get(IAgentGoalService);
@@ -306,7 +307,11 @@ describe('goal tools', () => {
     const result = await execution.execute({ turnId: 0, toolCallId: 'call_c', signal });
 
     expect(result.stopTurn).toBeUndefined();
-    expect(result.output).toContain('Goal completion rejected by judge: the tests were never run');
+    expect(result.output).toContain(
+      'Goal completion rejected by the independent judge: the tests were never run',
+    );
+    expect(result.output).toContain('Goal condition: ship it');
+    expect(result.output).toContain('Do not ask the user whether to continue.');
     expect(goals.getGoal().goal?.status).toBe('active');
   });
 

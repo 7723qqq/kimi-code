@@ -62,7 +62,7 @@ describe('the case set carries the contract mapping', () => {
     }
   });
 
-  test('all six core contracts are covered by at least one case', () => {
+  test('all core contracts are covered by at least one case', () => {
     const covered = new Set(BENCHMARK_CASES.flatMap((benchCase) => benchCase.contractIds ?? []));
     for (const id of CORE_BEHAVIOR_CONTRACT_IDS) expect(covered.has(id)).toBe(true);
   });

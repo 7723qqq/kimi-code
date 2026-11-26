@@ -78,11 +78,12 @@ export class UpdateGoalTool implements IUpdateGoalTool {
             }
             return {
               output:
-                `Goal completion rejected by judge: ${verdict.reason}\n` +
-                'Continue working toward the goal objective.',
+                `Goal completion rejected by the independent judge: ${verdict.reason}\n` +
+                `Goal condition: ${goalAtExecution.completionCriterion?.trim() || goalAtExecution.objective}\n` +
+                'Continue working toward the condition. Do not ask the user whether to continue.',
             };
           }
-          const completed = await this.goal.markComplete({}, 'model');
+          const completed = await this.goal.markComplete({ reason: verdict.reason }, 'model');
           if (completed === null) {
             return { output: 'Goal not completed: no active goal.' };
           }
