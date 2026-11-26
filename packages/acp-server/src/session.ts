@@ -35,6 +35,7 @@ import type {
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
   ToolProgressEvent,
+  ToolUpdatedEvent,
 } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import type { ToolResultEvent } from '@moonshot-ai/agent-core-v2/contract';
 import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
@@ -77,6 +78,7 @@ import {
   toolCallStartToSessionUpdate,
   toolProgressToSessionUpdate,
   toolResultToSessionUpdate,
+  toolUpdatedToSessionUpdate,
   type TurnEndError,
   usageUpdateNotification,
   isAuthError,
@@ -329,6 +331,11 @@ export class AcpSession {
       events.on('tool.progress', (event) => {
         this.dispatchTurnEvent(event.turnId, () => {
           this.onToolProgress(event);
+        });
+      }),
+      events.on('tool.updated', (event) => {
+        this.dispatchTurnEvent(event.turnId, () => {
+          this.onToolUpdated(event);
         });
       }),
       events.on('tool.result', (event) => {
@@ -855,6 +862,11 @@ export class AcpSession {
     // helper forwards only `status` updates with text (as a title refresh)
     // and returns null for everything else, which `emit` drops.
     this.emit(toolProgressToSessionUpdate(this.sessionId, event as unknown as ToolProgressEvent));
+  }
+
+  private onToolUpdated(event: AgentEventPayloads['tool.updated']): void {
+    if (this.driverFor(event.turnId) === undefined) return;
+    this.emit(toolUpdatedToSessionUpdate(this.sessionId, event as unknown as ToolUpdatedEvent));
   }
 
   private onToolResult(event: AgentEventPayloads['tool.result']): void {
