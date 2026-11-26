@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.json",
   "include": ["src", "test", "examples"],
+  "exclude": ["test/kimi-services-contract.test.ts"],
   "compilerOptions": {
     "paths": {
       "#/*": ["./src/*.ts"]

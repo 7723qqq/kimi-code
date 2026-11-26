@@ -73,7 +73,7 @@ describe('kimi web foreground shutdown', () => {
             : stderr.test(stderrText);
         expect(readsAsExpected, stderrText).toBe(true);
         expect(server.stdoutTail()).not.toContain('Kimi web:');
-        await expect(readdir(instances)).resolves.toEqual(failure === 'server' ? [registration] : []);
+        await expect(readdir(instances)).resolves.toEqual(failure === 'server' ? [registration!] : []);
         expect(await server.networkViolations()).toEqual([]);
       } finally {
         try {
