@@ -256,6 +256,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
               },
           { touchUpdatedAt: false },
         );
+      } else {
+        await handle.accessor.get(ISessionMetadata).update(
+          { environmentCwd: opts.workDir },
+          { touchUpdatedAt: false },
+        );
       }
       const agents = handle.accessor.get(IAgentLifecycleService);
       const main =

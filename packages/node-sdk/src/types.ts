@@ -457,6 +457,7 @@ export interface ExportSessionResult {
 
 export interface ListSessionsOptions {
   readonly workDir?: string;
+  readonly scope?: 'workdir' | 'project';
   readonly sessionId?: string;
   /**
    * Include archived sessions in the listing. Defaults to non-archived only.
@@ -594,6 +595,7 @@ export interface SessionSummary {
   readonly titleKind?: SessionTitleKind;
   readonly lastPrompt?: string;
   readonly workDir: string;
+  readonly projectWorkDir?: string;
   readonly sessionDir: string;
   readonly createdAt: number;
   readonly updatedAt: number;

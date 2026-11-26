@@ -53,3 +53,10 @@ export {
   type Subscribe,
   type UntilOptions,
 } from '#/fixtures/wait';
+
+export {
+  bashPathOf,
+  createGitRepository,
+  createGitWorktree,
+  type GitWorktreeLayout,
+} from '#/fixtures/git';

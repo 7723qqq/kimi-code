@@ -6,7 +6,7 @@ import {
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
-} from '@moonshot-ai/core';
+} from '@moonshot-ai/agent-core-v2';
 
 import { log } from '#/logging/logger';
 
@@ -1052,6 +1052,84 @@ export const KIMI_ERROR_INFO = {
     public: true,
     action: 'Check the workspace root or open a workspace first.',
   },
+  'worktree.disabled': {
+    title: 'Worktrees are disabled',
+    retryable: false,
+    public: true,
+    action: 'Set KIMI_CODE_EXPERIMENTAL_WORKTREE=1 or enable "worktree" under [experimental] in config.toml.',
+  },
+  'worktree.not_git_repo': {
+    title: 'Not a git repository',
+    retryable: false,
+    public: true,
+    action: 'Run this from inside a git repository.',
+  },
+  'worktree.no_commits': {
+    title: 'Repository has no commits',
+    retryable: false,
+    public: true,
+    action: 'Make a first commit, or pick another starting point.',
+  },
+  'worktree.base_not_found': {
+    title: 'Starting point not found',
+    retryable: false,
+    public: true,
+    action: 'Pick an existing commit, branch or tag as the starting point.',
+  },
+  'worktree.invalid_name': {
+    title: 'Invalid worktree name',
+    retryable: false,
+    public: true,
+    action: 'Use letters, digits, dots, dashes and underscores, without a slash.',
+  },
+  'worktree.already_exists': {
+    title: 'Worktree already exists',
+    retryable: false,
+    public: true,
+    action: 'Pick another name, or enter the existing worktree.',
+  },
+  'worktree.git_failed': {
+    title: 'Git command failed',
+    retryable: true,
+    public: true,
+    action: 'Read the git output in the error details, fix the cause, then retry.',
+  },
+  'worktree.include_failed': {
+    title: 'Copying .worktreeinclude files failed',
+    retryable: true,
+    public: true,
+    action: 'Check .worktreeinclude and the error details, then retry.',
+  },
+  'worktree.cancelled': {
+    title: 'Worktree creation cancelled',
+    retryable: true,
+    public: true,
+    action: 'Start the creation again when ready.',
+  },
+  'worktree.not_found': {
+    title: 'Worktree not found',
+    retryable: false,
+    public: true,
+    action: 'List the Kimi worktrees of this repository and check the path.',
+  },
+  'worktree.has_uncommitted': {
+    title: 'Worktree has uncommitted changes',
+    retryable: false,
+    public: true,
+    action: 'Commit the changes, or confirm discarding them.',
+  },
+  'worktree.has_unique_commits': {
+    title: 'Worktree has commits found nowhere else',
+    retryable: false,
+    public: true,
+    action: 'Push or merge the commits, or confirm discarding them.',
+  },
+  'worktree.in_use': {
+    title: 'Worktree is open in another session',
+    retryable: false,
+    public: true,
+    action: 'Close the other Kimi Code sessions working in this worktree, then try again.',
+  },
   not_implemented: {
     title: 'Not implemented',
     retryable: false,
@@ -1165,6 +1243,16 @@ export function makeErrorPayload(
  * Anything else collapses to `internal`. We never echo `cause` or stack on
  * the wire.
  */
+function isApiErrorLike(error: unknown): error is APIStatusError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (typeof (error as { statusCode?: unknown }).statusCode === 'number' ||
+      (error as { name?: unknown }).name === 'APIStatusError') &&
+    typeof (error as { message?: unknown }).message === 'string'
+  );
+}
+
 export function toKimiErrorPayload(error: unknown): KimiErrorPayload {
   if (isKimiError(error)) {
     return {
@@ -1176,13 +1264,14 @@ export function toKimiErrorPayload(error: unknown): KimiErrorPayload {
     };
   }
 
-  if (error instanceof APIStatusError) {
+  if (error instanceof APIStatusError || isApiErrorLike(error)) {
+    const apiError = error as APIStatusError;
     const code: KimiErrorCode =
-      error instanceof APIProviderQuotaExhaustedError
+      apiError instanceof APIProviderQuotaExhaustedError
         ? ErrorCodes.PROVIDER_API_ERROR
-        : error instanceof APIProviderRateLimitError || error.statusCode === 429
+        : apiError instanceof APIProviderRateLimitError || apiError.statusCode === 429
           ? ErrorCodes.PROVIDER_RATE_LIMIT
-          : error.statusCode === 401
+          : apiError.statusCode === 401
             ? ErrorCodes.PROVIDER_AUTH_ERROR
             : ErrorCodes.PROVIDER_API_ERROR;
     return {
@@ -1190,8 +1279,8 @@ export function toKimiErrorPayload(error: unknown): KimiErrorPayload {
       message: error.message,
       name: error.name,
       details: {
-        statusCode: error.statusCode,
-        requestId: error.requestId,
+        statusCode: apiError.statusCode,
+        requestId: apiError.requestId,
       },
       retryable: explicitRetryable(error) ?? KIMI_ERROR_INFO[code].retryable,
     };

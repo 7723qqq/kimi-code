@@ -142,16 +142,18 @@ import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2';
 import { buildDaemonFileUrl } from '@moonshot-ai/agent-core-v2';
 import { join } from 'node:path';
 
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { encodeWorkDirKey, isAncestorOrSelf } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import { ITowerRateLimitService } from '@moonshot-ai/agent-core-v2';
 import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2/features/tower/tools/status/statusReader';
 import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
+import { IWorktreeService } from '@moonshot-ai/agent-core-v2/app/worktree/worktree';
 import { fsSuggestRequestSchema, type IProjectFsService } from '@moonshot-ai/agent-core-v2/project/projectFs/fs';
 import { ILogService } from '@moonshot-ai/agent-core-v2';
 import { IAppendLogStore } from '@moonshot-ai/agent-core-v2/persistence/interface/appendLogStore';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
-import { bootstrap, DEFAULT_AGENT_PROFILE_NAME, drainLogCloses, drainQueryStoreDisposals, drainSessionIndexMirror, ensureKimiHome, ensureMainAgent, getOrRestoreAgent, reloadOnStale, agentContextOf, IAgentChangeNotifierService, IAgentContextMemoryService, IAgentConversationUndoService, IAgentCronService, IAgentFullCompactionService, IAgentGoalService, IAgentPluginService, IAgentLifecycleService, IAgentEnvironmentBindingService, IAgentEnvironmentService, IAgentLoopService, IAgentPermissionModeService, IAgentPermissionRulesService, IAgentPluginCommandService, IAgentProfileService, IAgentSkillService, IAgentSwarmService, IAgentHelloWorldService, IAgentTaskService, ISessionTokenCountingService, IAgentToolPolicyService, IAgentToolRegistryService, type HostUiCapability, type PluginNodeRunner, IAgentTowerService, IBootstrapService, IConfigService, IEventService, IFeedbackService, IFlagService, IHostEnvironment, IHostFileSystem, IMcpManagementService, IMcpOAuthService, IModelService, IProviderService, ISessionBtwService, ISessionContext, ISessionWorkdir, ISessionExportService, ISessionIndex, ISessionIndexMirror, ISessionInitService, ISessionManager, ISessionMcpHandle, ISessionMetadata, ISessionSkillCatalog, IAgentTodoService, ISessionWorkspaceContext, ITelemetryService, IProjectAliases, ISessionActivityView, IProjectInstanceManager, IEnvironmentService, IEnvironmentDeclarationService, closeSessionById, followSessionLifecycles, getLiveSessionById, isError2, programForSession, environmentEntryInfo, snapshotAgentEnvironmentBinding, resumeSessionById, sessionDirOf, workspacePersistenceScope, logSeed, MAIN_AGENT_ID, prepareSystemPromptContext, PRINT_MAX_TURNS_DEFAULT, PRINT_WAIT_CEILING_S_DEFAULT, ProfileError, ProfileErrors, Error2, resolveAgentTaskConfig, resolveConfigPath, resolveKimiHome, resolveLoggingConfig, resolvePrintBackgroundMode, summarizeSkill, towerEnterFailureMessage, type IAgentScopeHandle, type IDisposable, type ISessionScopeHandle, type McpManagedServer, Scope, type ServicesAccessor, ProjectInstance, type SessionSummary as CoreSessionSummary, type ScopeSeed, IAgentModeMutexService, IAgentSpecService, ISessionPromptOptimizerService, SPEC_REQUIRED_FILES } from '@moonshot-ai/agent-core-v2';
+import { bootstrap, DEFAULT_AGENT_PROFILE_NAME, drainLogCloses, drainQueryStoreDisposals, drainSessionIndexMirror, ensureKimiHome, ensureMainAgent, getOrRestoreAgent, reloadOnStale, agentContextOf, IAgentChangeNotifierService, IAgentContextMemoryService, IAgentConversationUndoService, IAgentCronService, IAgentFullCompactionService, IAgentGoalService, IAgentPluginService, IAgentLifecycleService, IAgentEnvironmentBindingService, IAgentEnvironmentService, IAgentLoopService, IAgentPermissionModeService, IAgentPermissionRulesService, IAgentPluginCommandService, IAgentProfileService, IAgentSkillService, IAgentSwarmService, IAgentHelloWorldService, IAgentTaskService, ISessionTokenCountingService, IAgentToolPolicyService, IAgentToolRegistryService, type HostUiCapability, type PluginNodeRunner, IAgentTowerService, IBootstrapService, IConfigService, IEventService, IFeedbackService, IFlagService, IHostEnvironment, IHostFileSystem, IMcpManagementService, IMcpOAuthService, IModelService, IProviderService, ISessionBtwService, ISessionContext, ISessionWorkdir, ISessionExportService, ISessionIndex, ISessionIndexMirror, ISessionInitService, ISessionManager, ISessionMcpHandle, ISessionMetadata, ISessionSkillCatalog, IAgentTodoService, ISessionWorkspaceContext, ITelemetryService, IProjectAliases, IProjectService, ISessionActivityView, IProjectInstanceManager, IEnvironmentService, IEnvironmentDeclarationService, closeSessionById, followSessionLifecycles, getLiveSessionById, isError2, programForSession, environmentEntryInfo, snapshotAgentEnvironmentBinding, resumeSessionById, sessionDirOf, workspacePersistenceScope, logSeed, MAIN_AGENT_ID, prepareSystemPromptContext, PRINT_MAX_TURNS_DEFAULT, PRINT_WAIT_CEILING_S_DEFAULT, ProfileError, ProfileErrors, Error2, resolveAgentTaskConfig, resolveConfigPath, resolveKimiHome, resolveLoggingConfig, resolvePrintBackgroundMode, summarizeSkill, towerEnterFailureMessage, type IAgentScopeHandle, type IDisposable, type ISessionScopeHandle, type McpManagedServer, Scope, type ServicesAccessor, ProjectInstance, type SessionSummary as CoreSessionSummary, type SessionSummary as V2SessionSummary, type ScopeSeed, IAgentModeMutexService, IAgentSpecService, ISessionPromptOptimizerService, SPEC_REQUIRED_FILES } from '@moonshot-ai/agent-core-v2';
+import { IProjectSessions } from '@moonshot-ai/agent-core-v2/app/projectSessions/projectSessions';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 import type { FeedbackSubmitInput } from '@moonshot-ai/agent-core-v2/app/auth/feedback';
 import {
@@ -296,6 +298,18 @@ import {
   v2SummaryToSessionSummary,
 } from '#/v2/session-mapper';
 import { SessionEventWiring } from '#/v2/session-wiring';
+import type {
+  CreatedWorktree,
+  CreateWorktreeInput,
+  CreateWorktreeOptions,
+  InspectWorktreeRemovalInput,
+  RemoveWorktreeInput,
+  RunSetupScriptInput,
+  RunSetupScriptOptions,
+  WorkLocation,
+  WorktreeListing,
+  WorktreeRemovalCheck,
+} from '#/worktree';
 
 export interface SDKRpcClientV2Options {
   readonly homeDir?: string;
@@ -795,6 +809,40 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return found;
   }
 
+  override async resolveWorkLocation(cwd: string): Promise<WorkLocation> {
+    const resolved = normalizeRequiredWorkDir('resolveWorkLocation', cwd);
+    await this.configReady;
+    return withKimiErrors(this.engineAccessor.get(IWorktreeService).locate(resolved));
+  }
+
+  override async listWorktrees(cwd: string): Promise<WorktreeListing> {
+    await this.configReady;
+    return withKimiErrors(this.engineAccessor.get(IWorktreeService).list(normalizeRequiredWorkDir('listWorktrees', cwd)));
+  }
+
+  override async createWorktree(input: CreateWorktreeInput, options?: CreateWorktreeOptions): Promise<CreatedWorktree> {
+    const cwd = normalizeRequiredWorkDir('createWorktree', input.cwd);
+    await this.configReady;
+    return withKimiErrors(this.engineAccessor.get(IWorktreeService).create({ ...input, cwd }, options));
+  }
+
+  override async runWorktreeSetupScript(
+    input: RunSetupScriptInput,
+    options?: RunSetupScriptOptions,
+  ): Promise<{ readonly exitCode: number }> {
+    await this.configReady;
+    return withKimiErrors(this.engineAccessor.get(IWorktreeService).runSetupScript(input, options));
+  }
+
+  override async inspectWorktreeRemoval(input: InspectWorktreeRemovalInput): Promise<WorktreeRemovalCheck> {
+    return withKimiErrors(this.engineAccessor.get(IWorktreeService).inspectRemoval(input));
+  }
+
+  override async removeWorktree(input: RemoveWorktreeInput): Promise<void> {
+    await this.configReady;
+    return withKimiErrors(this.engineAccessor.get(IWorktreeService).remove(input));
+  }
+
   /**
    * klient has no workspace-trust facade; composed directly from the engine
    * via {@link engineAccessor} — the same `IWorkspaceInstanceManager.acquire({ root })`
@@ -1219,12 +1267,14 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     // document can lag both the backfill and the clear (a retry started after
     // a failure), so never read the document here.
     const liveOutcome = handle.accessor.get(ISessionActivityView).state().lastTurnReason;
+    const project = await this.klient.global.workspaces.get(ctx.workspaceId);
     return {
       id: meta.id,
       title: meta.title,
       titleKind: meta.titleKind,
       lastPrompt: meta.lastPrompt,
       workDir: ctx.cwd,
+      projectWorkDir: project === undefined ? undefined : normalizeWorkDir(project.root),
       sessionDir: ctx.sessionDir,
       createdAt: meta.createdAt,
       updatedAt: meta.updatedAt,
@@ -1394,21 +1444,19 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       const members = workspace.additionalDirs ?? [];
       if (members.some((dir) => normalizeWorkDir(dir) === workDir)) ids.push(workspace.id);
     }
+    const implicit = await this.engineAccessor.get(IProjectService).peekImplicit(workDir);
+    ids.push(...(await this.engineAccessor.get(IProjectAliases).resolveAliasIds(implicit.id)));
     if (ids.length === 0) return [encodeWorkDirKey(workDir)];
-    return ids;
+    return [...new Set(ids)];
   }
 
   override async listSessions(input: ListSessionsOptions = {}): Promise<readonly SessionSummary[]> {
-    // Full-set semantics: drain keyset pages until the listing is exhausted
-    // (an unpaged query currently answers in one page, but a backend may cap
-    // it — never silently truncate the unpaged contract).
+    const { limit: _limit, before: _before, ...filter } = input;
     const all: SessionSummary[] = [];
     let before: string | undefined;
     for (;;) {
       const page = await this.listSessionsPage({
-        workDir: input.workDir,
-        sessionId: input.sessionId,
-        includeArchived: input.includeArchived,
+        ...filter,
         before,
       });
       all.push(...page.items);
@@ -1418,15 +1466,49 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   override async listSessionsPage(input: ListSessionsOptions = {}): Promise<SessionSummaryPage> {
-    // v1 rejects an empty workDir and bucket-filters by the normalized path;
-    // the v2 index filters by workspace-id set instead.
-    const workspaceIds =
-      input.workDir === undefined
-        ? undefined
-        : await this.workspaceIdsFor(normalizeRequiredWorkDir('listSessions', input.workDir));
-    const workspacesById = new Map(
-      (await this.klient.global.workspaces.list()).map((workspace) => [workspace.id, workspace]),
+    if (input.scope !== undefined && input.scope !== 'workdir' && input.scope !== 'project') {
+      throw new KimiError(ErrorCodes.REQUEST_INVALID, `Invalid listSessions scope: ${String(input.scope)}`);
+    }
+    if (input.scope !== undefined && input.workDir === undefined) {
+      throw new KimiError(ErrorCodes.REQUEST_WORK_DIR_REQUIRED, 'listSessions with scope requires workDir');
+    }
+    const workDir =
+      input.workDir === undefined ? undefined : normalizeRequiredWorkDir('listSessions', input.workDir);
+    const workspaceIds = workDir === undefined ? undefined : await this.workspaceIdsFor(workDir);
+    const workspaces = await this.klient.global.workspaces.list();
+    const aliases = this.engineAccessor.get(IProjectAliases);
+    const workspacesById = new Map<string, { readonly root: string }>();
+    await Promise.all(
+      workspaces.map(async (workspace) => {
+        workspacesById.set(workspace.id, workspace);
+        for (const aliasId of await aliases.resolveAliasIds(workspace.id)) {
+          workspacesById.set(aliasId, workspace);
+        }
+      }),
     );
+    const memberIds = new Set<string>();
+    if (workDir !== undefined) {
+      for (const workspace of workspaces) {
+        const dirs = workspace.additionalDirs ?? [];
+        if (!dirs.some((dir) => normalizeWorkDir(dir) === workDir)) continue;
+        for (const aliasId of await aliases.resolveAliasIds(workspace.id)) memberIds.add(aliasId);
+      }
+    }
+    const toSummaries = (items: readonly V2SessionSummary[]): SessionSummary[] =>
+      items.flatMap((item) => this.mapIndexSummary(item, workspacesById) ?? []);
+    if (workDir !== undefined && input.sessionId === undefined && input.scope !== undefined) {
+      const projectSessions = this.engineAccessor.get(IProjectSessions);
+      const query = {
+        includeArchived: input.includeArchived,
+        limit: input.limit,
+        before: input.before,
+      };
+      const page =
+        input.scope === 'project'
+          ? await projectSessions.listForProject(workDir, query)
+          : await projectSessions.listForWorkdir(workDir, query);
+      return { items: toSummaries(page.items), nextCursor: page.nextCursor };
+    }
     const collected: SessionSummary[] = [];
     let before = input.before;
     // Entries dropped by the mapping (unrecoverable workDir) shrink the page;
@@ -1445,7 +1527,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       if (page.items.length === 0) return { items: collected, nextCursor: undefined };
       for (const item of page.items) {
         const summary = this.mapIndexSummary(item, workspacesById);
-        if (summary !== undefined) collected.push(summary);
+        if (summary === undefined) continue;
+        if (workDir !== undefined && !memberIds.has(item.workspaceId) && !isAncestorOrSelf(workDir, normalizeWorkDir(summary.workDir))) continue;
+        collected.push(summary);
       }
       if (page.nextCursor === undefined) return { items: collected, nextCursor: undefined };
       before = page.nextCursor;
@@ -1465,7 +1549,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     item: CoreSessionSummary,
     workspacesById: ReadonlyMap<string, { readonly root: string }>,
   ): SessionSummary | undefined {
-    const workDir = item.cwd ?? workspacesById.get(item.workspaceId)?.root;
+    const projectRoot = workspacesById.get(item.workspaceId)?.root;
+    const workDir = item.cwd ?? projectRoot;
     if (workDir === undefined) return undefined;
     // A live session reports its own outcome; the index may still carry a
     // stale one while the mirror's clear is queued (a fresh turn just
@@ -1481,6 +1566,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const bootstrapService = this.engineAccessor.get(IBootstrapService);
     return v2SummaryToSessionSummary(effectiveItem, {
       workDir,
+      projectWorkDir: projectRoot === undefined ? undefined : normalizeWorkDir(projectRoot),
       sessionDir: sessionDirOf(
         bootstrapService.homeDir,
         workspacePersistenceScope(bootstrapService.scope('sessions'), item.workspaceId),
@@ -2262,25 +2348,29 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * silent no-op while one is already running, and rejects with
    * `compaction.unable` on an empty history or an active turn.
    */
-  override async predictNextPrompt(
+  override predictNextPrompt(
     input: SessionIdRpcInput & { predictionId: string; expectedTurnId: number },
   ): Promise<string | null> {
-    const session = this.requireLiveSession(input.sessionId);
-    return session.accessor
-      .get(ISessionPromptPredictionService)
-      .predict({ predictionId: input.predictionId, expectedTurnId: input.expectedTurnId });
+    return asPromise(() => {
+      const session = this.requireLiveSession(input.sessionId);
+      return session.accessor
+        .get(ISessionPromptPredictionService)
+        .predict({ predictionId: input.predictionId, expectedTurnId: input.expectedTurnId });
+    });
   }
 
-  override async cancelPromptPrediction(
+  override cancelPromptPrediction(
     input: SessionIdRpcInput & {
       predictionId: string;
       reason?: import('@moonshot-ai/agent-core-v2').PromptPredictionCancelReason;
     },
   ): Promise<boolean> {
-    const session = this.requireLiveSession(input.sessionId);
-    return session.accessor
-      .get(ISessionPromptPredictionService)
-      .cancel(input.predictionId, input.reason);
+    return asPromise(() => {
+      const session = this.requireLiveSession(input.sessionId);
+      return session.accessor
+        .get(ISessionPromptPredictionService)
+        .cancel(input.predictionId, input.reason);
+    });
   }
 
   override async compact(input: SessionIdRpcInput & CompactOptions): Promise<void> {
@@ -2311,13 +2401,15 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * v1 splices a partial suffix out of the live history and then throws
    * `request.invalid` — pinned in the parity KNOWN_DIFFS.
    */
-  override async getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]> {
-    const session = this.requireLiveSession(input.sessionId);
-    const agents = session.accessor.get(IAgentLifecycleService);
-    const main = agents.handleOf(MAIN_AGENT_ID);
-    if (main === undefined) return [];
-    const todos = main.accessor.get(IAgentTodoService).get();
-    return todos.map((todo) => ({ title: todo.title, status: todo.status }));
+  override getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]> {
+    return asPromise(() => {
+      const session = this.requireLiveSession(input.sessionId);
+      const agents = session.accessor.get(IAgentLifecycleService);
+      const main = agents.handleOf(MAIN_AGENT_ID);
+      if (main === undefined) return [];
+      const todos = main.accessor.get(IAgentTodoService).get();
+      return todos.map((todo) => ({ title: todo.title, status: todo.status }));
+    });
   }
 
   override async undoHistory(input: SessionIdRpcInput & { count: number }): Promise<void> {
@@ -2355,8 +2447,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return agent.restoreOperation(input.targetId);
   }
 
-  override async takeOverSessionLock(input: SessionIdRpcInput): Promise<void> {
-    this.engineAccessor.get(ISessionLockService).takeover(input.sessionId);
+  override takeOverSessionLock(input: SessionIdRpcInput): Promise<void> {
+    return asPromise(() => {
+      this.engineAccessor.get(ISessionLockService).takeover(input.sessionId);
+    });
   }
 
   /**
@@ -3037,7 +3131,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     );
     // Field-identical with the v1 wire shape (the engines' locator /
     // config-view / auth-state declarations match structurally).
-    return inspections as readonly AppMcpServerInspection[];
+    return inspections;
   }
 
   override async addGlobalMcpServer(
@@ -3166,9 +3260,11 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * pending. The v2 `McpServerEntry` is field-identical with v1's
    * `McpServerInfo` (the cast bridges the two packages' type declarations).
    */
-  override async listMcpServers(input: SessionIdRpcInput): Promise<readonly McpServerInfo[]> {
-    const mcp = this.requireLiveSession(input.sessionId).accessor.get(ISessionMcpHandle);
-    return mcp.connectionManager.list() as readonly McpServerInfo[];
+  override listMcpServers(input: SessionIdRpcInput): Promise<readonly McpServerInfo[]> {
+    return asPromise(() => {
+      const mcp = this.requireLiveSession(input.sessionId).accessor.get(ISessionMcpHandle);
+      return mcp.connectionManager.list() as readonly McpServerInfo[];
+    });
   }
 
   /**
@@ -3350,6 +3446,22 @@ async function nullWhenGitUnavailable<T>(read: Promise<T>): Promise<T | null> {
   } catch (error) {
     if (isError2(error) && error.code === ErrorCodes.FS_GIT_UNAVAILABLE) return null;
     throw error;
+  }
+}
+
+async function withKimiErrors<T>(call: Promise<T>): Promise<T> {
+  try {
+    return await call;
+  } catch (error) {
+    throw restateEngineError(error);
+  }
+}
+
+function asPromise<T>(run: () => T | Promise<T>): Promise<T> {
+  try {
+    return Promise.resolve(run());
+  } catch (error) {
+    return Promise.reject(error);
   }
 }
 
