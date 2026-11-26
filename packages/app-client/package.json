@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test --preload ../../scripts/test/bun-vitest-compat.ts"
+    "test": "bun test --preload ../../scripts/test/bun-vitest-compat.ts --path-ignore-patterns='**/agentStateFrames.test.ts' && vitest run test/agentStateFrames.test.ts",
+    "test:vitest": "vitest run test/agentStateFrames.test.ts"
   },
   "exports": {
     ".": "./src/index.ts",

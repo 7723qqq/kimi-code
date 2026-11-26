@@ -16,6 +16,7 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService, type AgentTaskInfo } from '#/agent/task/task';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { AnyAgentTool } from '#/agent/toolRegistry/toolContribution';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
@@ -191,6 +192,12 @@ beforeEach(async () => {
             (agentId) => ({ kind: 'agent', agentId }) as unknown as AgentTaskInfo,
           ),
       });
+      reg.defineInstance(IAgentToolExecutorService, {
+        handlers: () =>
+          liveAgentTaskIds.map((agentId) => ({
+            snapshot: () => ({ fields: { task: { kind: 'agent', agentId } } }),
+          })),
+      } as unknown as IAgentToolExecutorService);
       reg.definePartialInstance(IAgentLifecycleService, {
         handleOf: ((agentId: string) => {
           const loop = agentLoops.get(agentId);
@@ -202,8 +209,7 @@ beforeEach(async () => {
                   ? {
                       snapshot: () => ({ state: loop.state }),
                       submit: (entry: unknown) => {
-                        const text = (entry as { message: { content: { text: string }[] } }).message
-                          .content[0]!.text;
+                        const text = (entry as { content: { text: string }[] }).content[0]!.text;
                         loop.submitted.push(text);
                         return { id: 'prompt-1' };
                       },

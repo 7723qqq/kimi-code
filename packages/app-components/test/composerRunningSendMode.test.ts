@@ -83,7 +83,8 @@ let app: App | undefined;
 let host: HTMLDivElement;
 let storage: Map<string, string>;
 
-beforeEach(() => {
+beforeEach(async () => {
+  await import('@moonshot-ai/app-client/client');
   clientState.planModeAvailable!.value = true;
   clientState.swarmModeAvailable!.value = true;
   clientState.towerModeAvailable!.value = true;

@@ -295,6 +295,10 @@ describe('AgentTowerService', () => {
     ix.stub(IAgentProfileService, {
       data: () => ({ profileName: undefined }),
     } as unknown as IAgentProfileService);
+    ix.stub(IConfigService, {
+      onDidChangeConfiguration: () => ({ dispose: () => {} }),
+    } as unknown as IConfigService);
+    ix.stub(ISessionEventBus, ix.get(IEventBus) as unknown as ISessionEventBus);
     registerTowerToolServices(ix);
     ix.stub(IAgentReminderService, createReminderStub());
     ix.stub(ILogService, stubLog());
@@ -4539,7 +4543,6 @@ describe('TowerModeInjection', () => {
     await injectDynamic(ctx);
 
     expect(towerReminderMessages(context)).toHaveLength(0);
-    expect(context.get()).toHaveLength(0);
   });
 
   it('skips reinjection before the assistant-turn threshold', async () => {

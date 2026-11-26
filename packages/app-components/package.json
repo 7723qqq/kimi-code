@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test --preload ../../scripts/test/bun-vitest-compat.ts"
+    "test": "bun test --preload ../../scripts/test/bun-vitest-compat.ts --path-ignore-patterns='**/composerMenuViewportClamp.test.ts' --path-ignore-patterns='**/composerRunningSendMode.test.ts' --path-ignore-patterns='**/composerUndoDraft.test.ts' && vitest run --environment jsdom test/composerMenuViewportClamp.test.ts test/composerRunningSendMode.test.ts test/composerUndoDraft.test.ts",
+    "test:vitest": "vitest run --environment jsdom test/composerMenuViewportClamp.test.ts test/composerRunningSendMode.test.ts test/composerUndoDraft.test.ts"
   },
   "exports": {
     ".": "./src/index.ts",
