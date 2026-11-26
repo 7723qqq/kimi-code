@@ -1911,7 +1911,7 @@ describe('AgentGoalService core workflow hooks', () => {
     });
     const prompt = JSON.stringify(context.get().at(-1)?.content);
     expect(prompt).toContain('per-turn step limit');
-    expect(prompt).toContain('Pick up where that turn stopped');
+    expect(prompt).toContain('continue from where that turn stopped');
   });
 
   it('blocks active goals when the user prompt hook blocks the turn', async () => {

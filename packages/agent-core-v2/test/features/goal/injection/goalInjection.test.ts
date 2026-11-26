@@ -239,8 +239,8 @@ describe('GoalInjection content', () => {
     await injectDynamic(ctx, true);
     await injectDynamic(ctx, true);
     const sparse = lastGoalReminder(context)!;
-    expect(sparse).toContain('The full audit is in the earlier goal reminder.');
-    expect(sparse).toContain('without a progress report');
+    expect(sparse).toContain('The full contract is in the earlier goal reminder.');
+    expect(sparse).toContain('Do not stop after one bounded slice');
 
     await goals.editGoalObjective({ objective: 'new task' });
     await injectDynamic(ctx, false);
@@ -249,7 +249,7 @@ describe('GoalInjection content', () => {
     await injectDynamic(ctx, true);
     const refreshed = lastGoalReminder(context)!;
     expect(refreshed).toContain('<untrusted_objective>\nnew task\n</untrusted_objective>');
-    expect(refreshed).toContain('Blocked audit:');
+    expect(refreshed).toContain('separate judge');
   });
 });
 
