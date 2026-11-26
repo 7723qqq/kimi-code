@@ -183,6 +183,17 @@ const workspaceStub: IProjectService = {
   },
   readProjectConfigDirs: async () => [],
   delete: async () => {},
+  resolveImplicit: async () => {
+    throw new Error('not used in these tests');
+  },
+  peekImplicit: async () => {
+    throw new Error('not used in these tests');
+  },
+  reviveImplicit: async () => {
+    throw new Error('not used in these tests');
+  },
+  projectDirAt: async () => undefined,
+  acceptsWorkDir: async () => false,
 };
 
 const gitState = {
