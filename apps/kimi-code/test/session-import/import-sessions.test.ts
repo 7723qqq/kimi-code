@@ -29,7 +29,19 @@ import { waitForAssertion } from '../helpers/waitFor';
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.now();
 const BUDGET = { contextWindow: 32_768, tokenBudget: 16_384 };
+const PROJECT_ID = 'project';
 const roots: string[] = [];
+
+function importHarness(kimiHome: string) {
+  return {
+    homeDir: kimiHome,
+    resolveSessionPlacement: async (cwd: string) => ({
+      projectId: PROJECT_ID,
+      projectRoot: cwd,
+      workDir: cwd,
+    }),
+  };
+}
 afterEach(async () => {
   restoreEnvs();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -145,7 +157,7 @@ describe('importing sessions', () => {
       'ses_claude-one',
     ]);
 
-    const report = await importSessions(scan.candidates, { kimiHome, ...BUDGET, now: NOW });
+    const report = await importSessions(scan.candidates, { harness: importHarness(kimiHome), ...BUDGET, now: NOW });
     expect(report).toEqual({
       imported: ['ses_claude-one', 'ses_thread-one'],
       alreadyImported: 0,
@@ -156,7 +168,7 @@ describe('importing sessions', () => {
       failed: [],
       stopped: false,
     });
-    const sessionDir = importedSessionDir(kimiHome, project, 'ses_claude-one');
+    const sessionDir = importedSessionDir(kimiHome, PROJECT_ID, 'ses_claude-one');
     const state = JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf8')) as Record<
       string,
       unknown
@@ -181,7 +193,7 @@ describe('importing sessions', () => {
     expect(
       await readdir(
         join(
-          importedSessionDir(kimiHome, project, 'ses_thread-one'),
+          importedSessionDir(kimiHome, PROJECT_ID, 'ses_thread-one'),
           'attachments',
           'source',
           'subagents',
@@ -190,7 +202,7 @@ describe('importing sessions', () => {
     ).toEqual(['rollout-2026-10-01T10-05-00-helper.jsonl']);
     const renamed = JSON.parse(
       await readFile(
-        join(importedSessionDir(kimiHome, project, 'ses_thread-one'), 'state.json'),
+        join(importedSessionDir(kimiHome, PROJECT_ID, 'ses_thread-one'), 'state.json'),
         'utf8',
       ),
     ) as Record<string, unknown>;
@@ -246,7 +258,7 @@ describe('importing sessions', () => {
       sessionId: 'ses_commands-only',
     };
     const report = await importSessions([...scan.candidates, commandsOnly], {
-      kimiHome,
+      harness: importHarness(kimiHome),
       ...BUDGET,
       now: NOW,
     });
@@ -279,11 +291,12 @@ describe('importing sessions', () => {
     );
 
     expect(
-      (await importSessions(candidates, { kimiHome, ...BUDGET, now: NOW })).missingFolder,
+      (await importSessions(candidates, { harness: importHarness(kimiHome), ...BUDGET, now: NOW }))
+        .missingFolder,
     ).toBe(IMPORT_BATCH_LIMIT);
     let started = 0;
     const stopped = await importSessions(candidates, {
-      kimiHome,
+      harness: importHarness(kimiHome),
       ...BUDGET,
       now: NOW,
       onProgress: () => {
@@ -512,6 +525,11 @@ describe('/import-sessions', () => {
     const host = {
       harness: {
         homeDir: kimiHome,
+        resolveSessionPlacement: async (cwd: string) => ({
+          projectId: PROJECT_ID,
+          projectRoot: cwd,
+          workDir: cwd,
+        }),
         listSessions: mock(async () => []),
         getConfig: mock(async () => ({
           defaultModel: 'example',

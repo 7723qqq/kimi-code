@@ -41,6 +41,7 @@ import type {
   ReloadSessionInput,
   RefreshProviderModelsOptions,
   RefreshProviderModelsResponse,
+  SessionPlacement,
   SessionSummary,
   SessionSummaryPage,
   SkillSummary,
@@ -455,8 +456,11 @@ export class KimiHarness {
    * shared connection set per workspace `Program`, so `/mcp` is inspectable
    * before the first session exists.
    */
-  async listWorkspaceMcpServers(workDir: string): Promise<readonly McpServerInfo[]> {
-    return this.rpc.listWorkspaceMcpServers(workDir);
+  async listWorkspaceMcpServers(
+    workDir: string,
+    options?: Pick<CreateSessionOptions, 'environmentId' | 'environmentCwd'>,
+  ): Promise<readonly McpServerInfo[]> {
+    return this.rpc.listWorkspaceMcpServers(workDir, options);
   }
 
   async installPlugin(source: string): Promise<PluginSummary> {
@@ -502,8 +506,10 @@ export class KimiHarness {
   }
 
   /**
-   * Trust state of `workDir`. Querying may register the workDir as a
-   * workspace, which session creation would do anyway.
+   * Trust state of `workDir` (agent-core-v2 only; the v1 engine reports an
+   * always-trusted workspace). Querying may register the workDir as a
+   * workspace, which session creation would do anyway. With `sessionId`, the
+   * answer is about the project that session belongs to.
    */
   async getWorkspaceTrustInfo(
     workDir: string,
@@ -520,9 +526,23 @@ export class KimiHarness {
     return this.rpc.getWorkspaceAdditionalDirs(workDir);
   }
 
-  /** Mark `workDir` as trusted; project-level MCP servers connect live afterwards. */
-  async trustWorkspace(workDir: string): Promise<void> {
-    return this.rpc.trustWorkspace(workDir);
+  /**
+   * Mark `workDir`, or with `sessionId` the project that session belongs to,
+   * as trusted; project-level MCP servers connect live afterwards.
+   */
+  async trustWorkspace(
+    workDir: string,
+    options?: Pick<WorkspaceTrustInfoOptions, 'sessionId'>,
+  ): Promise<void> {
+    return this.rpc.trustWorkspace(workDir, options);
+  }
+
+  /**
+   * Where a session started in `workDir` is kept, for hosts that write session
+   * files themselves. A project that does not exist yet is registered.
+   */
+  async resolveSessionPlacement(workDir: string): Promise<SessionPlacement> {
+    return this.rpc.resolveSessionPlacement(workDir);
   }
 
   async getConfig(options: GetConfigOptions = {}): Promise<KimiConfig> {

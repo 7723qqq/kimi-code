@@ -34,6 +34,7 @@ import {
   IEventDispatcher,
   IHostFileSystem,
   IOAuthToolkit,
+  IProjectSessions,
   ISessionIndex,
   ISessionManager,
   ISessionRunGate,
@@ -71,6 +72,7 @@ import type {
 import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
 import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
+import { sameDir } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import type {
   ToolCallStarted,
   ToolProgress,
@@ -95,7 +97,6 @@ import {
   shouldEnableTelemetry,
   shutdownTelemetry,
 } from '@moonshot-ai/kimi-telemetry';
-import { resolve } from 'pathe';
 
 import {
   CLI_SHUTDOWN_TIMEOUT_MS,
@@ -104,6 +105,7 @@ import {
 } from '#/constant/app';
 import { t } from '#/i18n';
 import { currentKimiProfile, currentKimiRegionResolution } from '#/utils/region';
+import { resumeElsewhereHint } from '#/utils/session-directory';
 
 import {
   formatGoalSummaryText,
@@ -121,6 +123,7 @@ import {
 } from '../run-prompt';
 import { createKimiCodeHostIdentity } from '../host-identity';
 
+import { resolveLaunchPaths } from '../launch-paths';
 import { resolveOutputFormat } from '../options';
 import type { CLIOptions, PromptOutputFormat } from '../options';
 import {
@@ -177,8 +180,7 @@ export async function runV2Print(
     homeDir,
     identity: createKimiCodeHostIdentity(version),
     nonInteractive: true,
-    skillDirs: opts.skillsDirs,
-    agentFiles: opts.agentFiles,
+    ...resolveLaunchPaths(opts, workDir),
   });
   const services = client.engineAccessor;
   const auth = services.get(IOAuthToolkit);
@@ -467,12 +469,10 @@ async function resolveNativeSession(
     if (target === undefined) {
       throw new Error(`Session "${opts.session}" not found.`);
     }
-    if (target.cwd !== undefined && resolve(target.cwd) !== resolve(workDir)) {
-      stderr.write(
-        `Session "${opts.session}" was created under a different directory.\n` +
-          `  cd "${target.cwd}" && kimi -r ${opts.session}\n\n`,
-      );
-      throw new Error(`Session "${opts.session}" was created under a different directory.`);
+    if (target.cwd !== undefined && !sameDir(target.cwd, workDir)) {
+      const hint = resumeElsewhereHint(opts.session, target.cwd);
+      stderr.write(`${hint.summary}\n${hint.detail}\n\n`);
+      throw new Error(hint.summary);
     }
     const session = await resumeById(opts.session);
     const agentContext = await ensureMainAgent(session);
@@ -492,8 +492,7 @@ async function resolveNativeSession(
   }
 
   if (opts.continue) {
-    const page = await index.listRecent({});
-    const previous = page.items.find((summary) => summary.cwd === workDir);
+    const [previous] = (await services.get(IProjectSessions).listForWorkdir(workDir, { limit: 1 })).items;
     if (previous !== undefined) {
       const session = await resumeById(previous.id);
       const agentContext = await ensureMainAgent(session);

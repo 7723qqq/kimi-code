@@ -24,7 +24,7 @@ export async function runImportSessionsCommand(): Promise<number> {
         now,
         scan: () => scanImportableSessions({ kimiHome, ...homes, now }),
         run: (candidates, hooks) =>
-          importSessions(candidates, { kimiHome, ...budget, now, ...hooks }),
+          importSessions(candidates, { harness, ...budget, now, ...hooks }),
         requestRender: () => {
           ui.requestRender();
         },

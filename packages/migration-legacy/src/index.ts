@@ -10,6 +10,7 @@ export * from './types.js';
 export { detectMigration } from './detect.js';
 export {
   importedSessionDir,
+  isSessionImported,
   writeImportedSession,
   type ImportedSessionInput,
   type ImportedSessionMessage,

@@ -4,7 +4,7 @@ import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
-import { ErrorCodes, isKimiError, log } from '@moonshot-ai/kimi-code-sdk';
+import { ErrorCodes, isKimiError, log, sameDir } from '@moonshot-ai/kimi-code-sdk';
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -37,7 +37,6 @@ import {
   TuiAltScreen,
   TuiMainScreen,
 } from '@moonshot-ai/pi-tui';
-import { resolve } from 'pathe';
 
 import {
   createMsys2PromptDeps,
@@ -63,6 +62,7 @@ import { getInputHistoryFile } from '#/utils/paths';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { applyRecommendedEffort } from '#/utils/recommended-effort';
 import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
+import { isDirectory, resumeElsewhereHint } from '#/utils/session-directory';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { startupTrace } from '#/utils/startup-trace';
 import { migrateLegacySurveySetting } from '#/utils/survey-setting';
@@ -1245,26 +1245,16 @@ export class KimiTUI {
         }
 
         if (startup.sessionFlag !== undefined) {
-          const sessions = await this.harness.listSessions({
-            sessionId: startup.sessionFlag,
-            workDir,
-          });
+          const sessions = await this.harness.listSessions({ sessionId: startup.sessionFlag });
           const target = sessions[0];
           if (target === undefined) {
             throw new Error(`Session "${startup.sessionFlag}" not found.`);
           }
-          if (resolve(target.workDir) !== resolve(workDir)) {
+          if (!sameDir(target.workDir, workDir)) {
             this.state.ui.stop();
-            process.stderr.write(
-              `${currentTheme.fg(
-                'warning',
-                `Session "${startup.sessionFlag}" was created under a different directory.\n` +
-                  `  cd "${target.workDir}" && kimi -r ${startup.sessionFlag}`,
-              )}\n\n`,
-            );
-            throw new Error(
-              `Session "${startup.sessionFlag}" was created under a different directory.`,
-            );
+            const hint = resumeElsewhereHint(startup.sessionFlag, target.workDir);
+            process.stderr.write(`${currentTheme.fg('warning', `${hint.summary}\n${hint.detail}`)}\n\n`);
+            throw new Error(hint.summary);
           }
           session = await this.harness.resumeSession({
             id: startup.sessionFlag,
@@ -3434,13 +3424,17 @@ export class KimiTUI {
     this.setAppState(patch);
   }
 
-  private async environmentForNewSession(): Promise<
+  async environmentForNewSession(): Promise<
     { readonly environmentId: string; readonly environmentCwd?: string } | undefined
   > {
     const session = this.session;
     if (session !== undefined) {
       const binding = await session.getEnvironment();
-      if (binding.environmentId !== 'local' && binding.cwd === undefined) {
+      if (binding.environmentId === 'local') {
+        const explicitCwd = binding.cwd !== undefined && !sameDir(binding.cwd, this.state.appState.workDir);
+        return { environmentId: 'local', environmentCwd: explicitCwd ? binding.cwd : undefined };
+      }
+      if (binding.cwd === undefined) {
         throw new Error(
           t('tui.session.noWorkingDirectory', { environment: binding.environmentId }),
         );
@@ -3908,6 +3902,10 @@ export class KimiTUI {
 
   async showResumeOtherWorkDirHint(session: SessionRow): Promise<void> {
     this.hideSessionPicker();
+    if (!isDirectory(session.work_dir)) {
+      this.showStatus(`Selected session's working directory no longer exists:\n  ${session.work_dir}`, 'warning');
+      return;
+    }
     const command = `cd ${quoteShellArg(session.work_dir)} && kimi --resume ${quoteShellArg(session.id)}`;
     try {
       await copyTextToClipboard(command);

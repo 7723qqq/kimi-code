@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -1869,16 +1870,15 @@ describe('KimiTUI startup', () => {
 
     expect(resumeSession).not.toHaveBeenCalled();
     expect(driver.state.activeDialog).toBeNull();
-    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj-b')} && kimi --resume ${quoteShellArg('ses-other-cwd')}`;
-    expect(copyTextToClipboardMock).toHaveBeenCalledWith(expectedResumeCmd);
+    expect(copyTextToClipboardMock).not.toHaveBeenCalled();
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
-    expect(transcript).toContain('Current session is in a different working directory.');
-    expect(transcript).toContain(`To resume, run: ${expectedResumeCmd}`);
-    expect(transcript).toContain(`To resume, run: ${expectedResumeCmd}`);
-    expect(transcript).toContain('Command copied to clipboard');
+    expect(transcript).toContain("Selected session's working directory no longer exists:");
+    expect(transcript).toContain('/tmp/proj-b');
   });
 
   it('copies a shell-safe resume command for another cwd with metacharacters', async () => {
+    const otherWorkDir = join(tmpdir(), 'proj$(touch pwned)');
+    await mkdir(otherWorkDir, { recursive: true });
     const currentWorkDirSession = {
       id: 'ses-cwd',
       title: 'Current cwd session',
@@ -1888,7 +1888,7 @@ describe('KimiTUI startup', () => {
     const otherWorkDirSession = {
       id: 'ses-other-cwd',
       title: 'Other cwd session',
-      workDir: '/tmp/proj$(touch /tmp/pwned)',
+      workDir: otherWorkDir,
       updatedAt: Date.now() - 1000,
     };
     const resumeSession = mock(async () => makeSession({ id: 'ses-other-cwd' }));
@@ -1907,7 +1907,7 @@ describe('KimiTUI startup', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(resumeSession).not.toHaveBeenCalled();
-    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj$(touch /tmp/pwned)')} && kimi --resume ${quoteShellArg('ses-other-cwd')}`;
+    const expectedResumeCmd = `cd ${quoteShellArg(otherWorkDir)} && kimi --resume ${quoteShellArg('ses-other-cwd')}`;
     expect(copyTextToClipboardMock).toHaveBeenCalledWith(expectedResumeCmd);
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
     expect(transcript).toContain(`To resume, run: ${expectedResumeCmd}`);
@@ -1948,8 +1948,7 @@ describe('KimiTUI startup', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(resumeSession).not.toHaveBeenCalled();
-    const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj-b')} && kimi --resume ${quoteShellArg('ses-other-cwd')}`;
-    expect(copyTextToClipboardMock).toHaveBeenCalledWith(expectedResumeCmd);
+    expect(copyTextToClipboardMock).not.toHaveBeenCalled();
     expect(stop).toHaveBeenCalledTimes(1);
     expect(stop).toHaveBeenCalledWith(0);
   });
@@ -2916,7 +2915,6 @@ describe('KimiTUI startup', () => {
 
     expect(harness.listSessions).toHaveBeenCalledWith({
       sessionId: 'ses-target',
-      workDir: String.raw`C:\Users\kimi\project`,
     });
     expect(harness.resumeSession).toHaveBeenCalledWith({
       id: 'ses-target',

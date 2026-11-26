@@ -18,3 +18,4 @@ export function registerImportSessionsCommand(
       process.exitCode = await run();
     });
 }
+

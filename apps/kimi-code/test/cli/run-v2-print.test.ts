@@ -641,7 +641,8 @@ describe('formatTrustGatedMcpWarning', () => {
   it('singularizes the noun for one skipped server', () => {
     const text = formatTrustGatedMcpWarning([{ name: 'fs', target: 'stdio: node server.js' }]);
     expect(text).toContain('skipped 1 project-level MCP server: fs (stdio: node server.js).');
-    expect(text).toContain('"Trust this folder"');
+    expect(text).toContain('Warning: this folder is not trusted;');
+    expect(text).toContain('Run `kimi` here and choose "Trust this folder"');
     expect(text).toContain('KIMI_CODE_TRUST_WORKSPACE=1');
   });
 

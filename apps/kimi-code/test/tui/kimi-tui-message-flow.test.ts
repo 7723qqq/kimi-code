@@ -718,7 +718,15 @@ afterEach(async () => {
   resetCapabilitiesCache();
   clientConfigs.reset();
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await rm(dir, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        if (attempt === 4) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
   }
   if (originalKimiCodeHome === undefined) {
     delete process.env['KIMI_CODE_HOME'];
@@ -3987,6 +3995,8 @@ command = "vim"
         thinking: 'off',
         permission: 'manual',
         planMode: true,
+        environmentId: 'local',
+        environmentCwd: undefined,
       });
     });
     expect(session.setPlanMode).not.toHaveBeenCalled();

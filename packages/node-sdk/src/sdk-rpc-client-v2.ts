@@ -273,9 +273,11 @@ import type {
   GitQueryInput,
   GitStatusSummary,
   TelemetryClient,
+  SessionPlacement,
   Unsubscribe,
   UploadFileOptions,
   WorkspaceTrustInfo,
+  WorkspaceTrustInfoOptions,
   WorkspaceTrustInstructionSources,
 } from '#/types';
 import {
@@ -850,12 +852,17 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * `createSession` takes. The disclosure of what trusting would activate is
    * computed inside the engine by `WorkspaceTrustDisclosureService`.
    */
-  override async getWorkspaceTrustInfo(workDir: string): Promise<WorkspaceTrustInfo> {
+  override async getWorkspaceTrustInfo(
+    workDir: string,
+    _options?: WorkspaceTrustInfoOptions,
+  ): Promise<WorkspaceTrustInfo> {
     return this.withWorkspaceInstance('getWorkspaceTrustInfo', workDir, async (handler) => {
+      const projectRoot = normalizeWorkDir(handler.root);
       const trusted = await handler.program.trust.get();
       if (trusted) {
         return {
           trusted: true,
+          projectRoot,
           gatedMcpServers: [],
           gatedAdditionalDirs: [],
           additionalDirSources: [],
@@ -866,6 +873,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       const activation = await handler.program.trustDisclosure.describeGatedActivation();
       return {
         trusted: false,
+        projectRoot,
         gatedMcpServers: activation.mcpServers,
         gatedAdditionalDirs: activation.additionalDirs,
         additionalDirSources: activation.additionalDirSources,
@@ -894,10 +902,26 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * `workspaceMcpConfig` reload with project files included — project MCP
    * servers connect live, no restart needed.
    */
-  override async trustWorkspace(workDir: string): Promise<void> {
+  override async trustWorkspace(
+    workDir: string,
+    _options?: Pick<WorkspaceTrustInfoOptions, 'sessionId'>,
+  ): Promise<void> {
     await this.withWorkspaceInstance('trustWorkspace', workDir, async (handler) => {
       await handler.program.trust.trust();
     });
+  }
+
+  override async resolveSessionPlacement(workDir: string): Promise<SessionPlacement> {
+    const dir = normalizeRequiredWorkDir('resolveSessionPlacement', workDir);
+    await assertUsableWorkDir(this.engineAccessor.get(IHostFileSystem), dir);
+    const project = await this.engineAccessor.get(IProjectService).resolveImplicit(dir);
+    const projectRoot = normalizeWorkDir(project.root);
+    return {
+      projectId: project.id,
+      projectRoot,
+      workDir: dir,
+      environmentCwd: normalizeWorkDir(dir) === projectRoot ? undefined : dir,
+    };
   }
 
   /**

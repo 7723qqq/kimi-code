@@ -10,6 +10,13 @@ export {
   type TomlValue,
 } from '#/fixtures/config';
 export { isolateProcessEnv, TEST_ENV_DEFAULTS, testEnv, UNIT_TEST_SWITCHES, type TestEnvOptions } from '#/fixtures/env';
+export {
+  bashPathOf,
+  createGitRepository,
+  createGitWorktree,
+  type GitRepositoryOptions,
+  type GitWorktreeLayout,
+} from '#/fixtures/git';
 export { createTestHome, osHomeEnv, removeDirectory, type TestHome } from '#/fixtures/home';
 export { BROKEN_DATA_URLS, dataUrl, mp4Header, ONE_PIXEL_PNG_BASE64, solidPng } from '#/fixtures/media';
 export {
@@ -53,10 +60,3 @@ export {
   type Subscribe,
   type UntilOptions,
 } from '#/fixtures/wait';
-
-export {
-  bashPathOf,
-  createGitRepository,
-  createGitWorktree,
-  type GitWorktreeLayout,
-} from '#/fixtures/git';

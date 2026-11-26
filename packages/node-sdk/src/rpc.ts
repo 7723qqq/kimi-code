@@ -78,6 +78,7 @@ import type {
   ResumedSessionSummary,
   RefreshProviderModelsOptions,
   RefreshProviderModelsResponse,
+  SessionPlacement,
   SessionSummary,
   SessionSummaryPage,
   SessionEnvironmentsInfo,
@@ -295,7 +296,17 @@ export abstract class SDKRpcClientBase {
 
   abstract getWorkspaceAdditionalDirs(workDir: string): Promise<readonly string[]>;
 
-  abstract trustWorkspace(workDir: string): Promise<void>;
+  abstract trustWorkspace(
+    workDir: string,
+    options?: Pick<WorkspaceTrustInfoOptions, 'sessionId'>,
+  ): Promise<void>;
+
+  async resolveSessionPlacement(_workDir: string): Promise<SessionPlacement> {
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'Session placement is not implemented for this engine',
+    );
+  }
 
   abstract renameSession(input: RenameSessionInput): Promise<void>;
 
@@ -622,7 +633,10 @@ export abstract class SDKRpcClientBase {
 
   abstract listMcpServers(input: SessionIdRpcInput): Promise<readonly McpServerInfo[]>;
 
-  abstract listWorkspaceMcpServers(workDir: string): Promise<readonly McpServerInfo[]>;
+  abstract listWorkspaceMcpServers(
+    workDir: string,
+    options?: Pick<CreateSessionOptions, 'environmentId' | 'environmentCwd'>,
+  ): Promise<readonly McpServerInfo[]>;
 
   abstract getMcpStartupMetrics(input: SessionIdRpcInput): Promise<McpStartupMetrics>;
 

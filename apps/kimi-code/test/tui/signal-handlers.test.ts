@@ -53,6 +53,7 @@ function makeHarness() {
     setTelemetryContext: jest.fn(),
     getWorkspaceTrustInfo: jest.fn(async () => ({
       trusted: true,
+      projectRoot: '/tmp/proj-signals',
       gatedMcpServers: [],
       gatedAdditionalDirs: [],
       additionalDirSources: [],

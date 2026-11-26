@@ -28,6 +28,8 @@ test('writes manual permissions to the test config', async ({ testHome }) => {
 
 只需要检查序列化结果时，可以对 `kimiConfigToml(config)` 返回的字符串做断言。需要测试损坏的配置时，用 `raw` 附加故意写坏的 TOML。覆盖已有配置用 `mergeKimiConfig(base, override)`。同名 provider 或 model 的配置项会整体替换，hooks 数组会依次拼接。[配置写入与合并](../src/fixtures/config.ts)
 
+需要真实的 git 仓库时，用 `await createGitRepository(dir, { files })`：它在 `dir` 初始化仓库，写入 `files`（相对路径到内容）并提交一次。要验证 worktree 相关的行为，用 `await createGitWorktree({ main, worktree }, { files })`：它在 `main` 建同样的仓库，再用 `git worktree add` 在 `worktree` 检出新分支。两者都调用系统的 `git`，提交身份和关闭签名用命令行参数指定，不改动全局 git 配置。断言 Bash 工具打印的工作目录时，用 `bashPathOf(path)` 把本机路径换成 Git Bash 的写法：Windows 上 `C:\Users\me\app` 写成 `/c/Users/me/app`，其他平台原样返回。[git 夹具](../src/fixtures/git.ts)
+
 ## 控制环境和网络
 
 - **被测代码接收环境参数时**，传入 `testEnv({ set: { HOME: testHome.home } })`。它返回新的对象，过滤继承来的 `KIMI_*`、已列出的厂商凭据和代理变量，再设置测试默认值。要保留某个原值用 `keep`，要模拟变量缺失用 `set: { MY_OPTION: undefined }`。测试默认值里有两类：关掉遥测、模型目录刷新这类和外界隔离的设置；以及为了让单元测试更快而关掉的产品功能，单独导出为 `UNIT_TEST_SWITCHES`（目前是会话索引的读模型和搜索 worker）。端到端测试要让产品按用户的默认配置跑时，把 `UNIT_TEST_SWITCHES` 的每个名字设成 `undefined` 传进 `set`。新增只为提速的默认值放进 `UNIT_TEST_SWITCHES`。[环境夹具](../src/fixtures/env.ts)

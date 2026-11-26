@@ -21,6 +21,17 @@ async function setup(): Promise<{ project: string; kimiHome: string }> {
   return { project, kimiHome: join(root, 'kimi') };
 }
 
+function importHarness(kimiHome: string) {
+  return {
+    homeDir: kimiHome,
+    resolveSessionPlacement: async (cwd: string) => ({
+      projectId: 'project',
+      projectRoot: cwd,
+      workDir: cwd,
+    }),
+  };
+}
+
 it('turns unreliable conversions into skip reasons and failures', async () => {
   const { project, kimiHome } = await setup();
   const actualSessionImport = await import('@moonshot-ai/session-import');
@@ -47,7 +58,7 @@ it('turns unreliable conversions into skip reasons and failures', async () => {
   }));
   expect(
     await importSessions(candidates, {
-      kimiHome,
+      harness: importHarness(kimiHome),
       contextWindow: 32_768,
       tokenBudget: 16_384,
       now: NOW,

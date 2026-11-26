@@ -25,6 +25,7 @@ import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { resolveAgentProfileSelection } from './agent-selection';
 import { createTelemetryHarness } from './harness';
+import { resolveLaunchPaths } from './launch-paths';
 import type { CLIOptions } from './options';
 import { initializeCliTelemetry } from './telemetry';
 import { detectNativeInstall } from './update/source';
@@ -71,7 +72,7 @@ export async function runShell(
   let tui!: KimiTUI;
   const { harness, telemetryBootstrap } = createTelemetryHarness({
     version,
-    skillDirs: opts.skillsDirs,
+    skillDirs: resolveLaunchPaths(opts, workDir).skillDirs,
     // The TUI renders the mid-turn update panel; declaring it here is what
     // makes the engine offer NotifyUser to this process and to no other host.
     uiCapabilities: TUI_HOST_UI_CAPABILITIES,
