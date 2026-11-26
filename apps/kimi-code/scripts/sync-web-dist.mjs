@@ -9,8 +9,8 @@ const repoRoot = resolve(appRoot, '../..');
 const source = resolve(repoRoot, 'apps/desktop/web-dist');
 const target = resolve(appRoot, 'dist-web');
 
-const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-const build = spawnSync(pnpm, ['--filter', 'kimi-code-app', 'run', 'build:web'], {
+const bun = process.platform === 'win32' ? 'bun.exe' : 'bun';
+const build = spawnSync(bun, ['--bun', 'run', '--filter', 'kimi-code-app', 'build:web'], {
   cwd: repoRoot,
   stdio: 'inherit',
   shell: process.platform === 'win32',

@@ -22,8 +22,8 @@ function hasXvfb() {
   return process.platform === 'linux' && spawnSync('sh', ['-c', 'command -v xvfb-run'], { stdio: 'ignore' }).status === 0;
 }
 
-const playwright = ['exec', 'playwright', 'test', '-c', 'e2e', ...playwrightArgs];
-if (build) run('pnpm', ['run', 'build']);
+const playwright = ['x', '--bun', 'playwright', 'test', '-c', 'e2e', ...playwrightArgs];
+if (build) run('bun', ['run', 'build']);
 const env = playwrightEnv(headless, process.env);
-if (hasXvfb() && (headless || !process.env.DISPLAY)) run('xvfb-run', ['--auto-servernum', '--server-args=-screen 0 1920x1080x24', 'pnpm', ...playwright], env);
-else run('pnpm', playwright, env);
+if (hasXvfb() && (headless || !process.env.DISPLAY)) run('xvfb-run', ['--auto-servernum', '--server-args=-screen 0 1920x1080x24', 'bun', ...playwright], env);
+else run('bun', playwright, env);

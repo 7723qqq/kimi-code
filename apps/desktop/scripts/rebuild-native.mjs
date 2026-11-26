@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const desktopDir = fileURLToPath(new URL('..', import.meta.url));
 const prebuild = `${desktopDir}/node_modules/node-pty/prebuilds/${process.platform}-${process.arch}/pty.node`;
 
-const result = spawnSync('electron-rebuild', ['--only', 'node-pty'], {
+const result = spawnSync('bun', ['x', '--bun', 'electron-rebuild', '--only', 'node-pty'], {
   cwd: desktopDir,
   stdio: 'inherit',
   shell: process.platform === 'win32',

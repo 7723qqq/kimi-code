@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -40,7 +40,7 @@ async function shutdown(code) {
 }
 
 try {
-  await run('pnpm', ['exec', 'tsdown'], { KIMI_DESKTOP_DEV: '1' });
+  await run('bun', ['x', '--bun', 'tsdown'], { KIMI_DESKTOP_DEV: '1' });
 } catch (error) {
   process.stderr.write(`[dev] tsdown build failed: ${String(error)}\n`);
   await shutdown(1);
