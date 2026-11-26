@@ -8,6 +8,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
 import { abortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { readRetryAfterMs, retryBackoffDelay, sleepForRetry } from '#/_base/utils/retry';
+import { parseBooleanEnv } from '#/_base/utils/env';
 import { toErrorMessage } from '#/_base/errors/errorMessage';
 import {
   type CoreLoopRequester,
@@ -64,7 +65,10 @@ import {
   type ResolvedAgentProfile,
   type SystemPromptContext,
 } from '#/agent/profile/profile';
-import type { ThinkingEffort } from '@moonshot-ai/core/llm/request';
+import { IProviderCatalogService } from '#/provider-catalog/providerCatalogService';
+import { resolveMaxOutputTokens } from '#/provider-catalog/model/completion-budget';
+import type { ModelOverrides } from '#/provider-catalog/model/model.types';
+import type { LlmRequestModel, ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
 import { toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
@@ -136,6 +140,8 @@ import { AgentLoopProfileAdapter } from './profileAdapter';
 
 export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error' | 'steered';
 
+const KIMI_CODE_INFINITE_RETRY_ENV = 'KIMI_CODE_INFINITE_RETRY';
+
 export { loopLastRequestIdKey } from './turnProjection';
 export const loopDisposingKey = defineState<boolean>('loop.disposing', () => false);
 
@@ -189,6 +195,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IProviderCatalogService readonly providerCatalog: IProviderCatalogService,
     @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
     @IProviderDiscoveryService private readonly discovery: IProviderDiscoveryService,
     @IPluginService private readonly plugins: IPluginService,
@@ -406,6 +413,17 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   getMaxOutputSize(): number | undefined {
     return this.profileAdapter.getMaxOutputSize();
+  }
+
+  resolveMaxOutputTokens(maxOutputSize?: number): LlmRequestModel['maxOutputTokens'] {
+    return resolveMaxOutputTokens({
+      maxOutputSize: maxOutputSize ?? this.getMaxOutputSize(),
+      maxCompletionTokensCap: this.config.get<ModelOverrides>('modelOverrides')?.maxCompletionTokens,
+    });
+  }
+
+  get infiniteRetryEnabled(): boolean {
+    return parseBooleanEnv(process.env[KIMI_CODE_INFINITE_RETRY_ENV]) === true;
   }
 
   hasModel(): boolean {
