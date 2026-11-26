@@ -50,7 +50,6 @@ apps/vis/server/src/routes/blobs.ts:readFile 1
 packages/agent-core-v2/src/features/gitMemory/cache.ts:readFile 2
 packages/agent-core-v2/src/human/persist/v2/migrate.ts:readFile 2
 packages/agent-core-v2/src/os/backends/host/hostFsService.ts:readFile 3
-packages/agent-core-v2/src/persistence/backends/node-fs/fileStorageService.ts:readFile 1
 packages/agent-core-v2/src/_base/execEnv/shellPayload.ts:readFile 2
 packages/kap-server/src/instanceRegistry.ts:readFile 1
 packages/kap-server/src/lib/promptMedia.ts:readFile 1
