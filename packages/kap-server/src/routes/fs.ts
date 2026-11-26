@@ -16,11 +16,13 @@ import {
   WorkspaceFsService,
   WorkspaceGitService,
   ITelemetryService,
+  type Project,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import { Event } from '@moonshot-ai/agent-core-v2/_base/event';
 import { IGitService } from '@moonshot-ai/agent-core-v2/app/git/git';
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { encodeWorkDirKey, sameDir } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { isNonDirectory } from '@moonshot-ai/agent-core-v2/app/project/implicitProject';
 import {
   fsDiffRequestSchema,
   fsGitStatusBatchRequestSchema,
@@ -203,14 +205,12 @@ async function resolveWorkspaceFs(
   required: readonly EnvironmentCapability[],
 ): Promise<FsScope | undefined> {
   const workspaces = core.accessor.get(IProjectService);
-  let ws = await workspaces.get(ref);
+  let ws: Pick<Project, 'id' | 'root' | 'additionalDirs'> | undefined = await workspaces.get(ref);
   if (ws === undefined) {
-    if (!isAbsolute(ref)) return undefined;
-    try {
-      ws = await workspaces.createOrTouch(ref);
-    } catch {
-      return undefined;
-    }
+    if (!isAbsolute(ref) || (await isNonDirectory(core.accessor.get(IHostFileSystem), ref))) return undefined;
+    ws =
+      (await workspaces.list()).find((entry) => entry.kind === 'implicit' && sameDir(entry.root, ref)) ??
+      { id: encodeWorkDirKey(ref), root: ref, additionalDirs: [] };
   }
   return acquireLocalRootedFs(core, ws.id, { workDir: ws.root, additionalDirs: ws.additionalDirs }, required);
 }
