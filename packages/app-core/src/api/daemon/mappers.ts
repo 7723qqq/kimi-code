@@ -640,6 +640,18 @@ export function toAppEvent(wire: WireEvent): AppEvent {
         hosts: Array.isArray(w.hosts) ? w.hosts.map((host: WireHost) => toAppHost(host)) : [],
       };
 
+    case 'event.session.work_changed': {
+      const payload = (w.payload ?? {}) as Record<string, unknown>;
+      return {
+        type: 'sessionWorkChanged',
+        sessionId: typeof w.session_id === 'string' ? w.session_id : '__global__',
+        busy: payload['busy'] === true,
+        mainTurnActive: payload['main_turn_active'] === true,
+        pendingInteraction: payload['pending_interaction'] as 'none' | 'approval' | 'question' | undefined,
+        lastTurnReason: payload['last_turn_reason'] as 'completed' | 'cancelled' | 'failed' | undefined,
+      };
+    }
+
     default:
       return { type: 'unknown', raw: wire };
   }
@@ -744,5 +756,7 @@ export function toAppConfig(wire: WireConfig): AppConfig {
 }
 
 export function wireEventSessionId(wire: WireEvent): string {
-  return 'session' in wire ? (wire.session as WireSession).id : '__global__';
+  if ('session' in wire) return (wire.session as WireSession).id;
+  const sessionId = (wire as { session_id?: unknown }).session_id;
+  return typeof sessionId === 'string' ? sessionId : '__global__';
 }

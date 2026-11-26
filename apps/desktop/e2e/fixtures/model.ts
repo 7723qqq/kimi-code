@@ -476,6 +476,7 @@ export type PermissionMode = 'manual' | 'auto' | 'yolo';
 export function stubModelConfig(baseUrl: string, permissionMode?: PermissionMode): string {
   return [
     'default_model = "e2e/stub"',
+    'auto_session_title = false',
     ...(permissionMode === undefined ? [] : [`default_permission_mode = "${permissionMode}"`]),
     '',
     '[providers.e2e]',

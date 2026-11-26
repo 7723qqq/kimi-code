@@ -766,7 +766,12 @@ type WireHostChangedEvent = WireEventBase<'event.host.changed'> & {
   hosts: WireHost[];
 };
 
-type WireEventUnknown = { type: string; event_created_at: string };
+type WireEventUnknown = {
+  type: string;
+  event_created_at?: string;
+  session_id?: string;
+  payload?: Record<string, unknown>;
+};
 
 export type WireEvent =
   | WireSessionEvent

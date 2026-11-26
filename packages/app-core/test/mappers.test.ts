@@ -81,6 +81,27 @@ describe('toAppEvent session', () => {
     expect(toAppEvent(frame('deleted'))).toEqual({ type: 'sessionDeleted', sessionId: 'sess_1' });
   });
 
+  it('maps the new session work event envelope', () => {
+    expect(toAppEvent({
+      type: 'event.session.work_changed',
+      event_created_at: '2026-01-01T00:00:00.000Z',
+      session_id: 'sess_1',
+      payload: {
+        busy: true,
+        main_turn_active: true,
+        pending_interaction: 'none',
+        last_turn_reason: 'completed',
+      },
+    } as never)).toEqual({
+      type: 'sessionWorkChanged',
+      sessionId: 'sess_1',
+      busy: true,
+      mainTurnActive: true,
+      pendingInteraction: 'none',
+      lastTurnReason: 'completed',
+    });
+  });
+
   it('maps the full session on updates', () => {
     expect(toAppEvent(frame('updated'))).toMatchObject({
       type: 'sessionWorkChanged',
