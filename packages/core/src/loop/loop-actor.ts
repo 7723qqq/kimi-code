@@ -35,6 +35,7 @@ import {
 import {
   runLoopRequest,
   type LoopLlmRequester,
+  type LoopRequester,
   type LoopRequestProgress,
   type LoopRequestRuntime,
 } from './request';
@@ -335,8 +336,8 @@ class LoopActor implements Loop {
   private turn: LiveTurn | undefined;
   private step: StepState | undefined;
   private readonly tools = new Map<string, LiveTool>();
-  private requesterTemplate: LoopLlmRequester | undefined;
-  private requester: LoopLlmRequester | undefined;
+  private requesterTemplate: LoopRequester | undefined;
+  private requester: LoopRequester | undefined;
   private profile: LoopProfile | undefined;
   private requesterError: unknown;
   private toolsSettled = false;
@@ -412,6 +413,10 @@ class LoopActor implements Loop {
 
   get historyRevision(): number {
     return this.revision;
+  }
+
+  get baseRequester(): LoopRequester | undefined {
+    return this.requesterTemplate;
   }
 
   operation<T>(create: (runtime: LoopRequestRuntime) => T): T {
@@ -1011,7 +1016,7 @@ class LoopActor implements Loop {
     }
   }
 
-  setRequester(requester: LoopLlmRequester | undefined): void {
+  setRequester(requester: LoopRequester | undefined): void {
     if (!this.open()) return;
     this.requesterTemplate = requester;
   }
@@ -1273,7 +1278,7 @@ class LoopActor implements Loop {
     this.toolsSettled = false;
     try {
       const template = this.requesterTemplate;
-      this.requester = template?.snapshot?.() ?? template;
+      this.requester = (template as LoopLlmRequester | undefined)?.snapshot?.() ?? template;
       this.requesterError = undefined;
     } catch (error) {
       this.requester = undefined;

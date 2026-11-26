@@ -8,7 +8,7 @@ import type { LoopAck, LoopEmitted } from './contract/emitted';
 import type { LoopHooks } from './contract/hook';
 import type { RemindMessage } from './contract/inbox';
 import type { TurnOutcome } from './contract/outcome';
-import type { LoopLlmRequester, LoopRequestRuntime } from './request';
+import type { LoopRequester, LoopRequestRuntime } from './request';
 import type { LoopState } from './state';
 import type { WaitForTasks } from './tool/tasks';
 import type { ToolCompletionFactory } from './tool/outcome';
@@ -29,7 +29,7 @@ export interface LoopToolExecutor {
 }
 
 export interface CreateLoopOptions {
-  readonly requester?: LoopLlmRequester;
+  readonly requester?: LoopRequester;
   readonly executor: LoopToolExecutor;
   readonly toolContext?: (turnId: number) => Omit<LoopToolContext, 'origin' | 'turnId'>;
   readonly hook?: Partial<LoopHooks>;
@@ -46,6 +46,7 @@ export interface Loop {
   readonly executor: LoopToolExecutor;
   readonly waitForTasks: WaitForTasks;
   readonly policy: PolicyRegistry;
+  readonly baseRequester: LoopRequester | undefined;
   submit(message: UserMessage): LoopAck<'prompt.submitted'> | undefined;
   notify(message: UserMessage): LoopAck<'prompt.notified'> | undefined;
   notifyScoped(message: UserMessage): LoopAck<'prompt.notified'> | undefined;
@@ -66,7 +67,7 @@ export interface Loop {
   abortTool(toolCallId: string, reason?: unknown): void;
   detachTool(toolCallId: string, text?: string, completion?: ToolCompletionFactory): void;
   reset(prepare: () => Promise<LoopInput>): Promise<void>;
-  setRequester(requester: LoopLlmRequester | undefined): void;
+  setRequester(requester: LoopRequester | undefined): void;
   operation<T>(create: (runtime: LoopRequestRuntime) => T): T;
   setContext(messages: Message[], reason?: string): LoopAck<'context.settled' | 'context.rejected'> | undefined;
   setSystemPrompt(systemPrompt: string): LoopAck<'system_prompt.settled'> | undefined;
