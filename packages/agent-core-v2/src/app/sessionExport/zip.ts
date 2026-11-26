@@ -11,7 +11,10 @@ import { ErrorCodes, Error2 } from '#/errors';
 import { openZipSource, type ZipSource, type ZipSourceIdentity } from './file-source';
 import type { ExportSessionManifest } from './sessionExport';
 
-export async function collectFilesRecursive(root: string, skipDir?: string): Promise<string[]> {
+export async function collectFilesRecursive(
+  root: string,
+  skipDirs?: ReadonlySet<string>,
+): Promise<string[]> {
   const files: string[] = [];
   async function walk(dir: string): Promise<void> {
     let entries;
@@ -23,7 +26,7 @@ export async function collectFilesRecursive(root: string, skipDir?: string): Pro
     }
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (skipDir !== undefined && entry.name === skipDir) continue;
+        if (skipDirs?.has(entry.name) === true) continue;
         await walk(join(dir, entry.name));
       } else if (entry.isFile()) {
         files.push(join(dir, entry.name));

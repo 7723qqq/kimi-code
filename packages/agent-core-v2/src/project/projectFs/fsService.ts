@@ -2101,7 +2101,7 @@ function isInsideOrEqual(path: EnvironmentPath, child: string, parent: string): 
 
 function mapFsError(err: unknown, inputPath: string): Error {
   const coded = err as { code?: unknown; message?: unknown; details?: unknown } | null;
-  if (coded?.code === ErrorCodes.OS_FS_DIRECTORY_TOO_LARGE) {
+  if (coded !== null && coded?.code === ErrorCodes.OS_FS_DIRECTORY_TOO_LARGE) {
     const message = typeof coded.message === 'string' ? coded.message : '';
     return new Error2(ErrorCodes.FS_TOO_MANY_RESULTS, message, {
       details: coded.details as Record<string, unknown> | undefined,

@@ -1,6 +1,7 @@
 import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import * as scopeModule from '#/_base/di/scope';
+import { ISessionPresence } from '#/app/sessionPresence/sessionPresence';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
 
@@ -69,6 +70,9 @@ describe('SessionLifecycleService', () => {
         async () => ({ service: { sessionHandle: () => ({}) }, dispose: () => {} }),
         { ready },
         { ready },
+        { ready } as any,
+        { ready } as any,
+        undefined,
         undefined,
         async () => workdir,
       ] as unknown as ConstructorParameters<typeof SessionLifecycleService>)
@@ -117,5 +121,98 @@ describe('SessionLifecycleService', () => {
     expect(service.sessionWorkDir('/local-anchor', { environmentId: 'ssh-dev', cwd: '/srv/app' })).toBe('/local-anchor');
     expect(service.sessionWorkDir('/old', undefined)).toBe('/new-primary');
     expect(service.sessionWorkDir('/old', { environmentId: 'local', cwd: '/explicit' })).toBe('/explicit');
+  });
+
+  it('registers session presence even when the worktree flag starts disabled', async () => {
+    const ready = Promise.resolve();
+    const disposePresence = mock();
+    const markOpen = mock(() => ({ dispose: disposePresence }));
+    const anchored: { readonly name: string; readonly fn: () => void }[] = [];
+    const workdir = {
+      dirs: {
+        ready,
+        mergeAdditionalDirs: mock(async () => {}),
+        sessionInfo: () => ({}),
+      },
+      skills: { sessionData: () => ({}) },
+      contextKey: 'local:/workspace',
+      fs: {},
+      instructions: { sessionProvider: () => ({}) },
+      agentProfiles: { ready },
+      configuredSources: {
+        contextKey: 'local:/workspace:configured',
+        explicitAgentProfiles: { ready },
+        extraAgentProfiles: { ready },
+      },
+      mcp: { sessionHandle: () => ({}) },
+      dispose: mock(),
+    };
+    const handle = {
+      accessor: { get: () => ({ ready }) },
+      dispose: mock(),
+    };
+    createScopedChildHandleMock.mockReset();
+    createScopedChildHandleMock.mockImplementation(((_ix: unknown, _kind: string, _id: string, opts: any) => {
+      opts.configureContainer({
+        anchorKernelEntry: (fn: () => void, name: string) => {
+          anchored.push({ name, fn });
+        },
+        invokeFunction: (cb: (accessor: { get: (id: unknown) => unknown }) => unknown) =>
+          cb({
+            get: (id: unknown) => (id === ISessionPresence ? { markOpen } : undefined),
+          }),
+        provide: () => {},
+      });
+      return handle;
+    }) as never);
+    const service = new SessionLifecycleService(
+      ...([
+        undefined,
+        { workspaceId: 'wm_test', persistenceScope: 'sessions/wm_test' },
+        { homeDir: '/home' },
+        { ready, assertValid: () => {}, get: () => undefined },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        noopTelemetryService,
+        { enabled: () => false },
+        { ready },
+        { ready, reload: async () => undefined },
+        { ready },
+        { ready },
+        { ready },
+        { ready } as any,
+        { ready } as any,
+        undefined,
+        undefined,
+        async () => workdir,
+      ] as unknown as ConstructorParameters<typeof SessionLifecycleService>),
+    );
+    try {
+      await (
+        service as unknown as {
+          materializeSession(
+            options: { sessionId: string; workDir: string },
+            environment: undefined,
+            workdir: unknown,
+          ): Promise<unknown>;
+        }
+      ).materializeSession({ sessionId: 'session_flag_off', workDir: '/workspace' }, undefined, workdir);
+
+      expect(markOpen).toHaveBeenCalledWith('/home/sessions/wm_test/session_flag_off');
+      const presenceAnchor = anchored.find((entry) => entry.name === 'sessionLifecycle:presence');
+      expect(presenceAnchor).toBeDefined();
+      presenceAnchor?.fn();
+      expect(disposePresence).toHaveBeenCalledTimes(1);
+    } finally {
+      service.dispose();
+      createScopedChildHandleMock.mockReset();
+    }
   });
 });

@@ -19,3 +19,5 @@ export function agentScopeOf(sessionScope: string, agentId: string): string {
 export function legacySessionMetaScopeOf(sessionScope: string): string {
   return `${sessionScope}/session-meta`;
 }
+
+export const projectPersistenceScope = workspacePersistenceScope;
