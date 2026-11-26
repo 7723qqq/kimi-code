@@ -15,7 +15,7 @@ import type { NativeMenuItem } from '@moonshot-ai/app-core/native-menu';
 import { measureNaturalWidth, prepareWithSegments } from '@chenglou/pretext';
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, useId, watch, watchEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { analyzeLeadingSlashCommand, basename, buildSlashItems, formatShortcutText, formatTokens, providerDisplayName } from '@moonshot-ai/app-core/lib';
+import { analyzeLeadingSlashCommand, basename, buildSlashItems, formatShortcutText, formatTokens, providerDisplayName, type SlashCommand } from '@moonshot-ai/app-core/lib';
 import { placeholderText } from '@moonshot-ai/app-core/lib';
 import { MANAGED_KIMI_CODE_PROVIDER_ID } from '@moonshot-ai/app-core/api';
 import { useAppearance } from '@moonshot-ai/app-core';
@@ -113,6 +113,7 @@ const props = defineProps<{
   beforeSubmit?: () => boolean;
   draftScopeKey?: string;
   placeholderText?: string;
+  extraBuiltinCommands?: readonly SlashCommand[];
   onCaptureScreenshot?: () => void;
   screenshotShortcutKeys?: string[];
   screenshotShortcutUnavailable?: boolean;
@@ -199,7 +200,12 @@ const browserDetails = useBrowserReferenceDetails(() => JSON.stringify([sessionI
 const browserReferences = ref<BrowserReference[]>([]);
 const browserCaptures = ref<BrowserCapture[]>([]);
 
-const towerEnabled = computed(() => client.experimentalFlags.value['tower'] === true);
+const towerExperimentEnabled = computed(() => client.experimentalFlags.value['tower'] === true);
+const towerAvailable = computed(() => client.towerModeAvailable.value);
+const towerEntryEnabled = computed(() => towerExperimentEnabled.value && towerAvailable.value);
+const planEnabled = computed(() => client.planModeAvailable.value);
+const swarmEnabled = computed(() => client.swarmModeAvailable.value);
+const goalEnabled = computed(() => client.goalModeAvailable.value);
 
 const attachmentEntries = ref<AttachmentEntry[]>([]);
 const attachmentInventoryState = shallowRef<AttachmentInventoryState>({
@@ -261,7 +267,13 @@ watch(promptPredictionSuggestion, (suggestion) => {
   handleInput();
 });
 
-const highlightCommands = computed(() => buildSlashItems([], { towerEnabled: towerEnabled.value }));
+const highlightCommands = computed(() => buildSlashItems([], {
+  towerEnabled: towerExperimentEnabled.value,
+  planEnabled: planEnabled.value,
+  swarmEnabled: swarmEnabled.value,
+  goalEnabled: goalEnabled.value,
+  extraBuiltins: props.extraBuiltinCommands,
+}));
 
 const pendingCommandArgument = computed(() => {
   if (isSideChat.value || !mayStartWithSlashCommand(text.value)) return null;
@@ -910,7 +922,11 @@ const {
   },
   historyPush: (entry) => history.push(entry),
   clearDraft,
-  towerEnabled: () => towerEnabled.value,
+  towerEnabled: () => towerEntryEnabled.value,
+  extraBuiltins: () => props.extraBuiltinCommands,
+  planEnabled: () => planEnabled.value,
+  swarmEnabled: () => swarmEnabled.value,
+  goalEnabled: () => goalEnabled.value,
   resolveDesc: (item) => (item.isSkill ? item.desc : t(item.desc)),
 });
 
@@ -1715,6 +1731,25 @@ function persistPillsForDeparture(
   text.value = links.join(' ');
 }
 
+function submitCommandContext() {
+  return {
+    skillMentions: editor?.getSkillMentions() ?? [],
+    skills: skills.value,
+    skillsLoaded: skillsLoaded.value,
+    working: working.value,
+    running: running.value,
+    queueLength: queued.value.length,
+    goalMode: goalMode.value,
+    towerEnabled: towerExperimentEnabled.value,
+    towerAvailable: towerAvailable.value,
+    towerActive: towerOn.value,
+    extraBuiltins: props.extraBuiltinCommands,
+    planEnabled: planEnabled.value,
+    swarmEnabled: swarmEnabled.value,
+    goalEnabled: goalEnabled.value,
+  };
+}
+
 function currentSubmitDecision(): SubmitDecision {
   if (props.submitDisabled === true) return { kind: 'noop' };
   const trimmed = text.value.trim();
@@ -1731,14 +1766,7 @@ function currentSubmitDecision(): SubmitDecision {
     rewritten: rewriteForSubmit(trimmed, assembly),
     blocked: pillGate.value.uploading || pillGate.value.errored || pillGate.value.missing,
     assembly,
-    skillMentions: editor?.getSkillMentions() ?? [],
-    skills: skills.value,
-    skillsLoaded: skillsLoaded.value,
-    working: working.value,
-    running: running.value,
-    queueLength: queued.value.length,
-    goalMode: goalMode.value,
-    towerEnabled: towerEnabled.value,
+    ...submitCommandContext(),
   });
 }
 
@@ -1752,14 +1780,7 @@ const canSend = computed(() => {
     text: trimmed,
     blocked,
     assembly,
-    skillMentions: editor?.getSkillMentions() ?? [],
-    skills: skills.value,
-    skillsLoaded: skillsLoaded.value,
-    working: working.value,
-    running: running.value,
-    queueLength: queued.value.length,
-    goalMode: goalMode.value,
-    towerEnabled: towerEnabled.value,
+    ...submitCommandContext(),
   }).kind !== 'noop';
 });
 
@@ -1846,6 +1867,10 @@ function handleQueue(): void {
 function handleSubmit(): void {
   const decision = currentSubmitDecision();
   if (decision.kind === 'noop') return;
+  if (decision.kind === 'disabled-command') {
+    client.notify({ severity: 'warning', title: t('composer.disabledCommand', { cmd: decision.cmd }) });
+    return;
+  }
   if (decision.kind === 'invalid-command') {
     client.notify({ severity: 'warning', title: t('composer.noArgCommand', { cmd: decision.cmd }) });
     return;
@@ -2383,10 +2408,16 @@ const addItems = computed(() => {
     items.push({ id: 'slash', icon: 'terminal', nameKey: 'composer.addSlash', descKey: 'composer.addSlashDesc', action: onAddSlashMenu });
     items.push({ id: 'mention', icon: 'at', nameKey: 'composer.addMention', descKey: 'composer.addMentionDesc', action: onAddMentionMenu });
   }
-  items.push({ id: 'goal', icon: 'target', nameKey: 'status.goalLabel', descKey: 'composer.addGoalDesc', action: onAddGoalMode });
-  items.push({ id: 'plan', icon: 'file-edit', nameKey: 'status.planLabel', descKey: 'composer.addPlanDesc', action: onAddPlanMode });
-  items.push({ id: 'swarm', icon: 'sparkles', nameKey: 'status.swarmLabel', descKey: 'composer.addSwarmDesc', action: onAddSwarmMode });
-  if (towerEnabled.value) {
+  if (goalEnabled.value) {
+    items.push({ id: 'goal', icon: 'target', nameKey: 'status.goalLabel', descKey: 'composer.addGoalDesc', action: onAddGoalMode });
+  }
+  if (planEnabled.value) {
+    items.push({ id: 'plan', icon: 'file-edit', nameKey: 'status.planLabel', descKey: 'composer.addPlanDesc', action: onAddPlanMode });
+  }
+  if (swarmEnabled.value) {
+    items.push({ id: 'swarm', icon: 'sparkles', nameKey: 'status.swarmLabel', descKey: 'composer.addSwarmDesc', action: onAddSwarmMode });
+  }
+  if (towerEntryEnabled.value) {
     items.push({ id: 'tower', icon: 'tower', nameKey: 'status.towerLabel', descKey: 'composer.addTowerDesc', action: onAddTowerMode });
   }
   if (isSideChat.value) {
@@ -3379,7 +3410,7 @@ watch(() => client.activeSessionId.value, () => { closeDropdown(); closePermDrop
             </IconButton>
           </span>
 
-          <span v-if="towerOn && towerEnabled && !isSideChat" class="tower-chip">
+          <span v-if="towerOn && towerExperimentEnabled && !isSideChat" class="tower-chip">
             <Icon class="tower-ic" name="tower" size="md" />
             <span class="tower-label">{{ t('status.towerLabel') }}</span>
             <IconButton

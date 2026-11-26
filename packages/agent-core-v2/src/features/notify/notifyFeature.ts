@@ -17,6 +17,7 @@ export class NotifyFeature extends Feature {
     this.contributeTool(INotifyUserTool, NotifyUserTool, {
       name: NOTIFY_USER_TOOL_NAME,
       domain: 'notify',
+      userConfigurable: true,
       when: (accessor) => accessor.get(ISessionNotify).enabled,
     });
     this.contributeAgentService(IAgentNotifyUserNudgeService, AgentNotifyUserNudgeService);

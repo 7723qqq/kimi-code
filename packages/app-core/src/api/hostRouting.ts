@@ -139,6 +139,7 @@ const ROUTES = {
   getSessionMediaBlob: 'session',
   readHostFileContent: 'local',
   downloadHostFile: 'local',
+  listToolCatalog: 'local',
   readHostTextFile: 'local',
   writeHostTextFile: 'local',
   getConfig: 'local',

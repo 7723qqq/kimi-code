@@ -30,6 +30,7 @@ import { loopUserAttributes } from '#/agent/loop/userEntry';
 import { readUserPermissionRules } from '#/agent/permissionRules/configSection';
 import { IProjectPermissionRulesService } from '#/agent/permissionRules/projectPermissionRules';
 import { IAgentPlanService } from '#/features/plan/plan';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { LifecycleScope } from '#/app/scopes';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
@@ -279,7 +280,9 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         if (planHandle === undefined) {
           throw new Error2(ErrorCodes.AGENT_NOT_FOUND, 'Main agent was not found');
         }
-        await planHandle.accessor.get(IAgentPlanService).enter();
+        if (planHandle.accessor.get(IAgentToolPolicyService).isToolActive('ExitPlanMode')) {
+          await planHandle.accessor.get(IAgentPlanService).enter();
+        }
       }
       await opts.prepare?.(handle);
       await this.appendSessionIndexEntry(sessionId, workDir);

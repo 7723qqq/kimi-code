@@ -72,7 +72,7 @@ export class TaskStopTool implements ITaskStopTool {
   }
 }
 
-registerAgentToolService(ITaskStopTool, TaskStopTool, { name: 'TaskStop', domain: 'agentTask' });
+registerAgentToolService(ITaskStopTool, TaskStopTool, { name: 'TaskStop', domain: 'agentTask', userConfigurable: true });
 
 function terminalStopReason(reason: string | undefined): string {
   const trimmed = reason?.trim();

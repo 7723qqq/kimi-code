@@ -31,6 +31,12 @@ export const configResponseSchema = z
     subagent: z.unknown().optional(),
     subagent_backend: z.unknown().optional(),
     secondary_model: z.unknown().optional(),
+    tools: z
+      .object({
+        enabled: z.array(z.string()).optional(),
+        disabled: z.array(z.string()).optional(),
+      })
+      .optional(),
     experimental: z.record(z.string(), z.boolean()).optional(),
     prompt_optimizer: z
       .object({
@@ -91,6 +97,12 @@ export const patchConfigRequestSchema = z
     task: z.unknown().optional(),
     database: z.unknown().optional(),
     watch: z.unknown().optional(),
+    tools: z
+      .object({
+        enabled: z.array(z.string()).optional(),
+        disabled: z.array(z.string()).optional(),
+      })
+      .optional(),
     experimental: z.record(z.string(), z.boolean()).optional(),
     prompt_optimizer: z
       .object({

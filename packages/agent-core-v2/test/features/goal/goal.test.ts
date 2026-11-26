@@ -2335,7 +2335,7 @@ describe('AgentGoalService hard wall-clock deadline', () => {
     );
     try {
       ctx.get(IAgentToolRegistryService).register(tool);
-      ctx.configure({ tools: ['SlowWork'] });
+      ctx.configure({ tools: ['SlowWork', 'UpdateGoal'] });
       await ctx.restorePersisted();
       await ctx.rpc.createGoal({ objective: 'finish bounded work' });
       await ctx
@@ -2405,7 +2405,7 @@ describe('AgentGoalService mid-turn budget stop', () => {
   it('grants one tool-free grace step when a token budget is reached mid-turn', async () => {
     const ctx = createTestAgent();
     try {
-      ctx.configure({ tools: ['GetGoal'] });
+      ctx.configure({ tools: ['GetGoal', 'UpdateGoal'] });
       await ctx.restorePersisted();
       await ctx.rpc.createGoal({ objective: 'work' });
       const goals = ctx.get(IAgentGoalService);
@@ -2460,7 +2460,7 @@ describe('AgentGoalService mid-turn budget stop', () => {
   it('lets an automatic continuation report final status after crossing its token budget', async () => {
     const ctx = createTestAgent();
     try {
-      ctx.configure({ tools: ['GetGoal'] });
+      ctx.configure({ tools: ['GetGoal', 'UpdateGoal'] });
       await ctx.restorePersisted();
       const goals = ctx.get(IAgentGoalService);
       await goals.createGoal({ objective: 'work' });
@@ -2509,7 +2509,7 @@ describe('AgentGoalService mid-turn budget stop', () => {
   it('rejects tool calls made during the budget grace step without executing them', async () => {
     const ctx = createTestAgent();
     try {
-      ctx.configure({ tools: ['GetGoal', 'SetGoalBudget'] });
+      ctx.configure({ tools: ['GetGoal', 'SetGoalBudget', 'UpdateGoal'] });
       await ctx.restorePersisted();
       await ctx.rpc.createGoal({ objective: 'work' });
       const goals = ctx.get(IAgentGoalService);

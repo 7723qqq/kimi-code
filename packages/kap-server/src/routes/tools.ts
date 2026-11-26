@@ -2,7 +2,12 @@ import {
   ISessionIndex,
   IAgentToolRegistryService,
   IAgentToolPolicyService,
+  IFlagService,
+  AgentToolContribution,
+  SyncDescriptor,
+  USER_CONFIGURABLE_TOWER_MODE_TOOLS,
   getLiveSessionById,
+  isTowerFeatureAssembled,
   resumeSessionById,
   type ISessionScopeHandle,
   type Scope,
@@ -10,14 +15,26 @@ import {
   type ToolSource,
 } from '@moonshot-ai/agent-core-v2';
 
+import type { CollectionView } from '@moonshot-ai/agent-core-v2/_base/di/collection';
+
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
-import { listToolsQuerySchema, listToolsResponseSchema } from '../protocol/rest-tool';
+import {
+  listToolCatalogResponseSchema,
+  listToolsQuerySchema,
+  listToolsResponseSchema,
+} from '../protocol/rest-tool';
 import type { ToolDescriptor } from '../protocol/tool';
 import { ensureMainAgent } from '../transport/mainAgent';
 
 const MCP_NAME_PREFIX = 'mcp__';
 const MCP_NAME_SEPARATOR = '__';
+
+class ToolCatalog {
+  constructor(
+    @AgentToolContribution readonly contributions: CollectionView<AgentToolContribution>,
+  ) {}
+}
 
 interface ToolsRouteHost {
   get(
@@ -31,6 +48,39 @@ interface ToolsRouteHost {
 }
 
 export function registerToolsRoutes(app: ToolsRouteHost, core: Scope): void {
+  const listToolCatalogRoute = defineRoute(
+    {
+      method: 'GET',
+      path: '/tools/catalog',
+      success: { data: listToolCatalogResponseSchema },
+      description: 'List user-configurable builtin tools',
+      tags: ['tools'],
+      operationId: 'listToolCatalog',
+    },
+    (req, reply) => {
+      const towerModeTools = isTowerFeatureAssembled(core.accessor.get(IFlagService))
+        ? USER_CONFIGURABLE_TOWER_MODE_TOOLS
+        : [];
+      const entries = core.instantiation
+        .createInstance<ToolCatalog>(new SyncDescriptor(ToolCatalog))
+        .contributions.items.filter((contribution) => contribution.options.userConfigurable === true)
+        .map((contribution) => ({
+          name: contribution.options.name,
+          source: contribution.options.source ?? 'builtin',
+        }))
+        .concat(...towerModeTools);
+      const tools = [...new Map(entries.map((tool) => [tool.name, tool])).values()].toSorted(
+        (left, right) => left.name.localeCompare(right.name),
+      );
+      reply.send(okEnvelope({ tools }, req.id));
+    },
+  );
+  app.get(
+    listToolCatalogRoute.path,
+    listToolCatalogRoute.options,
+    listToolCatalogRoute.handler as Parameters<ToolsRouteHost['get']>[2],
+  );
+
   const listToolsRoute = defineRoute(
     {
       method: 'GET',

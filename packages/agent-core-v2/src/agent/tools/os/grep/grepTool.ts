@@ -358,6 +358,7 @@ export class GrepTool implements IGrepTool {
 registerAgentToolService(IGrepTool, GrepTool, {
   name: 'Grep',
   domain: 'os/backends',
+  userConfigurable: true,
   requiredEnvironmentCapabilities: ['fs', 'process'],
 });
 

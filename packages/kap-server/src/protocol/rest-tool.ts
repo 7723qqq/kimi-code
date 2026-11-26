@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { toolDescriptorSchema } from './tool';
+import { toolCatalogEntrySchema, toolDescriptorSchema } from './tool';
 
 export const listToolsQuerySchema = z
   .object({
@@ -13,3 +13,8 @@ export const listToolsResponseSchema = z.object({
   tools: z.array(toolDescriptorSchema),
 });
 export type ListToolsResponse = z.infer<typeof listToolsResponseSchema>;
+
+export const listToolCatalogResponseSchema = z.object({
+  tools: z.array(toolCatalogEntrySchema),
+});
+export type ListToolCatalogResponse = z.infer<typeof listToolCatalogResponseSchema>;

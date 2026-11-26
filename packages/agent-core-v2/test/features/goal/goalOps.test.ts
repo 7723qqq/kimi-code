@@ -15,6 +15,7 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IGoalDeadlineScheduler } from '#/features/goal/goalDeadlineScheduler';
 import { GoalDeadlineSchedulerService } from '#/features/goal/goalDeadlineSchedulerService';
@@ -128,6 +129,7 @@ function buildHost(key: string): GoalHost {
   ix.stub(IAgentReminderService, createReminderStub());
   ix.stub(ITelemetryService, createTelemetryStub());
   ix.stub(IAgentToolExecutorService, createToolExecutorStub());
+  ix.stub(IAgentToolPolicyService, { isToolActive: () => true });
   ix.stub(IConfigService, createConfigStub());
   ix.set(IGoalDeadlineScheduler, new SyncDescriptor(GoalDeadlineSchedulerService));
   registerTestAgentWire(ix, testWireScope(SCOPE, key), {

@@ -742,6 +742,7 @@ function truncateReason(reason: string): string {
 registerAgentToolService(ISubagentTool, SubagentTool, {
   name: 'Agent',
   domain: 'subagent',
+  userConfigurable: true,
   requiredEnvironmentCapabilities: ['process'],
 });
 

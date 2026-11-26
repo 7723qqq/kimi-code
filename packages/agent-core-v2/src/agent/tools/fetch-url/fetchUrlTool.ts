@@ -105,4 +105,8 @@ function describeErrorCause(error: unknown): string {
   return parts.length > 0 ? ` Cause: ${parts.join(' <- ')}.` : '';
 }
 
-registerAgentToolService(IFetchURLTool, FetchURLTool, { name: 'FetchURL', domain: 'web' });
+registerAgentToolService(IFetchURLTool, FetchURLTool, {
+  name: 'FetchURL',
+  domain: 'web',
+  userConfigurable: true,
+});
