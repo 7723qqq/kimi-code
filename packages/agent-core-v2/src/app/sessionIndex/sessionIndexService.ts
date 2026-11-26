@@ -60,6 +60,7 @@ import {
 
 const RECONCILE_INTERVAL_MS = 60_000;
 const DEGRADED_RETRY_MS = 5_000;
+const SCHEMA_MISMATCH_REASON = 'schema mismatch';
 const TIE_REPAIR_LIMIT = 1_000;
 const UNBOUNDED = Number.MAX_SAFE_INTEGER;
 
@@ -165,7 +166,9 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     try {
       this.primarySnapshot ??= await this.primaryByWorkspace();
       const manifest = await this.queryStore.getCheckpoint(SESSION_INDEX_MANIFEST);
-      if (manifest === undefined || manifest.schemaVersion !== SESSION_INDEX_SCHEMA_VERSION) {
+      if (manifest !== undefined && manifest.schemaVersion !== SESSION_INDEX_SCHEMA_VERSION) {
+        this.markSchemaMismatch();
+      } else if (manifest === undefined) {
         const projection = this.ensureProjection();
         if (deadlineMs === undefined) {
           await projection;
@@ -220,7 +223,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
         }
       }
       const published = await this.queryStore.getCheckpoint(SESSION_INDEX_MANIFEST);
-      if (published !== undefined) {
+      if (published !== undefined && published.schemaVersion === SESSION_INDEX_SCHEMA_VERSION) {
         this.generation = published.seq;
         this.markReady();
       }
@@ -328,6 +331,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
 
   private async tick(): Promise<void> {
     if (!this.readModelEnabled()) return;
+    if (this.statusReason === SCHEMA_MISMATCH_REASON) return;
     if (this.state === 'degraded') {
       void this.prepare();
       return;
@@ -360,6 +364,12 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     this.statusReason = undefined;
     this.lastDegradedKey = undefined;
     this.ensureReconcileTimer();
+  }
+
+  private markSchemaMismatch(): void {
+    this.markDegraded(SCHEMA_MISMATCH_REASON);
+    this.nextPrepareRetryAt = Number.POSITIVE_INFINITY;
+    this.reconcileTimer.cancel();
   }
 
   private markDegraded(reason: string, error?: unknown): void {
