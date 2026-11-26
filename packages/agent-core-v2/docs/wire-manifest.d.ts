@@ -1102,9 +1102,7 @@ interface TurnEndedPayload {
     isKfc: boolean;
     requestId?: string;
   }[];
-  loopEnd?: {
-    outcome: 'drained' | 'idle';
-  };
+  continuation?: 'turn' | 'background' | 'none';
 }
 
 /**

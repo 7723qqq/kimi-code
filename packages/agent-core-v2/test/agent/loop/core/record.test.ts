@@ -66,7 +66,7 @@ describe('loop record', () => {
       if (event.type === 'turn.ended') ends.push(event);
     });
     expect((await loop.runTurn(prompt('hello'))).type).toBe('done');
-    expect(ends.at(-1)).toMatchObject({ loopEnd: { outcome: 'idle' } });
+    expect(ends.at(-1)).toMatchObject({ continuation: 'none' });
   });
 
   it('folds durable loop events back into the loop history and recovers interrupted turns', async () => {

@@ -7,7 +7,7 @@ import { createAbortScope, withAbort, type AbortScope } from '#/utils/abort';
 import { waitEvent, type WaitOpts } from '#/utils/wait';
 import type { CreateLoopOptions, Loop, LoopToolContext, LoopToolExecutor } from './create-loop';
 import type { LoopCommand, LoopInput, UnfinishedTurn } from './contract/command';
-import { llmMessageTiming, type LoopAck, type LoopEmitted } from './contract/emitted';
+import { llmMessageTiming, type LoopAck, type LoopEmitted, type TurnContinuation } from './contract/emitted';
 import type { HookPoint, LoopHooks } from './contract/hook';
 import type { Inbox, QueuedItem, RemindMessage } from './contract/inbox';
 import { CLOSED, CRASHED, STEERED, type AsyncToolOutcome, type StepOutcome, type TurnOutcome } from './contract/outcome';
@@ -581,10 +581,23 @@ class LoopActor implements Loop {
     return false;
   }
 
-  private settleLoopEnd(held: boolean): { readonly outcome: 'drained' | 'idle' } | undefined {
-    if (!this.open() || this.hasPendingCompletions) return undefined;
-    if (!held && this.mailbox.hasTrigger) return undefined;
-    return { outcome: this.hasActiveBackgroundTasks ? 'drained' : 'idle' };
+  private resolveContinuation(held: boolean): TurnContinuation | undefined {
+    if (!this.open()) return undefined;
+    if (this.hasFollowUpTurn(held)) return 'turn';
+    return this.hasActiveBackgroundTasks ? 'background' : 'none';
+  }
+
+  private hasFollowUpTurn(held: boolean): boolean {
+    if (!held && this.mailbox.hasTrigger) return true;
+    for (const slot of this.tools.values()) {
+      if (
+        slot.completionPending === true &&
+        (this.shouldQueueTaskNotification?.(slot.handler.taskId) ?? true)
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private canSchedule(): boolean {
@@ -1190,7 +1203,7 @@ class LoopActor implements Loop {
 
   private requestAbort(turn: LiveTurn | undefined, reason: unknown, continueAfterAbort: boolean): void {
     if (turn === undefined) {
-      if (this.phase === 'idle') this.closeUnfinished(this.settleLoopEnd(this.held) === undefined);
+      if (this.phase === 'idle') this.closeUnfinished(this.hasFollowUpTurn(this.held));
       return;
     }
     if (!this.isCurrent(turn)) return;
@@ -2049,11 +2062,11 @@ class LoopActor implements Loop {
     turn.outcome = outcome;
     turn.phase = 'finished';
     if (outcome.type === 'aborted') this.appendPendingReminders(turn);
-    const loopEnd = this.settleLoopEnd(this.held);
+    const continuation = this.resolveContinuation(this.held);
     this.record(
-      loopEnd === undefined
+      continuation === undefined
         ? { type: 'turn.ended', turnId: turn.id, outcome, requestId: this.requestId }
-        : { type: 'turn.ended', turnId: turn.id, outcome, requestId: this.requestId, loopEnd },
+        : { type: 'turn.ended', turnId: turn.id, outcome, requestId: this.requestId, continuation },
     );
     this.completionHandoff = false;
     this.completionContinuation = undefined;
@@ -2097,14 +2110,16 @@ class LoopActor implements Loop {
     if (unfinished === undefined) return;
     const outcome = { type: 'aborted' as const, reason: CRASHED };
     this.settleUnfinished(outcome);
-    const loopEnd = followedByWork
+    const continuation: TurnContinuation | undefined = followedByWork
       ? undefined
-      : { outcome: this.hasActiveBackgroundTasks ? ('drained' as const) : ('idle' as const) };
+      : this.hasActiveBackgroundTasks
+        ? 'background'
+        : 'none';
     this.record({
       type: 'turn.ended',
       turnId: unfinished.turnId,
       outcome,
-      ...(loopEnd === undefined ? {} : { loopEnd }),
+      ...(continuation === undefined ? {} : { continuation }),
     });
   }
 

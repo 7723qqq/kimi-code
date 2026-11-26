@@ -287,6 +287,28 @@ describe('SessionEventHandler — background.task.terminated', () => {
     expect(record?.resultSummary).toBe('final summary');
   });
 
+  it('forwards the turn continuation to the streaming UI', () => {
+    const host = makeSessionEventHost();
+    const handler = new SessionEventHandler(host);
+    const finalizeTurn = (
+      host as unknown as { streamingUI: { finalizeTurn: ReturnType<typeof jest.fn> } }
+    ).streamingUI.finalizeTurn;
+
+    handler.handleEvent(
+      {
+        sessionId: 's1',
+        agentId: 'main',
+        type: 'turn.ended',
+        turnId: 1,
+        reason: 'completed',
+        continuation: 'turn',
+      } as Event,
+      jest.fn(),
+    );
+
+    expect(finalizeTurn).toHaveBeenCalledWith(expect.any(Function), 'turn');
+  });
+
   it('drops foreground-only records when the main turn ends (aborted subagents emit no lifecycle event)', () => {
     const handler = new SessionEventHandler(makeSessionEventHost());
     const store = handler.subAgentEventHandler.activityStore;

@@ -514,7 +514,7 @@ export class LoopJournal {
           durationMs: event.durationMs,
           stopReason: event.stopReason,
           requestId: event.requestId,
-          loopEnd: event.loopEnd,
+          continuation: event.continuation,
         };
         this.write(record['requestId'] === undefined
           ? Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'requestId')) as WireRecord

@@ -13,7 +13,7 @@ import type { PromptOrigin } from '#/agent/contextMemory/types';
 import { AgentEvent2, type SerializedEvent2 } from '#/app/event/event2';
 import { defineState } from '#/state/state';
 import type { ContentPart } from '#human/llm/message';
-import type { LoopEndOutcome } from '@moonshot-ai/core/loop/index';
+import type { TurnContinuation } from '@moonshot-ai/core/loop/index';
 
 import type { TurnEndReason, TurnInterruptReason } from './turnEvents';
 
@@ -123,7 +123,7 @@ const turnEndedSchema = z.object({
   requestId: z.string().optional(),
   replyModel: turnModelSchema.optional(),
   modelSteps: z.array(turnModelStepSchema).optional(),
-  loopEnd: z.object({ outcome: z.enum(['drained', 'idle']) }).optional(),
+  continuation: z.enum(['turn', 'background', 'none']).optional(),
 });
 
 export interface TurnEndedPayload {
@@ -138,7 +138,7 @@ export interface TurnEndedPayload {
   readonly requestId?: string;
   readonly replyModel?: TurnReplyModel;
   readonly modelSteps?: TurnModelStep[];
-  readonly loopEnd?: { readonly outcome: LoopEndOutcome };
+  readonly continuation?: TurnContinuation;
 }
 
 export class TurnEnded extends AgentEvent2<TurnEndedPayload> {
@@ -162,7 +162,7 @@ export class TurnEnded extends AgentEvent2<TurnEndedPayload> {
     if (this.requestId !== undefined) record['requestId'] = this.requestId;
     if (this.replyModel !== undefined) record['replyModel'] = this.replyModel;
     if (this.modelSteps !== undefined) record['modelSteps'] = this.modelSteps;
-    if (this.loopEnd !== undefined) record['loopEnd'] = this.loopEnd;
+    if (this.continuation !== undefined) record['continuation'] = this.continuation;
     record['time'] = this.time;
     return record as SerializedEvent2;
   }
@@ -228,7 +228,7 @@ export interface TurnEndedEvent {
   readonly interruptReason?: TurnInterruptReason;
   readonly traceId?: string;
   readonly requestId?: string;
-  readonly loopEnd?: { readonly outcome: 'drained' | 'idle' };
+  readonly continuation?: TurnContinuation;
 }
 
 function advanceTurnClock(

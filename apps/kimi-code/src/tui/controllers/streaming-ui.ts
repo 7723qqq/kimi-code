@@ -624,7 +624,10 @@ export class StreamingUIController {
     this.finalizeAssistantStream();
   }
 
-  finalizeTurn(sendQueued: (item: QueuedMessage) => void): void {
+  finalizeTurn(
+    sendQueued: (item: QueuedMessage) => void,
+    continuation: 'turn' | 'background' | 'none' = 'none',
+  ): void {
     this.timeline.turnEnded();
     const { state } = this.host;
     if (state.appState.streamingPhase === 'idle') {
@@ -640,6 +643,7 @@ export class StreamingUIController {
     this.host.mergeCompletedTurnAssistants();
     this.resetToolCallState();
     this._currentTurnId = undefined;
+    if (continuation === 'turn') return;
 
     const next = this.host.shiftQueuedMessage();
     if (next !== undefined) {
@@ -660,7 +664,10 @@ export class StreamingUIController {
     this.host.setAppState({ streamingPhase: 'idle' });
     this.host.resetLivePane();
     notifyTerminalOnce(state, `turn-complete:${completedTurnKey}`, {
-      title: t('tui.messages.streamingTaskComplete'),
+      title:
+        continuation === 'background'
+          ? t('tui.messages.streamingBackgroundTasks')
+          : t('tui.messages.streamingTaskComplete'),
       body: state.appState.sessionTitle ?? undefined,
     });
   }

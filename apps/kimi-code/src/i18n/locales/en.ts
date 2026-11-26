@@ -3395,6 +3395,7 @@ export default {
       // tui/controllers/cache-hint-controller.ts
       // tui/controllers/streaming-ui.ts
       streamingTaskComplete: 'Kimi Code task complete',
+      streamingBackgroundTasks: 'Kimi Code background tasks still running',
       // tui/kimi-tui.ts
       kimiTuiApprovalRequired: 'Kimi Code approval required',
       kimiTuiNeedsAnswer: 'Kimi Code needs your answer',

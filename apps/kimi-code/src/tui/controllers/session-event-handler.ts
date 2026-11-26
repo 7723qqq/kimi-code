@@ -560,7 +560,7 @@ export class SessionEventHandler {
       this.host.showStatus(t('tui.statusMessages.turnStoppedBlocked'), 'error');
     }
     this.host.streamingUI.resetToolUi();
-    this.host.streamingUI.finalizeTurn(sendQueued);
+    this.host.streamingUI.finalizeTurn(sendQueued, event.continuation);
     this.host.handlePromptPredictionTurnEnded?.(event);
     this.host.recordSessionActivity();
     this.renderPendingModelBlockedFallback();
