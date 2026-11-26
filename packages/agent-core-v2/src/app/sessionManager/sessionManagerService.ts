@@ -391,6 +391,7 @@ export class SessionManager implements ISessionManager {
                 ErrorCodes.REQUEST_INVALID,
                 'Destination session storage already exists',
               );
+            quiescence.dispose();
             const lease = this.sessionLocks.lease(sessionId);
             let moved = false;
             try {

@@ -3322,6 +3322,11 @@ describe('AgentTowerService', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
+    async function settleWake(): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await flushEvents();
+    }
+
     function drainWakeMessages(): ContextMessage[] {
       const appended: ContextMessage[] = [];
       loop.drainNextBatch({
@@ -3407,7 +3412,7 @@ describe('AgentTowerService', () => {
       expect(text).toContain('w1');
       expect(text).toContain('three');
 
-      await flushWake();
+      await settleWake();
       expect(drainWakeMessages()).toEqual([]);
     });
 
@@ -3626,7 +3631,7 @@ describe('AgentTowerService', () => {
         await tower.exit();
         await tower.enter();
         release();
-        await flushWake();
+        await settleWake();
         expect(drainWakeMessages()).toEqual([]);
 
         publishInbox({ from: 'w1', to: 'tower', subject: 'new flush', messageId: 'msg-new-flush' });
@@ -3648,7 +3653,7 @@ describe('AgentTowerService', () => {
 
       publishInbox({ from: 'w1', to: 'w2', subject: 'direct' });
       publishInbox({ from: 'tower', to: 'all', subject: 'self broadcast' });
-      await flushWake();
+      await settleWake();
 
       expect(drainWakeMessages()).toEqual([]);
       expect(loop.snapshot().hasPendingRequests).toBe(false);
@@ -3658,7 +3663,7 @@ describe('AgentTowerService', () => {
       ix.get(IAgentTowerService);
 
       publishInbox({ from: 'w1', to: 'tower', subject: 'hello' });
-      await flushWake();
+      await settleWake();
 
       expect(drainWakeMessages()).toEqual([]);
       expect(loop.snapshot().hasPendingRequests).toBe(false);
@@ -3723,7 +3728,7 @@ describe('AgentTowerService', () => {
       ix.get(IAgentTowerService);
 
       publishInbox({ from: 'w2', to: 'tower', subject: 'hello' });
-      await flushWake();
+      await settleWake();
 
       expect(drainWakeMessages()).toEqual([]);
       expect(loop.snapshot().hasPendingRequests).toBe(false);
@@ -3845,7 +3850,7 @@ describe('AgentTowerService', () => {
         new TurnEnded({ agentId: 'main', turnId: wakeTurn.id, reason: 'completed' }),
       );
       publishPrompt('p1', { kind: 'user' });
-      await flushWake();
+      await settleWake();
 
       expect(loop.cancels).toEqual([]);
     });
@@ -3874,7 +3879,7 @@ describe('AgentTowerService', () => {
         }),
       );
       publishPrompt('p1', { kind: 'user' });
-      await flushWake();
+      await settleWake();
       expect(loop.cancels).toHaveLength(1);
 
       publishAsMain(

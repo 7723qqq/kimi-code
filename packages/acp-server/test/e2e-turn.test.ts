@@ -569,7 +569,7 @@ describe('acp-server real prompt turn (scripted LLM)', () => {
 
   it('refreshes the tool card title on a status progress update and drops other progress kinds', async () => {
     const c = await boot();
-    model!.script(call('Bash', { command: 'sleep 1 && echo progress_done' }, { id: 'call_1' }));
+    model!.script(call('Bash', { command: 'sleep 0.1 && echo progress_done' }, { id: 'call_1' }));
     model!.script(say('done'));
     c.onRequest('session/request_permission', () => ({
       outcome: { outcome: 'selected', optionId: 'approve_once' },
