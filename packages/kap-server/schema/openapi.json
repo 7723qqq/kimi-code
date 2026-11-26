@@ -43654,6 +43654,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "agent_id": {
                     "minLength": 1,
@@ -44306,6 +44307,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "instruction": {
                     "type": "string"
@@ -46219,6 +46221,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "metadata": {
                     "additionalProperties": {},
@@ -50386,6 +50389,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "timeout_ms": {
                     "maximum": 60000,

@@ -118,11 +118,7 @@ interface SessionActionDoc {
   readonly errorData?: Readonly<Record<number, z.ZodType>>;
 }
 
-type ExperimentalSessionAction =
-  | 'predict-prompt'
-  | 'cancel-prompt-prediction'
-  | 'agent-close'
-  | 'optimize-prompt';
+type ExperimentalSessionAction = 'predict-prompt' | 'cancel-prompt-prediction';
 
 const sessionActionDocs: Readonly<
   Record<Exclude<SessionAction, ExperimentalSessionAction>, SessionActionDoc>

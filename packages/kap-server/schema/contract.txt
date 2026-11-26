@@ -3883,7 +3883,7 @@ POST /api/v1/sessions/{session_id}:btw: operation
 POST /api/v1/sessions/{session_id}:cancel param path:session_id: string minLength=1
 POST /api/v1/sessions/{session_id}:cancel request.agent_id: string minLength=1 optional
 POST /api/v1/sessions/{session_id}:cancel request.include_background: boolean optional
-POST /api/v1/sessions/{session_id}:cancel request: object optional
+POST /api/v1/sessions/{session_id}:cancel request: object closed optional
 POST /api/v1/sessions/{session_id}:cancel response 200: oneOf
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.code: enum 0
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data.cancelled: boolean
@@ -3912,7 +3912,7 @@ POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>: shape 9fdd9a
 POST /api/v1/sessions/{session_id}:cancel: operation
 POST /api/v1/sessions/{session_id}:compact param path:session_id: string minLength=1
 POST /api/v1/sessions/{session_id}:compact request.instruction: string optional
-POST /api/v1/sessions/{session_id}:compact request: object optional
+POST /api/v1/sessions/{session_id}:compact request: object closed optional
 POST /api/v1/sessions/{session_id}:compact response 200: oneOf
 POST /api/v1/sessions/{session_id}:compact response 200<code=0>.code: enum 0
 POST /api/v1/sessions/{session_id}:compact response 200<code=0>.data: object closed
@@ -3991,7 +3991,7 @@ POST /api/v1/sessions/{session_id}:fork request.metadata: object optional
 POST /api/v1/sessions/{session_id}:fork request.metadata{*}: any optional
 POST /api/v1/sessions/{session_id}:fork request.title: string minLength=1 optional
 POST /api/v1/sessions/{session_id}:fork request.turn_index: integer minimum=0 maximum=9007199254740991 optional
-POST /api/v1/sessions/{session_id}:fork request: object optional
+POST /api/v1/sessions/{session_id}:fork request: object closed optional
 POST /api/v1/sessions/{session_id}:fork response 200: oneOf
 POST /api/v1/sessions/{session_id}:fork response 200<code=0>: shape 2bf03d48
 POST /api/v1/sessions/{session_id}:fork response 200<code=40001>: shape d4845858
@@ -4124,7 +4124,7 @@ POST /api/v1/sessions/{session_id}:undo response 200<code=40950>: shape 9fdd9a9f
 POST /api/v1/sessions/{session_id}:undo: operation
 POST /api/v1/sessions/{session_id}:wait param path:session_id: string minLength=1
 POST /api/v1/sessions/{session_id}:wait request.timeout_ms: integer minimum=0 maximum=60000 optional
-POST /api/v1/sessions/{session_id}:wait request: object optional
+POST /api/v1/sessions/{session_id}:wait request: object closed optional
 POST /api/v1/sessions/{session_id}:wait response 200: oneOf
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.code: enum 0
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions: array
