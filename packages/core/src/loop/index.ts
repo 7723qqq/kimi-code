@@ -10,7 +10,7 @@ export type {
   LoopRequester,
   LoopRequestRuntime,
 } from './request';
-export type { PolicyRegistry } from '#/llm/policy/registry';
+export type { PolicyRegistry } from '@moonshot-ai/core/llm/policy/registry';
 export type { LoopInput, UnfinishedTurn } from './contract/command';
 export type { TaskWaitInput, TaskWaitOutcome, WaitForTasks } from './tool/tasks';
 export {

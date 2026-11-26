@@ -1,5 +1,5 @@
 import type { Message, SystemMessage, ToolCall, UserMessage } from '@moonshot-ai/core/llm/message';
-import type { PolicyRegistry } from '#/llm/policy/registry';
+import type { PolicyRegistry } from '@moonshot-ai/core/llm/policy/registry';
 import type { ToolExecutionHandler } from '#/tool/types';
 import type { WaitOpts } from '#/utils/wait';
 import { createActorLoop } from './loop-actor';

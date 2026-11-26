@@ -1,8 +1,8 @@
 import type { Message } from '@moonshot-ai/core/llm/message';
-import type { LlmPolicy, LlmRunControl } from '#/llm/policy/policy';
+import type { LlmPolicy, LlmRunControl } from '@moonshot-ai/core/llm/policy/policy';
 import { isAbortError, toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import type { LlmRequestProfile } from '@moonshot-ai/core/llm/request';
-import type { LlmDimension, LlmRequester, LlmRequestRest } from '#/llm/requester';
+import type { LlmDimension, LlmRequester, LlmRequestRest } from '@moonshot-ai/core/llm/requester';
 import type { LlmOutcome, LlmRunEvent } from '@moonshot-ai/core/llm/response';
 import type { LoopProfile } from './contract/profile';
 import { isLlmOutcome } from './guards';

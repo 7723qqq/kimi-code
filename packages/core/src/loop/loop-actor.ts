@@ -1,6 +1,6 @@
-import type { Message, ToolDescription, UserMessage } from '@moonshot-ai/core/llm/message';
+import type { AssistantMessage, ContentPart, Message, ToolDescription, UserMessage } from '@moonshot-ai/core/llm/message';
 import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
-import { createPolicyRegistry, type PolicyRegistry } from '#/llm/policy/registry';
+import { createPolicyRegistry, type PolicyRegistry } from '@moonshot-ai/core/llm/policy/registry';
 import { isToolDetachAck } from '#/tool/tool-executor';
 import type { ToolExecutionResponse, ToolResult } from '#/tool/types';
 import { createAbortScope, withAbort, type AbortScope } from '#/utils/abort';
@@ -1229,7 +1229,7 @@ class LoopActor implements Loop {
     }
     if (!this.isCurrent(turn)) return;
     if (turn.outcome?.type === 'aborted') {
-      if (turn.abortGrace !== undefined) clearTimeout(turn.abortGrace);
+      if (turn.abortGrace !== undefined) return;
       this.post({ type: 'abort.expired', turn });
       return;
     }
@@ -1537,9 +1537,17 @@ class LoopActor implements Loop {
 
   private requestProgress(turn: LiveTurn, step: StepState, event: LoopRequestProgress): void {
     if (!this.isCurrentStep(turn, step, 'requesting')) return;
+    if (turn.outcome?.type === 'aborted') return;
     if (event.type === 'llm.delta.request_id') this.requestId = event.requestId;
-    if (event.type === 'llm.delta.part' && (event.part.type === 'function' || event.part.type === 'tool_call_part')) {
-      step.toolCallStreaming = true;
+    if (event.type === 'llm.delta.part') {
+      if (event.part.type === 'function' || event.part.type === 'tool_call_part') {
+        step.toolCallStreaming = true;
+      } else {
+        const part = event.part as ContentPart;
+        step.partialMessage = step.partialMessage === undefined || step.partialMessage === null
+          ? { role: 'assistant', content: [part], toolCalls: [], attributes: { partial: true } }
+          : { ...step.partialMessage, content: [...step.partialMessage.content, part] };
+      }
     }
     if (event.type === 'llm.retry') {
       const message = event.message;
@@ -1561,7 +1569,21 @@ class LoopActor implements Loop {
     );
     this.record({ type: 'llm.ended', outcome });
     const message = outcome.message;
-    if (message !== undefined && message !== null && step.partialMessage !== message) {
+    if (outcome.type === 'aborted') {
+      const preserved = step.partialMessage;
+      if (preserved !== undefined && preserved !== null) {
+        const content = preserved.content.filter(meaningfulPart);
+        if (content.length > 0) {
+          this.record({
+            type: 'message.appended',
+            turnId: turn.id,
+            step: turn.step,
+            source: 'partial',
+            message: { ...preserved, content },
+          });
+        }
+      }
+    } else if (message !== undefined && message !== null && step.partialMessage !== message) {
       this.record({
         type: 'message.appended',
         turnId: turn.id,
@@ -2421,4 +2443,10 @@ function commandError(command: LoopCommand): string | undefined {
     default:
       return undefined;
   }
+}
+
+function meaningfulPart(part: ContentPart): boolean {
+  if (part.type === 'text') return part.text.trim() !== '';
+  if (part.type === 'think') return part.encrypted !== undefined && part.encrypted !== '';
+  return true;
 }

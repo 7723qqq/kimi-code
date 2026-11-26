@@ -1,6 +1,6 @@
-import type { Message } from '#/llm/message';
-import type { LlmPolicy } from '#/llm/policy/policy';
-import { contentsOf, mergeFields, requesterContents, type LlmRequestPart } from '#/llm/requester';
+import type { Message } from '@moonshot-ai/core/llm/message';
+import type { LlmPolicy } from '@moonshot-ai/core/llm/policy/policy';
+import { contentsOf, mergeFields, requesterContents, type LlmRequestPart } from '@moonshot-ai/core/llm/requester';
 import type { LoopProfile } from './contract/profile';
 import { requestProfileOf, type FullLoopLlmRequester } from './request';
 
