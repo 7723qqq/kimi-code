@@ -95,7 +95,8 @@ export async function startDesktopBackend(options: DesktopBackendOptions = {}): 
   let dialogReminder: ReturnType<typeof registerDesktopBrowserDialogReminder> | undefined;
   const telemetry = options.telemetry === undefined ? null : await wireDesktopTelemetry(server.core, options.telemetry);
   const inbox: TelemetryInbox | undefined = telemetry === null ? undefined : await startTelemetryInbox();
-  const close = async (): Promise<void> => {
+  let closePromise: Promise<void> | undefined;
+  const closeImpl = async (): Promise<void> => {
     const results = await Promise.allSettled([
       Promise.resolve().then(() => browserRegistration?.dispose()),
       Promise.resolve().then(() => dialogReminder?.dispose()),
@@ -107,6 +108,7 @@ export async function startDesktopBackend(options: DesktopBackendOptions = {}): 
     const failures = results.filter(result => result.status === 'rejected');
     if (failures.length > 0) throw new AggregateError(failures.map(result => result.reason), 'Server cleanup failed');
   };
+  const close = (): Promise<void> => (closePromise ??= closeImpl());
   try {
     const host = options.browserHost;
     if (host !== undefined) {
