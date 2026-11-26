@@ -336,7 +336,11 @@ export function isGzipCompressibleType(contentType: string): boolean {
 }
 
 export function rewrittenResponseETag(body: Buffer): string {
-  return `W/"${createHash('sha256').update(body).digest('hex')}"`;
+  const digest =
+    typeof Bun === 'undefined'
+      ? createHash('sha256').update(body).digest('hex')
+      : new Bun.CryptoHasher('sha256').update(body).digest('hex');
+  return `W/"${digest}"`;
 }
 
 export function requestMatchesETag(headers: readonly [string, string][], etag: string): boolean {
