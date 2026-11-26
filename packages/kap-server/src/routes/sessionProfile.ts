@@ -52,7 +52,7 @@ export async function updateSessionProfile(
     typeof requestedCwd === 'string' &&
     requestedCwd !== session.accessor.get(ISessionContext).cwd
   ) {
-    const workspace = await core.accessor.get(IProjectService).createOrTouch(requestedCwd);
+    const workspace = await core.accessor.get(IProjectService).resolveImplicit(requestedCwd);
     session = await core.accessor
       .get(ISessionManager)
       .move(sessionId, { workspaceId: workspace.id, root: workspace.root });

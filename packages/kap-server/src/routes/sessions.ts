@@ -317,7 +317,7 @@ export function registerSessionsRoutes(
       try {
         const touched =
           workspaceId === undefined
-            ? await registry.createOrTouch(workDir)
+            ? await registry.resolveImplicit(workDir)
             : await registry.touch(workspaceId);
         if (touched === undefined) {
           throw new Error2(
