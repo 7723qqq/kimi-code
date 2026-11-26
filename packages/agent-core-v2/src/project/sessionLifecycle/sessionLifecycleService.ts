@@ -14,6 +14,7 @@ import {
   type ISessionScopeHandle,
 } from '#/_base/di/scope';
 import { unwrapErrorCause } from '#/_base/errors/errors';
+import { sameDir } from '#/_base/utils/workdir-slug';
 import { AsyncEmitter, Emitter, type Event, type IWaitUntil } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { drainLogCloses } from '#/_base/log/logService';
@@ -256,7 +257,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
               },
           { touchUpdatedAt: false },
         );
-      } else {
+      } else if (!sameDir(opts.workDir, workDir)) {
         await handle.accessor.get(ISessionMetadata).update(
           { environmentCwd: opts.workDir },
           { touchUpdatedAt: false },

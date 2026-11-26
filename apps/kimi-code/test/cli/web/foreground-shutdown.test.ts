@@ -12,7 +12,7 @@ import {
   TIMEOUTS,
   until,
 } from '@moonshot-ai/testkit/fixtures';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 const useSignalPreload = process.platform === 'win32';
 const signalPreloads = useSignalPreload

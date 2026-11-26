@@ -16,7 +16,7 @@ import { hostname, tmpdir } from 'node:os';
 import { join } from 'pathe';
 import { PassThrough } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -257,7 +257,7 @@ describe('WorktreeService', () => {
       const created = await service.create({ cwd: repo }, { onEvent: (event) => events.push(event) });
 
       expect(events.filter((event) => event.type === 'planned')).toEqual([
-        { type: 'planned', name: created.worktree.name, path: created.worktree.path, head: created.worktree.head },
+        { type: 'planned', name: created.worktree.name, path: created.worktree.path, head: created.worktree.head! },
       ]);
     });
 

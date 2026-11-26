@@ -618,16 +618,16 @@ describe('AgentLifecycleService', () => {
     loopStart.mockClear();
     loopHasPersistedState = true;
     await svc.create({ agentId: 'restored' });
-    expect(loopStart).toHaveBeenCalledOnce();
+    expect(loopStart).toHaveBeenCalledTimes(1);
 
     loopStart.mockClear();
     loopHasPersistedState = false;
     await svc.create({ agentId: 'with-profile', initialProfile: { thinkingLevel: 'off', systemPrompt: '' } });
-    expect(loopStart).toHaveBeenCalledOnce();
+    expect(loopStart).toHaveBeenCalledTimes(1);
 
     loopStart.mockClear();
     await svc.create({ agentId: 'with-tools', initialTools: [] });
-    expect(loopStart).toHaveBeenCalledOnce();
+    expect(loopStart).toHaveBeenCalledTimes(1);
   });
 
   it('remove flushes the agent wire journal before disposal', async () => {

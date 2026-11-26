@@ -1,5 +1,5 @@
 import { serviceError, startKimiServices, type KimiServices } from '@moonshot-ai/testkit/services';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { fetchCompleteFeedbackUpload, fetchCreateFeedbackUploadUrl } from '../src/managed-feedback-upload';
 import { fetchSubmitFeedback, fetchUpdateFeedback, kimiCodeFeedbackUrl } from '../src/managed-feedback';

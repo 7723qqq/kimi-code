@@ -274,6 +274,41 @@ export default {
     // workspace.*
     workspaceNotFound: 'Workspace not found',
     workspaceNotFoundAction: 'Check the workspace path or open an existing workspace.',
+    workspacePrimaryImmutable: 'Primary directory cannot be changed',
+    workspacePrimaryImmutableAction:
+      'Only managed projects can change their primary directory; create or open another project for this folder.',
+    // worktree.*
+    worktreeDisabled: 'Worktrees are disabled',
+    worktreeDisabledAction:
+      'Enable the worktree experimental flag or set KIMI_CODE_EXPERIMENTAL_WORKTREE=1.',
+    worktreeNotGitRepo: 'Not a Git repository',
+    worktreeNotGitRepoAction: 'Run this from inside a Git repository.',
+    worktreeNoCommits: 'Repository has no commits',
+    worktreeNoCommitsAction: 'Make a first commit, or pick another starting point.',
+    worktreeBaseNotFound: 'Starting point not found',
+    worktreeBaseNotFoundAction: 'Pick an existing commit, branch or tag as the starting point.',
+    worktreeInvalidName: 'Invalid worktree name',
+    worktreeInvalidNameAction:
+      'Use letters, digits, dots, dashes and underscores, without a slash.',
+    worktreeAlreadyExists: 'Worktree already exists',
+    worktreeAlreadyExistsAction: 'Pick another name, or open the existing worktree.',
+    worktreeGitFailed: 'Git command failed',
+    worktreeGitFailedAction:
+      'Read the Git output in the error details, fix the cause, then retry.',
+    worktreeIncludeFailed: 'Copying .worktreeinclude files failed',
+    worktreeIncludeFailedAction: 'Check .worktreeinclude and the error details, then retry.',
+    worktreeCancelled: 'Worktree creation cancelled',
+    worktreeCancelledAction: 'Start the creation again when ready.',
+    worktreeNotFound: 'Worktree not found',
+    worktreeNotFoundAction: 'List the worktrees of this repository and check the path.',
+    worktreeHasUncommitted: 'Worktree has uncommitted changes',
+    worktreeHasUncommittedAction: 'Commit the changes, or confirm discarding them.',
+    worktreeHasUniqueCommits: 'Worktree has commits found nowhere else',
+    worktreeHasUniqueCommitsAction:
+      'Push or merge the commits, or confirm discarding them.',
+    worktreeInUse: 'Worktree is open in another session',
+    worktreeInUseAction:
+      'Close the other Kimi Code sessions working in this worktree, then try again.',
     // terminal.*
     terminalNotFound: 'Terminal not found',
     terminalNotFoundAction: 'Check the terminal id or start a new terminal.',

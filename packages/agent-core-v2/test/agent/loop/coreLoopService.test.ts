@@ -403,7 +403,7 @@ describe('core LoopService integration', () => {
       const text = hookCtx.promptMessage.content[0];
       if (text?.type === 'text' && text.text === firstPrompt) {
         entered.resolve();
-        await release.promise;
+        await release;
       }
       await next();
     });
@@ -413,7 +413,7 @@ describe('core LoopService integration', () => {
         message: { role: 'user', content: [{ type: 'text', text: firstPrompt }] },
         meta: { tracked: true, promptId: 'starting' },
       }));
-      await entered.promise;
+      await entered;
       const queued = loop.submit(loopUserEntry({
         message: { role: 'user', content: [{ type: 'text', text: nextPrompt }] },
         meta: { tracked: true, promptId: 'queued' },

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { encodeWorkDirKey, type AbsoluteDir } from '#/_base/utils/workdir-slug';
 import type { CheckoutLocation } from '#/app/git/workTree';

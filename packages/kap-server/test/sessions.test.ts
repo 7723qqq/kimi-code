@@ -2176,7 +2176,7 @@ describe('server-v2 /api/v1/sessions', () => {
       body: JSON.stringify({ prediction_id: 'disconnect-me', expected_turn_id: 0 }),
       signal: abortController.signal,
     } as never).catch(() => undefined);
-    await waitForAssertion(() => expect(predict).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(predict).toHaveBeenCalledTimes(1));
     abortController.abort();
     await waitForAssertion(() => expect(cancel).toHaveBeenCalledWith('disconnect-me', 'disconnect'));
     releasePrediction();

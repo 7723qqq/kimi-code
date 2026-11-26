@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 describe('VS Code webview stylesheet focus outline normalization', () => {
   it('suppresses VS Code host default focus outlines and scopes focus-visible to interactive controls', () => {
