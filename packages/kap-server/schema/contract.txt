@@ -2,13 +2,7 @@
 # Review contract changes here first; the JSON files keep details this summary leaves out, such as descriptions.
 # "shape <hash>" names a schema used in many places; its fields are listed once at the end.
 DELETE /api/v1/files/{file_id} param path:file_id: string minLength=1
-DELETE /api/v1/files/{file_id} response 200.code: enum 0
-DELETE /api/v1/files/{file_id} response 200.data.deleted: enum true
-DELETE /api/v1/files/{file_id} response 200.data: object closed
-DELETE /api/v1/files/{file_id} response 200.details: any optional
-DELETE /api/v1/files/{file_id} response 200.msg: string
-DELETE /api/v1/files/{file_id} response 200.request_id: string
-DELETE /api/v1/files/{file_id} response 200: object closed
+DELETE /api/v1/files/{file_id} response 200: shape 66b4a738
 DELETE /api/v1/files/{file_id}: operation
 DELETE /api/v1/hosts/{id} param path:id: string
 DELETE /api/v1/hosts/{id} response 200: shape 9526339b
@@ -71,13 +65,7 @@ DELETE /api/v1/sessions/{session_id}/cron/{task_id} response 200<code=40406>: ob
 DELETE /api/v1/sessions/{session_id}/cron/{task_id}: operation
 DELETE /api/v1/workspaces/{workspace_id} param path:workspace_id: string pattern="^wd_[a-z0-9._-]+_[0-9a-f]{12}$|^wm_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 DELETE /api/v1/workspaces/{workspace_id} response 200: oneOf
-DELETE /api/v1/workspaces/{workspace_id} response 200<code=0>.code: enum 0
-DELETE /api/v1/workspaces/{workspace_id} response 200<code=0>.data.deleted: enum true
-DELETE /api/v1/workspaces/{workspace_id} response 200<code=0>.data: object closed
-DELETE /api/v1/workspaces/{workspace_id} response 200<code=0>.details: any optional
-DELETE /api/v1/workspaces/{workspace_id} response 200<code=0>.msg: string
-DELETE /api/v1/workspaces/{workspace_id} response 200<code=0>.request_id: string
-DELETE /api/v1/workspaces/{workspace_id} response 200<code=0>: object closed
+DELETE /api/v1/workspaces/{workspace_id} response 200<code=0>: shape 66b4a738
 DELETE /api/v1/workspaces/{workspace_id} response 200<code=40001>: shape d4845858
 DELETE /api/v1/workspaces/{workspace_id} response 200<code=40410>: shape 3fb7704d
 DELETE /api/v1/workspaces/{workspace_id}: operation
@@ -1348,8 +1336,41 @@ GET /api/v1/sessions/{session_id}/interactions response 200: oneOf
 GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.code: enum 0
 GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items: array
 GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]: oneOf
-GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>: shape fcc13a7e
-GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>: shape 38d41acb
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.agent_id: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.created_at: any
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.interaction_id: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.kind: enum "approval"
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.request.action: string
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.request.expires_at: any
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.request.tool_input_display: any optional
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.request.tool_name: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.request: object closed
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.session_id: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>.tool_call_id: string minLength=1 optional
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#0>: object closed
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.agent_id: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.created_at: any
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.interaction_id: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.kind: enum "question"
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions: array minItems=1 maxItems=4
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].allow_other: boolean optional
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].body: string optional
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].header: string optional
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].id: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].multi_select: boolean optional
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].options: array minItems=2 maxItems=4
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].options[].description: string optional
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].options[].id: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].options[].label: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].options[]: object closed
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].other_description: string optional
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].other_label: string optional
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[].question: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request.questions[]: object closed
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.request: object closed
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.session_id: string minLength=1
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>.tool_call_id: string minLength=1 optional
+GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data.items[]<#1>: object closed
 GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.data: object closed
 GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.details: any optional
 GET /api/v1/sessions/{session_id}/interactions response 200<code=0>.msg: string
@@ -3806,48 +3827,67 @@ POST /api/v1/sessions/{session_id}/{tail} response 200<#9>.request_id: string
 POST /api/v1/sessions/{session_id}/{tail} response 200<#9>: object closed
 POST /api/v1/sessions/{session_id}/{tail}: operation
 POST /api/v1/sessions/{session_id}:archive param path:session_id: string minLength=1
-POST /api/v1/sessions/{session_id}:archive request: shape 7c23f6b3
-POST /api/v1/sessions/{session_id}:archive response 200.code: integer minimum=-9007199254740991 maximum=9007199254740991
-POST /api/v1/sessions/{session_id}:archive response 200.data.archived: enum true
-POST /api/v1/sessions/{session_id}:archive response 200.data: object nullable closed
-POST /api/v1/sessions/{session_id}:archive response 200.details: any optional
-POST /api/v1/sessions/{session_id}:archive response 200.msg: string
-POST /api/v1/sessions/{session_id}:archive response 200.request_id: string
-POST /api/v1/sessions/{session_id}:archive response 200: object closed
+POST /api/v1/sessions/{session_id}:archive response 200: oneOf
+POST /api/v1/sessions/{session_id}:archive response 200<code=0>.code: enum 0
+POST /api/v1/sessions/{session_id}:archive response 200<code=0>.data.archived: enum true
+POST /api/v1/sessions/{session_id}:archive response 200<code=0>.data: object closed
+POST /api/v1/sessions/{session_id}:archive response 200<code=0>.details: any optional
+POST /api/v1/sessions/{session_id}:archive response 200<code=0>.msg: string
+POST /api/v1/sessions/{session_id}:archive response 200<code=0>.request_id: string
+POST /api/v1/sessions/{session_id}:archive response 200<code=0>: object closed
+POST /api/v1/sessions/{session_id}:archive response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}:archive response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}:archive response 200<code=40422>: shape 9c4557ff
+POST /api/v1/sessions/{session_id}:archive response 200<code=40901>: shape e90ff74c
+POST /api/v1/sessions/{session_id}:archive response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:archive response 200<code=40911>: shape faf07186
+POST /api/v1/sessions/{session_id}:archive response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}:archive response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}:archive response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}:archive response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:archive response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:archive response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:archive response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:archive response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:archive response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:archive response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:archive response 200<code=40950>: shape 9fdd9a9f
 POST /api/v1/sessions/{session_id}:archive: operation
+POST /api/v1/sessions/{session_id}:btw param path:session_id: string minLength=1
+POST /api/v1/sessions/{session_id}:btw response 200: oneOf
+POST /api/v1/sessions/{session_id}:btw response 200<code=0>.code: enum 0
+POST /api/v1/sessions/{session_id}:btw response 200<code=0>.data.agent_id: string minLength=1
+POST /api/v1/sessions/{session_id}:btw response 200<code=0>.data: object closed
+POST /api/v1/sessions/{session_id}:btw response 200<code=0>.details: any optional
+POST /api/v1/sessions/{session_id}:btw response 200<code=0>.msg: string
+POST /api/v1/sessions/{session_id}:btw response 200<code=0>.request_id: string
+POST /api/v1/sessions/{session_id}:btw response 200<code=0>: object closed
+POST /api/v1/sessions/{session_id}:btw response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}:btw response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}:btw response 200<code=40422>: shape 9c4557ff
+POST /api/v1/sessions/{session_id}:btw response 200<code=40901>: shape e90ff74c
+POST /api/v1/sessions/{session_id}:btw response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:btw response 200<code=40911>: shape faf07186
+POST /api/v1/sessions/{session_id}:btw response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}:btw response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}:btw response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}:btw response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:btw response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:btw response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:btw response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:btw response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:btw response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:btw response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:btw response 200<code=40950>: shape 9fdd9a9f
+POST /api/v1/sessions/{session_id}:btw: operation
 POST /api/v1/sessions/{session_id}:cancel param path:session_id: string minLength=1
-POST /api/v1/sessions/{session_id}:cancel request: shape 7c23f6b3
+POST /api/v1/sessions/{session_id}:cancel request.agent_id: string minLength=1 optional
+POST /api/v1/sessions/{session_id}:cancel request.include_background: boolean optional
+POST /api/v1/sessions/{session_id}:cancel request: object optional
 POST /api/v1/sessions/{session_id}:cancel response 200: oneOf
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.code: enum 0
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data: anyOf
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#0>: shape 1b05d0ee
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>.taken_over: enum true
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#10>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions: array
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions[]: oneOf
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions[]<#0>: shape fcc13a7e
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.pending_interactions[]<#1>: shape 38d41acb
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.session: shape 1b05d0ee
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>.timed_out: boolean
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#11>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#1>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#2>.removed_turn_ids: array
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#2>.removed_turn_ids[]: string minLength=1
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#2>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#3>.aborted: boolean
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#3>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#4>.cancelled: boolean
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#4>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#5>.continued: enum true
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#5>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#6>.agent_id: string minLength=1
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#6>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#7>.prompt: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#7>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#8>.archived: enum true
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#8>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#9>.deleted: enum true
-POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data<#9>: object closed
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data.cancelled: boolean
+POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.data: object closed
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.details: any optional
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.msg: string
 POST /api/v1/sessions/{session_id}:cancel response 200<code=0>.request_id: string
@@ -3856,163 +3896,277 @@ POST /api/v1/sessions/{session_id}:cancel response 200<code=40001>: shape d48458
 POST /api/v1/sessions/{session_id}:cancel response 200<code=40401>: shape 2bda561c
 POST /api/v1/sessions/{session_id}:cancel response 200<code=40422>: shape 9c4557ff
 POST /api/v1/sessions/{session_id}:cancel response 200<code=40901>: shape e90ff74c
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40910>.code: enum 40910
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40910>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40910>.details: any optional
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40910>.msg: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40910>.request_id: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40910>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40911>.code: enum 40911
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40911>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40911>.details: any optional
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40911>.msg: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40911>.request_id: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40911>: object closed
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40911>: shape faf07186
 POST /api/v1/sessions/{session_id}:cancel response 200<code=40931>: shape 212b52bd
 POST /api/v1/sessions/{session_id}:cancel response 200<code=40932>: shape e9b3b59d
 POST /api/v1/sessions/{session_id}:cancel response 200<code=40940>: shape b0ef3a47
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40942>.code: enum 40942
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40942>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40942>.details: any optional
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40942>.msg: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40942>.request_id: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40942>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40943>.code: enum 40943
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40943>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40943>.details: any optional
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40943>.msg: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40943>.request_id: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40943>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40944>.code: enum 40944
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40944>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40944>.details: any optional
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40944>.msg: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40944>.request_id: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40944>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40945>.code: enum 40945
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40945>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40945>.details: any optional
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40945>.msg: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40945>.request_id: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40945>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40946>.code: enum 40946
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40946>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40946>.details: any optional
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40946>.msg: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40946>.request_id: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40946>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40947>.code: enum 40947
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40947>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40947>.details: any optional
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40947>.msg: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40947>.request_id: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40947>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>.code: enum 40948
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>.details: any optional
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>.msg: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>.request_id: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>: object closed
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>.code: enum 40950
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>.details: any optional
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>.msg: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>.request_id: string
-POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>: object closed
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:cancel response 200<code=40950>: shape 9fdd9a9f
 POST /api/v1/sessions/{session_id}:cancel: operation
+POST /api/v1/sessions/{session_id}:compact param path:session_id: string minLength=1
+POST /api/v1/sessions/{session_id}:compact request.instruction: string optional
+POST /api/v1/sessions/{session_id}:compact request: object optional
+POST /api/v1/sessions/{session_id}:compact response 200: oneOf
+POST /api/v1/sessions/{session_id}:compact response 200<code=0>.code: enum 0
+POST /api/v1/sessions/{session_id}:compact response 200<code=0>.data: object closed
+POST /api/v1/sessions/{session_id}:compact response 200<code=0>.details: any optional
+POST /api/v1/sessions/{session_id}:compact response 200<code=0>.msg: string
+POST /api/v1/sessions/{session_id}:compact response 200<code=0>.request_id: string
+POST /api/v1/sessions/{session_id}:compact response 200<code=0>: object closed
+POST /api/v1/sessions/{session_id}:compact response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}:compact response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}:compact response 200<code=40422>: shape 9c4557ff
+POST /api/v1/sessions/{session_id}:compact response 200<code=40901>: shape e90ff74c
+POST /api/v1/sessions/{session_id}:compact response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:compact response 200<code=40911>: shape faf07186
+POST /api/v1/sessions/{session_id}:compact response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}:compact response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}:compact response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}:compact response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:compact response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:compact response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:compact response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:compact response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:compact response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:compact response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:compact response 200<code=40950>: shape 9fdd9a9f
+POST /api/v1/sessions/{session_id}:compact: operation
+POST /api/v1/sessions/{session_id}:continue param path:session_id: string minLength=1
+POST /api/v1/sessions/{session_id}:continue response 200: oneOf
+POST /api/v1/sessions/{session_id}:continue response 200<code=0>.code: enum 0
+POST /api/v1/sessions/{session_id}:continue response 200<code=0>.data.continued: enum true
+POST /api/v1/sessions/{session_id}:continue response 200<code=0>.data: object closed
+POST /api/v1/sessions/{session_id}:continue response 200<code=0>.details: any optional
+POST /api/v1/sessions/{session_id}:continue response 200<code=0>.msg: string
+POST /api/v1/sessions/{session_id}:continue response 200<code=0>.request_id: string
+POST /api/v1/sessions/{session_id}:continue response 200<code=0>: object closed
+POST /api/v1/sessions/{session_id}:continue response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}:continue response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}:continue response 200<code=40422>: shape 9c4557ff
+POST /api/v1/sessions/{session_id}:continue response 200<code=40901>: shape e90ff74c
+POST /api/v1/sessions/{session_id}:continue response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:continue response 200<code=40911>: shape faf07186
+POST /api/v1/sessions/{session_id}:continue response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}:continue response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}:continue response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}:continue response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:continue response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:continue response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:continue response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:continue response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:continue response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:continue response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:continue response 200<code=40950>: shape 9fdd9a9f
+POST /api/v1/sessions/{session_id}:continue: operation
 POST /api/v1/sessions/{session_id}:delete param path:session_id: string minLength=1
-POST /api/v1/sessions/{session_id}:delete request: shape 7c23f6b3
-POST /api/v1/sessions/{session_id}:delete response 200.code: integer minimum=-9007199254740991 maximum=9007199254740991
-POST /api/v1/sessions/{session_id}:delete response 200.data.deleted: enum true
-POST /api/v1/sessions/{session_id}:delete response 200.data: object nullable closed
-POST /api/v1/sessions/{session_id}:delete response 200.details: any optional
-POST /api/v1/sessions/{session_id}:delete response 200.msg: string
-POST /api/v1/sessions/{session_id}:delete response 200.request_id: string
-POST /api/v1/sessions/{session_id}:delete response 200: object closed
+POST /api/v1/sessions/{session_id}:delete response 200: oneOf
+POST /api/v1/sessions/{session_id}:delete response 200<code=0>: shape 66b4a738
+POST /api/v1/sessions/{session_id}:delete response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}:delete response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}:delete response 200<code=40422>: shape 9c4557ff
+POST /api/v1/sessions/{session_id}:delete response 200<code=40901>: shape e90ff74c
+POST /api/v1/sessions/{session_id}:delete response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:delete response 200<code=40911>: shape faf07186
+POST /api/v1/sessions/{session_id}:delete response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}:delete response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}:delete response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}:delete response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:delete response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:delete response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:delete response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:delete response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:delete response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:delete response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:delete response 200<code=40950>: shape 9fdd9a9f
 POST /api/v1/sessions/{session_id}:delete: operation
+POST /api/v1/sessions/{session_id}:fork param path:session_id: string minLength=1
+POST /api/v1/sessions/{session_id}:fork request.metadata: object optional
+POST /api/v1/sessions/{session_id}:fork request.metadata{*}: any optional
+POST /api/v1/sessions/{session_id}:fork request.title: string minLength=1 optional
+POST /api/v1/sessions/{session_id}:fork request.turn_index: integer minimum=0 maximum=9007199254740991 optional
+POST /api/v1/sessions/{session_id}:fork request: object optional
+POST /api/v1/sessions/{session_id}:fork response 200: oneOf
+POST /api/v1/sessions/{session_id}:fork response 200<code=0>: shape 2bf03d48
+POST /api/v1/sessions/{session_id}:fork response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}:fork response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}:fork response 200<code=40422>: shape 9c4557ff
+POST /api/v1/sessions/{session_id}:fork response 200<code=40901>: shape e90ff74c
+POST /api/v1/sessions/{session_id}:fork response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:fork response 200<code=40911>: shape faf07186
+POST /api/v1/sessions/{session_id}:fork response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}:fork response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}:fork response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}:fork response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:fork response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:fork response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:fork response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:fork response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:fork response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:fork response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:fork response 200<code=40950>: shape 9fdd9a9f
+POST /api/v1/sessions/{session_id}:fork: operation
 POST /api/v1/sessions/{session_id}:reload param path:session_id: string minLength=1
-POST /api/v1/sessions/{session_id}:reload request: shape 7c23f6b3
-POST /api/v1/sessions/{session_id}:reload response 200.code: integer minimum=-9007199254740991 maximum=9007199254740991
-POST /api/v1/sessions/{session_id}:reload response 200.data.activity: enum "background"|"idle"|"turn" optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.agent_config: shape fe7aee9c
-POST /api/v1/sessions/{session_id}:reload response 200.data.archived: boolean optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.archived_at: any optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.busy: boolean
-POST /api/v1/sessions/{session_id}:reload response 200.data.created_at: any
-POST /api/v1/sessions/{session_id}:reload response 200.data.current_prompt_id: string minLength=1 optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.cwd: string
-POST /api/v1/sessions/{session_id}:reload response 200.data.environment_cwd: string optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.environment_id: string optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.git.branch: string optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.git.pull_request: shape 1b0e86ef optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.git: object closed optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.host_id: string optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.id: string minLength=1
-POST /api/v1/sessions/{session_id}:reload response 200.data.last_prompt: string optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.last_turn_outcome: enum "completed"|"failed"|"interrupted" optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.last_turn_reason: enum "cancelled"|"completed"|"failed" optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.main_turn_active: boolean optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.message_count: integer minimum=0 maximum=9007199254740991
-POST /api/v1/sessions/{session_id}:reload response 200.data.metadata.cwd: string minLength=1
-POST /api/v1/sessions/{session_id}:reload response 200.data.metadata: object
-POST /api/v1/sessions/{session_id}:reload response 200.data.metadata{*}: any optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.pending_interaction: enum "approval"|"none"|"question" optional
-POST /api/v1/sessions/{session_id}:reload response 200.data.permission_rules: array
-POST /api/v1/sessions/{session_id}:reload response 200.data.permission_rules[]: shape 22fd3987
-POST /api/v1/sessions/{session_id}:reload response 200.data.title: string
-POST /api/v1/sessions/{session_id}:reload response 200.data.updated_at: any
-POST /api/v1/sessions/{session_id}:reload response 200.data.usage: shape 888796cb
-POST /api/v1/sessions/{session_id}:reload response 200.data.workspace_id: string pattern="^wd_[a-z0-9._-]+_[0-9a-f]{12}$|^wm_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-POST /api/v1/sessions/{session_id}:reload response 200.data.workspace_root: string optional
-POST /api/v1/sessions/{session_id}:reload response 200.data: object nullable closed
-POST /api/v1/sessions/{session_id}:reload response 200.details: any optional
-POST /api/v1/sessions/{session_id}:reload response 200.msg: string
-POST /api/v1/sessions/{session_id}:reload response 200.request_id: string
-POST /api/v1/sessions/{session_id}:reload response 200: object closed
+POST /api/v1/sessions/{session_id}:reload response 200: oneOf
+POST /api/v1/sessions/{session_id}:reload response 200<code=0>: shape 2bf03d48
+POST /api/v1/sessions/{session_id}:reload response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}:reload response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}:reload response 200<code=40422>: shape 9c4557ff
+POST /api/v1/sessions/{session_id}:reload response 200<code=40901>: shape e90ff74c
+POST /api/v1/sessions/{session_id}:reload response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:reload response 200<code=40911>: shape faf07186
+POST /api/v1/sessions/{session_id}:reload response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}:reload response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}:reload response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}:reload response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:reload response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:reload response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:reload response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:reload response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:reload response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:reload response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:reload response 200<code=40950>: shape 9fdd9a9f
 POST /api/v1/sessions/{session_id}:reload: operation
+POST /api/v1/sessions/{session_id}:restore param path:session_id: string minLength=1
+POST /api/v1/sessions/{session_id}:restore response 200: oneOf
+POST /api/v1/sessions/{session_id}:restore response 200<code=0>: shape 2bf03d48
+POST /api/v1/sessions/{session_id}:restore response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}:restore response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}:restore response 200<code=40422>: shape 9c4557ff
+POST /api/v1/sessions/{session_id}:restore response 200<code=40901>: shape e90ff74c
+POST /api/v1/sessions/{session_id}:restore response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:restore response 200<code=40911>: shape faf07186
+POST /api/v1/sessions/{session_id}:restore response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}:restore response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}:restore response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}:restore response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:restore response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:restore response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:restore response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:restore response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:restore response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:restore response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:restore response 200<code=40950>: shape 9fdd9a9f
+POST /api/v1/sessions/{session_id}:restore: operation
 POST /api/v1/sessions/{session_id}:takeover param path:session_id: string minLength=1
-POST /api/v1/sessions/{session_id}:takeover request: shape 7c23f6b3
-POST /api/v1/sessions/{session_id}:takeover response 200.code: integer minimum=-9007199254740991 maximum=9007199254740991
-POST /api/v1/sessions/{session_id}:takeover response 200.data.taken_over: enum true
-POST /api/v1/sessions/{session_id}:takeover response 200.data: object nullable closed
-POST /api/v1/sessions/{session_id}:takeover response 200.details: any optional
-POST /api/v1/sessions/{session_id}:takeover response 200.msg: string
-POST /api/v1/sessions/{session_id}:takeover response 200.request_id: string
-POST /api/v1/sessions/{session_id}:takeover response 200: object closed
+POST /api/v1/sessions/{session_id}:takeover response 200: oneOf
+POST /api/v1/sessions/{session_id}:takeover response 200<code=0>.code: enum 0
+POST /api/v1/sessions/{session_id}:takeover response 200<code=0>.data.taken_over: enum true
+POST /api/v1/sessions/{session_id}:takeover response 200<code=0>.data: object closed
+POST /api/v1/sessions/{session_id}:takeover response 200<code=0>.details: any optional
+POST /api/v1/sessions/{session_id}:takeover response 200<code=0>.msg: string
+POST /api/v1/sessions/{session_id}:takeover response 200<code=0>.request_id: string
+POST /api/v1/sessions/{session_id}:takeover response 200<code=0>: object closed
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40422>: shape 9c4557ff
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40901>: shape e90ff74c
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40911>: shape faf07186
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:takeover response 200<code=40950>: shape 9fdd9a9f
 POST /api/v1/sessions/{session_id}:takeover: operation
+POST /api/v1/sessions/{session_id}:undo param path:session_id: string minLength=1
+POST /api/v1/sessions/{session_id}:undo request.agent_id: string minLength=1 optional
+POST /api/v1/sessions/{session_id}:undo request.turn_id: string minLength=1
+POST /api/v1/sessions/{session_id}:undo request: object closed
+POST /api/v1/sessions/{session_id}:undo response 200: oneOf
+POST /api/v1/sessions/{session_id}:undo response 200<code=0>.code: enum 0
+POST /api/v1/sessions/{session_id}:undo response 200<code=0>.data.removed_turn_ids: array
+POST /api/v1/sessions/{session_id}:undo response 200<code=0>.data.removed_turn_ids[]: string minLength=1
+POST /api/v1/sessions/{session_id}:undo response 200<code=0>.data: object closed
+POST /api/v1/sessions/{session_id}:undo response 200<code=0>.details: any optional
+POST /api/v1/sessions/{session_id}:undo response 200<code=0>.msg: string
+POST /api/v1/sessions/{session_id}:undo response 200<code=0>.request_id: string
+POST /api/v1/sessions/{session_id}:undo response 200<code=0>: object closed
+POST /api/v1/sessions/{session_id}:undo response 200<code=40001>: shape d4845858
+POST /api/v1/sessions/{session_id}:undo response 200<code=40401>: shape 2bda561c
+POST /api/v1/sessions/{session_id}:undo response 200<code=40422>: shape 9c4557ff
+POST /api/v1/sessions/{session_id}:undo response 200<code=40901>: shape e90ff74c
+POST /api/v1/sessions/{session_id}:undo response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>.code: enum 40911
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>.data.reason: enum "compaction_boundary"|"empty"|"insufficient"
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>.data.requestedCount: integer minimum=0 maximum=9007199254740991
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>.data.requested_count: integer minimum=0 maximum=9007199254740991
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>.data.undoableCount: integer minimum=0 maximum=9007199254740991
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>.data.undoable_count: integer minimum=0 maximum=9007199254740991
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>.data: object nullable closed
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>.details: any optional
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>.msg: string
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>.request_id: string
+POST /api/v1/sessions/{session_id}:undo response 200<code=40911>: object closed
+POST /api/v1/sessions/{session_id}:undo response 200<code=40931>: shape 212b52bd
+POST /api/v1/sessions/{session_id}:undo response 200<code=40932>: shape e9b3b59d
+POST /api/v1/sessions/{session_id}:undo response 200<code=40940>: shape b0ef3a47
+POST /api/v1/sessions/{session_id}:undo response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:undo response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:undo response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:undo response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:undo response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:undo response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:undo response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:undo response 200<code=40950>: shape 9fdd9a9f
+POST /api/v1/sessions/{session_id}:undo: operation
 POST /api/v1/sessions/{session_id}:wait param path:session_id: string minLength=1
-POST /api/v1/sessions/{session_id}:wait request: shape 7c23f6b3
+POST /api/v1/sessions/{session_id}:wait request.timeout_ms: integer minimum=0 maximum=60000 optional
+POST /api/v1/sessions/{session_id}:wait request: object optional
 POST /api/v1/sessions/{session_id}:wait response 200: oneOf
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.code: enum 0
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data: anyOf
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#0>: shape 1b05d0ee
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>.taken_over: enum true
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#10>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions: array
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions[]: oneOf
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions[]<#0>: shape fcc13a7e
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.pending_interactions[]<#1>: shape 38d41acb
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.session: shape 1b05d0ee
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>.timed_out: boolean
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#11>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#1>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#2>.removed_turn_ids: array
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#2>.removed_turn_ids[]: string minLength=1
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#2>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#3>.aborted: boolean
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#3>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#4>.cancelled: boolean
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#4>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#5>.continued: enum true
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#5>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#6>.agent_id: string minLength=1
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#6>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#7>.prompt: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#7>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#8>.archived: enum true
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#8>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#9>.deleted: enum true
-POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data<#9>: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions: array
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]: oneOf
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.agent_id: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.created_at: any
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.interaction_id: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.kind: enum "approval"
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.request.action: string
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.request.expires_at: any
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.request.tool_input_display: any optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.request.tool_name: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.request: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.session_id: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>.tool_call_id: string minLength=1 optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#0>: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.agent_id: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.created_at: any
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.interaction_id: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.kind: enum "question"
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions: array minItems=1 maxItems=4
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].allow_other: boolean optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].body: string optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].header: string optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].id: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].multi_select: boolean optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].options: array minItems=2 maxItems=4
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].options[].description: string optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].options[].id: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].options[].label: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].options[]: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].other_description: string optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].other_label: string optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[].question: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request.questions[]: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.request: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.session_id: string minLength=1
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>.tool_call_id: string minLength=1 optional
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.pending_interactions[]<#1>: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.session: shape 1b05d0ee
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data.timed_out: boolean
+POST /api/v1/sessions/{session_id}:wait response 200<code=0>.data: object closed
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.details: any optional
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.msg: string
 POST /api/v1/sessions/{session_id}:wait response 200<code=0>.request_id: string
@@ -4021,69 +4175,19 @@ POST /api/v1/sessions/{session_id}:wait response 200<code=40001>: shape d4845858
 POST /api/v1/sessions/{session_id}:wait response 200<code=40401>: shape 2bda561c
 POST /api/v1/sessions/{session_id}:wait response 200<code=40422>: shape 9c4557ff
 POST /api/v1/sessions/{session_id}:wait response 200<code=40901>: shape e90ff74c
-POST /api/v1/sessions/{session_id}:wait response 200<code=40910>.code: enum 40910
-POST /api/v1/sessions/{session_id}:wait response 200<code=40910>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:wait response 200<code=40910>.details: any optional
-POST /api/v1/sessions/{session_id}:wait response 200<code=40910>.msg: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40910>.request_id: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40910>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=40911>.code: enum 40911
-POST /api/v1/sessions/{session_id}:wait response 200<code=40911>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:wait response 200<code=40911>.details: any optional
-POST /api/v1/sessions/{session_id}:wait response 200<code=40911>.msg: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40911>.request_id: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40911>: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=40910>: shape f7431fdb
+POST /api/v1/sessions/{session_id}:wait response 200<code=40911>: shape faf07186
 POST /api/v1/sessions/{session_id}:wait response 200<code=40931>: shape 212b52bd
 POST /api/v1/sessions/{session_id}:wait response 200<code=40932>: shape e9b3b59d
 POST /api/v1/sessions/{session_id}:wait response 200<code=40940>: shape b0ef3a47
-POST /api/v1/sessions/{session_id}:wait response 200<code=40942>.code: enum 40942
-POST /api/v1/sessions/{session_id}:wait response 200<code=40942>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:wait response 200<code=40942>.details: any optional
-POST /api/v1/sessions/{session_id}:wait response 200<code=40942>.msg: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40942>.request_id: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40942>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=40943>.code: enum 40943
-POST /api/v1/sessions/{session_id}:wait response 200<code=40943>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:wait response 200<code=40943>.details: any optional
-POST /api/v1/sessions/{session_id}:wait response 200<code=40943>.msg: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40943>.request_id: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40943>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=40944>.code: enum 40944
-POST /api/v1/sessions/{session_id}:wait response 200<code=40944>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:wait response 200<code=40944>.details: any optional
-POST /api/v1/sessions/{session_id}:wait response 200<code=40944>.msg: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40944>.request_id: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40944>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=40945>.code: enum 40945
-POST /api/v1/sessions/{session_id}:wait response 200<code=40945>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:wait response 200<code=40945>.details: any optional
-POST /api/v1/sessions/{session_id}:wait response 200<code=40945>.msg: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40945>.request_id: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40945>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=40946>.code: enum 40946
-POST /api/v1/sessions/{session_id}:wait response 200<code=40946>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:wait response 200<code=40946>.details: any optional
-POST /api/v1/sessions/{session_id}:wait response 200<code=40946>.msg: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40946>.request_id: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40946>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=40947>.code: enum 40947
-POST /api/v1/sessions/{session_id}:wait response 200<code=40947>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:wait response 200<code=40947>.details: any optional
-POST /api/v1/sessions/{session_id}:wait response 200<code=40947>.msg: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40947>.request_id: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40947>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=40948>.code: enum 40948
-POST /api/v1/sessions/{session_id}:wait response 200<code=40948>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:wait response 200<code=40948>.details: any optional
-POST /api/v1/sessions/{session_id}:wait response 200<code=40948>.msg: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40948>.request_id: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40948>: object closed
-POST /api/v1/sessions/{session_id}:wait response 200<code=40950>.code: enum 40950
-POST /api/v1/sessions/{session_id}:wait response 200<code=40950>.data: enum null nullable
-POST /api/v1/sessions/{session_id}:wait response 200<code=40950>.details: any optional
-POST /api/v1/sessions/{session_id}:wait response 200<code=40950>.msg: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40950>.request_id: string
-POST /api/v1/sessions/{session_id}:wait response 200<code=40950>: object closed
+POST /api/v1/sessions/{session_id}:wait response 200<code=40942>: shape 1d6cbbea
+POST /api/v1/sessions/{session_id}:wait response 200<code=40943>: shape 43377fc6
+POST /api/v1/sessions/{session_id}:wait response 200<code=40944>: shape e6113284
+POST /api/v1/sessions/{session_id}:wait response 200<code=40945>: shape bf3b5304
+POST /api/v1/sessions/{session_id}:wait response 200<code=40946>: shape f5fb0373
+POST /api/v1/sessions/{session_id}:wait response 200<code=40947>: shape 4a70fafd
+POST /api/v1/sessions/{session_id}:wait response 200<code=40948>: shape 58732f86
+POST /api/v1/sessions/{session_id}:wait response 200<code=40950>: shape 9fdd9a9f
 POST /api/v1/sessions/{session_id}:wait: operation
 POST /api/v1/sessions: operation
 POST /api/v1/sessions:archive request.ids: array minItems=1
@@ -5011,6 +5115,11 @@ shape 1b05d0ee.workspace_root: string optional
 shape 1b0e86ef.number: integer minimum=-9007199254740991 maximum=9007199254740991
 shape 1b0e86ef.state: enum "closed"|"merged"|"open"
 shape 1b0e86ef.url: string
+shape 1d6cbbea.code: enum 40942
+shape 1d6cbbea.data: enum null nullable
+shape 1d6cbbea.details: any optional
+shape 1d6cbbea.msg: string
+shape 1d6cbbea.request_id: string
 shape 20670f7d.customData: any optional
 shape 20670f7d.customKind: string optional
 shape 20670f7d.kind: enum "custom"|"progress"|"status"|"stderr"|"stdout"
@@ -5079,15 +5188,6 @@ shape 350d689d.executor: enum "kaos"|"local" optional
 shape 350d689d.startupTimeoutMs: integer minimum=1 maximum=2147483647 optional
 shape 350d689d.toolTimeoutMs: integer minimum=1 maximum=2147483647 optional
 shape 350d689d.transport: enum "stdio"
-shape 38d41acb.agent_id: string minLength=1
-shape 38d41acb.created_at: any
-shape 38d41acb.interaction_id: string minLength=1
-shape 38d41acb.kind: enum "question"
-shape 38d41acb.request.questions: array minItems=1 maxItems=4
-shape 38d41acb.request.questions[]: shape e7cbb152
-shape 38d41acb.request: object closed
-shape 38d41acb.session_id: string minLength=1
-shape 38d41acb.tool_call_id: string minLength=1 optional
 shape 39405093.delayMs: number
 shape 39405093.errorMessage: string
 shape 39405093.errorName: string
@@ -5119,6 +5219,11 @@ shape 42acff5a.startupTimeoutMs: integer minimum=1 maximum=2147483647 optional
 shape 42acff5a.toolTimeoutMs: integer minimum=1 maximum=2147483647 optional
 shape 42acff5a.transport: enum "http"
 shape 42acff5a.url: string format uri
+shape 43377fc6.code: enum 40943
+shape 43377fc6.data: enum null nullable
+shape 43377fc6.details: any optional
+shape 43377fc6.msg: string
+shape 43377fc6.request_id: string
 shape 4360428a.at: string optional
 shape 4360428a.kind: enum "marker"
 shape 4360428a.marker: string
@@ -5150,6 +5255,11 @@ shape 48100f61.stateReason: string optional
 shape 48100f61.taskId: string minLength=1
 shape 48100f61.thinkingEffort: string optional
 shape 48100f61.usage: shape 7f6b9616 optional
+shape 4a70fafd.code: enum 40947
+shape 4a70fafd.data: enum null nullable
+shape 4a70fafd.details: any optional
+shape 4a70fafd.msg: string
+shape 4a70fafd.request_id: string
 shape 4b8945bf.installedSha: string optional
 shape 4b8945bf.owner: string
 shape 4b8945bf.ref.kind: enum "branch"|"sha"|"tag"
@@ -5190,6 +5300,11 @@ shape 545b41d4.text: string
 shape 54fae70b.id: string minLength=1 optional
 shape 54fae70b.kind: enum "url"
 shape 54fae70b.url: string minLength=1
+shape 58732f86.code: enum 40948
+shape 58732f86.data: enum null nullable
+shape 58732f86.details: any optional
+shape 58732f86.msg: string
+shape 58732f86.request_id: string
 shape 5aeb7752.frameId: string minLength=1
 shape 5aeb7752.kind: enum "thinking"
 shape 5aeb7752.text: string
@@ -5211,6 +5326,12 @@ shape 6367494b.data: enum null nullable
 shape 6367494b.details: any optional
 shape 6367494b.msg: string
 shape 6367494b.request_id: string
+shape 66b4a738.code: enum 0
+shape 66b4a738.data.deleted: enum true
+shape 66b4a738.data: object closed
+shape 66b4a738.details: any optional
+shape 66b4a738.msg: string
+shape 66b4a738.request_id: string
 shape 6a8d7f6c.kind: enum "task"
 shape 6a8d7f6c.payload: any optional
 shape 6a8d7f6c.taskId: string minLength=1
@@ -5219,10 +5340,6 @@ shape 6c14572c.data: enum null nullable
 shape 6c14572c.details: any optional
 shape 6c14572c.msg: string
 shape 6c14572c.request_id: string
-shape 700301db.action: string
-shape 700301db.expires_at: any
-shape 700301db.tool_input_display: any optional
-shape 700301db.tool_name: string minLength=1
 shape 7363f20f.confirmationRequired: enum "stop-processes" optional
 shape 7363f20f.error: string optional
 shape 7363f20f.note: string optional
@@ -5247,20 +5364,6 @@ shape 77e672aa.skillActivations: array optional
 shape 77e672aa.skillActivations[].skillArgs: string optional
 shape 77e672aa.skillActivations[].skillName: string
 shape 77e672aa.skillActivations[]: object closed
-shape 7c23f6b3.agent_id: string minLength=1 optional
-shape 7c23f6b3.count: integer maximum=9007199254740991 exclusiveMinimum=0 optional
-shape 7c23f6b3.include_background: boolean optional
-shape 7c23f6b3.instruction: string optional
-shape 7c23f6b3.metadata: object optional
-shape 7c23f6b3.metadata{*}: any optional
-shape 7c23f6b3.page_size: integer minimum=1 maximum=100 optional
-shape 7c23f6b3.recent_turns: array optional
-shape 7c23f6b3.recent_turns[]: string
-shape 7c23f6b3.text: string optional
-shape 7c23f6b3.timeout_ms: integer minimum=0 maximum=60000 optional
-shape 7c23f6b3.title: string minLength=1 optional
-shape 7c23f6b3.turn_id: string minLength=1 optional
-shape 7c23f6b3.turn_index: integer minimum=0 maximum=9007199254740991 optional
 shape 7d120d0e.code: enum 40003
 shape 7d120d0e.data: enum null nullable
 shape 7d120d0e.details: any optional
@@ -5354,6 +5457,11 @@ shape 9c4557ff.data: enum null nullable
 shape 9c4557ff.details: any optional
 shape 9c4557ff.msg: string
 shape 9c4557ff.request_id: string
+shape 9fdd9a9f.code: enum 40950
+shape 9fdd9a9f.data: enum null nullable
+shape 9fdd9a9f.details: any optional
+shape 9fdd9a9f.msg: string
+shape 9fdd9a9f.request_id: string
 shape a13c0463.code: enum 0
 shape a13c0463.data: shape c08414c4
 shape a13c0463.details: any optional
@@ -5441,6 +5549,11 @@ shape bdc89c49.modified_at: any
 shape bdc89c49.name: string
 shape bdc89c49.path: string
 shape bdc89c49.size: integer minimum=0 maximum=9007199254740991 optional
+shape bf3b5304.code: enum 40945
+shape bf3b5304.data: enum null nullable
+shape bf3b5304.details: any optional
+shape bf3b5304.msg: string
+shape bf3b5304.request_id: string
 shape c073cb9a.code: enum 40915
 shape c073cb9a.data: enum null nullable
 shape c073cb9a.details: any optional
@@ -5512,6 +5625,11 @@ shape e56d743c.usage: shape d08e456a optional
 shape e5d0e0f3.data: string minLength=1
 shape e5d0e0f3.kind: enum "base64"
 shape e5d0e0f3.media_type: string minLength=1
+shape e6113284.code: enum 40944
+shape e6113284.data: enum null nullable
+shape e6113284.details: any optional
+shape e6113284.msg: string
+shape e6113284.request_id: string
 shape e66636c8.name: string minLength=1 optional
 shape e66636c8.source: oneOf
 shape e66636c8.source<#0>: shape 2128f315
@@ -5526,16 +5644,6 @@ shape e66636c8.source<#4>.kind: enum "path"
 shape e66636c8.source<#4>.path: string minLength=1
 shape e66636c8.source<#4>: object closed
 shape e66636c8.type: enum "video"
-shape e7cbb152.allow_other: boolean optional
-shape e7cbb152.body: string optional
-shape e7cbb152.header: string optional
-shape e7cbb152.id: string minLength=1
-shape e7cbb152.multi_select: boolean optional
-shape e7cbb152.options: array minItems=2 maxItems=4
-shape e7cbb152.options[]: shape f26e0124
-shape e7cbb152.other_description: string optional
-shape e7cbb152.other_label: string optional
-shape e7cbb152.question: string minLength=1
 shape e90ff74c.code: enum 40901
 shape e90ff74c.data: enum null nullable
 shape e90ff74c.details: any optional
@@ -5551,9 +5659,6 @@ shape eb0e2a5b.data: enum null nullable
 shape eb0e2a5b.details: any optional
 shape eb0e2a5b.msg: string
 shape eb0e2a5b.request_id: string
-shape f26e0124.description: string optional
-shape f26e0124.id: string minLength=1
-shape f26e0124.label: string minLength=1
 shape f488d0b7.config: anyOf
 shape f488d0b7.config<#0>: shape 350d689d
 shape f488d0b7.config<#1>: shape 42acff5a
@@ -5593,6 +5698,16 @@ shape f516f1cb.llmServerDecodeMs: number optional
 shape f516f1cb.llmServerFirstTokenMs: number optional
 shape f516f1cb.llmStreamDurationMs: number optional
 shape f516f1cb.llmWindowOnFrameClock: boolean optional
+shape f5fb0373.code: enum 40946
+shape f5fb0373.data: enum null nullable
+shape f5fb0373.details: any optional
+shape f5fb0373.msg: string
+shape f5fb0373.request_id: string
+shape f7431fdb.code: enum 40910
+shape f7431fdb.data: enum null nullable
+shape f7431fdb.details: any optional
+shape f7431fdb.msg: string
+shape f7431fdb.request_id: string
 shape f80a592d.kind: enum "cron"
 shape f80a592d.payload: any optional
 shape f80a592d.taskId: string minLength=1 optional
@@ -5610,13 +5725,11 @@ shape fa735462.data: enum null nullable
 shape fa735462.details: any optional
 shape fa735462.msg: string
 shape fa735462.request_id: string
-shape fcc13a7e.agent_id: string minLength=1
-shape fcc13a7e.created_at: any
-shape fcc13a7e.interaction_id: string minLength=1
-shape fcc13a7e.kind: enum "approval"
-shape fcc13a7e.request: shape 700301db
-shape fcc13a7e.session_id: string minLength=1
-shape fcc13a7e.tool_call_id: string minLength=1 optional
+shape faf07186.code: enum 40911
+shape faf07186.data: enum null nullable
+shape faf07186.details: any optional
+shape faf07186.msg: string
+shape faf07186.request_id: string
 shape fe7aee9c.goal_control: enum "cancel"|"pause"|"resume" optional
 shape fe7aee9c.goal_objective: string optional
 shape fe7aee9c.hello_world_mode: boolean optional

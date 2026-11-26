@@ -344,7 +344,25 @@ export type UpdateSessionRequest = z.infer<typeof updateSessionRequestSchema>;
 export const updateSessionResponseSchema = sessionSchema;
 export type UpdateSessionResponse = z.infer<typeof updateSessionResponseSchema>;
 
-export const forkSessionRequestSchema = sessionForkSchema.strict();
+export type SessionAction =
+  | 'fork'
+  | 'compact'
+  | 'undo'
+  | 'cancel'
+  | 'wait'
+  | 'continue'
+  | 'btw'
+  | 'predict-prompt'
+  | 'cancel-prompt-prediction'
+  | 'restore'
+  | 'archive'
+  | 'delete'
+  | 'reload'
+  | 'takeover'
+  | 'agent-close'
+  | 'optimize-prompt';
+
+export const forkSessionRequestSchema = sessionForkSchema;
 export type ForkSessionRequest = z.infer<typeof forkSessionRequestSchema>;
 
 export const forkSessionResponseSchema = sessionSchema;
@@ -444,6 +462,10 @@ export type EditSessionGoalRequest = z.infer<typeof editSessionGoalRequestSchema
 export const editSessionGoalResponseSchema = goalSnapshotSchema;
 export type EditSessionGoalResponse = z.infer<typeof editSessionGoalResponseSchema>;
 
+export const compactSessionBodySchema = z.object({
+  instruction: z.string().optional(),
+});
+
 export const compactSessionRequestSchema = z.preprocess(
   (value) => (value === undefined ? {} : value),
   z
@@ -470,6 +492,15 @@ export const undoSessionResponseSchema = z.object({
 });
 export type UndoSessionResponse = z.infer<typeof undoSessionResponseSchema>;
 
+export const undoUnavailableDataSchema = z.object({
+  reason: z.enum(['empty', 'compaction_boundary', 'insufficient']),
+  requested_count: z.number().int().nonnegative(),
+  undoable_count: z.number().int().nonnegative(),
+  requestedCount: z.number().int().nonnegative().meta({ deprecated: true }),
+  undoableCount: z.number().int().nonnegative().meta({ deprecated: true }),
+});
+export type UndoUnavailableData = z.infer<typeof undoUnavailableDataSchema>;
+
 export const archiveSessionResponseSchema = z.object({
   archived: z.literal(true),
 });
@@ -493,6 +524,11 @@ export const sessionAbortResponseSchema = z.object({
 });
 export type SessionAbortResponse = z.infer<typeof sessionAbortResponseSchema>;
 
+export const cancelSessionBodySchema = z.object({
+  agent_id: z.string().min(1).optional(),
+  include_background: z.boolean().optional(),
+});
+
 export const cancelSessionRequestSchema = z
   .object({
     agent_id: z.string().min(1).optional(),
@@ -513,6 +549,10 @@ export type SessionContinueResponse = z.infer<typeof sessionContinueResponseSche
 
 export const DEFAULT_SESSION_WAIT_TIMEOUT_MS = 15_000;
 export const MAX_SESSION_WAIT_TIMEOUT_MS = 60_000;
+
+export const waitSessionBodySchema = z.object({
+  timeout_ms: z.number().int().min(0).max(MAX_SESSION_WAIT_TIMEOUT_MS).optional(),
+});
 
 export const waitSessionRequestSchema = z
   .object({

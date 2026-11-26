@@ -72,7 +72,7 @@ function toFastifyPath(openApiPath: string): string {
   return openApiPath.replaceAll(/\{([^}]+)\}/g, ':$1');
 }
 
-function buildErrorEnvelopeSchema(
+export function buildErrorEnvelopeSchema(
   code: number,
   dataSchema: z.ZodTypeAny = z.null(),
   detailsSchema?: z.ZodTypeAny,
@@ -95,7 +95,7 @@ function buildErrorEnvelopeSchema(
   });
 }
 
-function buildSuccessEnvelopeSchema(successDataSchema: z.ZodTypeAny): z.ZodTypeAny {
+export function buildSuccessEnvelopeSchema(successDataSchema: z.ZodTypeAny): z.ZodTypeAny {
   return z.object({
     code: z.literal(0),
     msg: z.string(),
