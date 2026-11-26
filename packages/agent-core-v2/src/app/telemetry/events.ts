@@ -1,4 +1,5 @@
 import type { CacheBreakCause } from '#/agent/usage/cacheBreak';
+import type { DegradedLocation } from '#/app/git/workTree';
 import type { TowerExitReason } from '#/features/tower/tower';
 import type { SessionCloseReason } from '#/project/sessionLifecycle/sessionLifecycle';
 
@@ -1905,6 +1906,11 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'A workspace is trusted or untrusted.',
     properties: { trusted: 'Whether the workspace is now trusted' },
+  }),
+  project_locate_degraded: defineTelemetryEvent<{ reason: DegradedLocation['reason'] }>({
+    owner: 'kimi-code',
+    comment: 'Resolving the implicit project for a directory found a .git entry it could not verify, so the directory stays its own project.',
+    properties: { reason: 'Why the checkout was not grouped' },
   }),
   workspace_trust_read_failed: defineTelemetryEvent<WorkspaceTrustReadFailedEvent>({
     owner: 'kimi-code',

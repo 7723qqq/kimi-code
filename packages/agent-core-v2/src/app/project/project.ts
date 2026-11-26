@@ -1,5 +1,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
+import type { ImplicitDecision } from './implicitProject';
+
 export type ProjectKind = 'managed' | 'implicit';
 
 export interface Project {
@@ -31,6 +33,11 @@ export interface IProjectService {
   get(id: string): Promise<Project | undefined>;
   create(input: ProjectCreate): Promise<Project>;
   createOrTouch(root: string, name?: string): Promise<Project>;
+  resolveImplicit(dir: string): Promise<Project>;
+  peekImplicit(dir: string): Promise<ImplicitDecision>;
+  reviveImplicit(id: string, workDir: string): Promise<Project>;
+  projectDirAt(project: Pick<Project, 'root'>, dir: string): Promise<string | undefined>;
+  acceptsWorkDir(project: Pick<Project, 'root'>, dir: string): Promise<boolean>;
   touch(id: string): Promise<Project | undefined>;
   update(id: string, patch: ProjectUpdate): Promise<Project | undefined>;
   setPrimary(id: string, path: string): Promise<Project | undefined>;

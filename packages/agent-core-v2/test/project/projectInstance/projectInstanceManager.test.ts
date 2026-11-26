@@ -76,6 +76,17 @@ function manager(
     setPrimary: async () => undefined,
     readProjectConfigDirs: async () => [],
     delete: async () => {},
+    resolveImplicit: async () => {
+      throw new Error('unused');
+    },
+    peekImplicit: async () => {
+      throw new Error('unused');
+    },
+    reviveImplicit: async () => {
+      throw new Error('unused');
+    },
+    projectDirAt: async () => undefined,
+    acceptsWorkDir: async () => false,
   };
   const args: unknown[] = [
     {},

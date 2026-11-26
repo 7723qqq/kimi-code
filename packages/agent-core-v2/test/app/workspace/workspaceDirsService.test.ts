@@ -22,6 +22,8 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { noopTelemetryService } from '#/app/telemetry/telemetry';
+import { WorkspaceTrustStore } from '#/project/projectTrust/projectTrustStore';
 import { FileProjectLocalConfigService } from '#/persistence/backends/node-fs/projectLocalConfigService';
 import { IProjectContext } from '#/project/projectContext/projectContext';
 import { IProjectDirs } from '#/project/projectDirs/projectDirs';
@@ -31,6 +33,8 @@ import { expectRejection } from '#test/helpers/assertions';
 import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
+import { stubConfigService } from '../config/stubs';
+import { stubHostEnvironment } from '../../stubs';
 import { registerStateServices } from '../../state/stubs';
 
 describe('WorkspaceDirsService session sandbox', () => {
@@ -301,6 +305,16 @@ describe('WorkspaceDirsService primary lifecycle', () => {
       new FileProjectLocalConfigService(bootstrap, hostFs, homeDir),
       log,
       event,
+      stubHostEnvironment(homeDir),
+      noopTelemetryService,
+      bootstrap,
+      new JsonAtomicDocumentStore(storage),
+      new WorkspaceTrustStore(
+        new JsonAtomicDocumentStore(storage),
+        noopTelemetryService,
+        bootstrap,
+        stubConfigService(),
+      ),
     );
   });
 
@@ -354,8 +368,8 @@ describe('WorkspaceDirsService primary lifecycle', () => {
 
     const member = createDirs(dirB, 'wd_other_000000000000');
     await member.ready;
-    expect(member.additionalDirs).toEqual([dirA]);
-    expect(member.sessionInfo().ISessionProjectInfo).toEqual({ [project.id]: dirA });
+    expect(member.additionalDirs).toEqual([]);
+    expect(member.sessionInfo().ISessionProjectInfo).toEqual({});
 
     const outsider = createDirs(dirC, 'wd_else_000000000000');
     await outsider.ready;
@@ -383,7 +397,12 @@ describe('WorkspaceDirsService primary lifecycle', () => {
       await dirs.ready;
       expect(dirs.additionalDirs.map(normalize)).toEqual([normalize(dirC), normalize(dirB)]);
 
-      await workspaces.setPrimary(project.id, dirB);
+      await persistence.update((catalog) => ({
+        ...catalog,
+        workspaces: catalog.workspaces.map((entry) =>
+          entry.id === project.id ? { ...entry, root: dirB, additionalDirs: [dirA] } : entry,
+        ),
+      }));
       await waitForAssertion(
         () => {
           expect(normalize(dirs.primary)).toBe(normalize(dirB));

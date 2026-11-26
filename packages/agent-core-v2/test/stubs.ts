@@ -11,8 +11,13 @@ import {
 import type { IProviderDiscoveryService, RetiredModel } from '#/app/kosongConfig/discovery';
 import { ErrorCodes } from '#/errors';
 import type { IModelOAuthTokens } from '#/llm-adapter/model/model-oauth';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { ISessionLockService } from '#/persistence/interface/sessionLock';
 import type { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
+
+export function stubHostEnvironment(homeDir: string): IHostEnvironment {
+  return { _serviceBrand: undefined, ready: Promise.resolve(), homeDir } as IHostEnvironment;
+}
 
 export class StubConfigService implements IConfigService {
   declare readonly _serviceBrand: undefined;

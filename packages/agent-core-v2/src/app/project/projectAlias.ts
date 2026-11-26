@@ -17,6 +17,7 @@ const textDecoder = new TextDecoder();
 
 export interface SessionIndexLine {
   readonly sessionId: string;
+  readonly projectRoot?: string;
   readonly sessionDir: string;
   readonly workDir: string;
 }
@@ -140,6 +141,11 @@ export async function compactSessionIndexIfStale(
   return undefined;
 }
 
+export function sessionBucketOf(line: SessionIndexLine): string {
+  const segments = line.sessionDir.replaceAll('\\', '/').replace(/\/+$/, '').split('/');
+  return segments.at(-2) ?? '';
+}
+
 export function collectAliasIds(
   workspaces: readonly Project[],
   sessionIndexEntries: readonly SessionIndexLine[],
@@ -222,6 +228,7 @@ export function parseSessionIndexLine(line: string): SessionIndexLine | undefine
       sessionId: entry.sessionId,
       sessionDir: entry.sessionDir,
       workDir: entry.workDir,
+      ...(typeof entry.projectRoot === 'string' ? { projectRoot: entry.projectRoot } : {}),
     };
   } catch {
     return undefined;

@@ -179,4 +179,5 @@ export const ERROR_CODE_UNION = [
   'wire.unknown_record',
   'wire.version_too_low',
   'workspace.not_found',
+  'workspace.primary_immutable',
 ] as const;

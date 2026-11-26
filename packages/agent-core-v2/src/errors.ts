@@ -315,7 +315,7 @@ export type KimiErrorCode =
   | 'modelsDev.import_invalid'
   | 'modelsDev.registry_import_invalid'
   | 'workspace.not_found'
-  | 'workspace.not_found';
+  | 'workspace.primary_immutable';
 
 export interface ErrorEvent {
   readonly type: 'error';

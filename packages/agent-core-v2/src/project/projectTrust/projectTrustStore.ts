@@ -11,6 +11,8 @@ import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStor
 
 import { WORKSPACE_TRUST_SECTION, workspaceTrustRequired } from './configSection';
 import { trustWorkspaceEnvTrusted } from './trustEnv';
+import type { Project } from '#/app/project/project';
+
 import { deleteProjectTrust, readProjectTrust, writeProjectTrust } from './trustRecord';
 import { IProjectTrust, type WorkspaceTrustChange } from './projectTrust';
 
@@ -24,6 +26,8 @@ export interface IProjectTrustStore {
 
   forRoot(root: string): IProjectTrustEntry;
   forRoots(roots: readonly string[]): IProjectTrustEntry;
+  forProject(project: Pick<Project, 'root' | 'additionalDirs'>): IProjectTrustEntry;
+  carry(fromRoot: string, toRoot: string): Promise<void>;
 }
 
 export const IProjectTrustStore: ServiceIdentifier<IProjectTrustStore> =
@@ -208,6 +212,47 @@ class WorkspaceTrustGroup extends Disposable implements IProjectTrustEntry {
   }
 }
 
+class ProjectTrust implements IProjectTrustEntry {
+  declare readonly _serviceBrand: undefined;
+
+  constructor(
+    private readonly primary: IProjectTrustEntry,
+    private readonly directories: readonly IProjectTrustEntry[],
+  ) {}
+
+  get ready(): Promise<void> {
+    return this.primary.ready;
+  }
+
+  get onDidChange() {
+    return this.primary.onDidChange;
+  }
+
+  isPersistedTrusted(): boolean {
+    return this.primary.isPersistedTrusted();
+  }
+
+  isTrusted(): boolean {
+    return this.primary.isTrusted();
+  }
+
+  async get(): Promise<boolean> {
+    return this.primary.get();
+  }
+
+  refresh(): Promise<boolean> {
+    return this.primary.refresh();
+  }
+
+  trust(): Promise<void> {
+    return this.primary.trust();
+  }
+
+  async untrust(): Promise<void> {
+    await Promise.all(this.directories.map((entry) => entry.untrust()));
+  }
+}
+
 export class WorkspaceTrustStore extends Disposable implements IProjectTrustStore {
   declare readonly _serviceBrand: undefined;
 
@@ -252,6 +297,18 @@ export class WorkspaceTrustStore extends Disposable implements IProjectTrustStor
     const group = this._register(new WorkspaceTrustGroup(roots, (root) => this.forRoot(root)));
     this.groups.set(key, group);
     return group;
+  }
+
+  forProject(project: Pick<Project, 'root' | 'additionalDirs'>): IProjectTrustEntry {
+    const directories = new Set(
+      [project.root, ...project.additionalDirs].map((dir) => this.forRoot(dir)),
+    );
+    return new ProjectTrust(this.forRoot(project.root), [...directories]);
+  }
+
+  async carry(fromRoot: string, toRoot: string): Promise<void> {
+    if (!(await readProjectTrust(this.docs, fromRoot, this.telemetry))) return;
+    await this.forRoot(toRoot).trust();
   }
 }
 
