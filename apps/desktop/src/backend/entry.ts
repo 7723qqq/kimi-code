@@ -1,5 +1,7 @@
 import { loadOrCreateServerToken } from '@moonshot-ai/kap-server';
 import { configureSearchWorkerRuntime } from '@moonshot-ai/kap-server/search-worker-runtime';
+
+import { DESKTOP_DISPLAY_NAME, DESKTOP_MSH_PLATFORM, DESKTOP_PRODUCT_NAME, DESKTOP_REPLY_STYLE_GUIDE } from '../shared/identity';
 import { resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
 
 import { startDesktopBackend } from './desktopBackend';
@@ -40,9 +42,11 @@ const backend = await startDesktopBackend({
     firstLaunch: process.env['KIMI_DESKTOP_FIRST_LAUNCH'] === '1',
   },
   identity: {
-    productName: 'kimi-code-desktop',
+    productName: DESKTOP_PRODUCT_NAME,
     version: serverVersion,
-    platform: `desktop-${process.platform}`,
+    platform: DESKTOP_MSH_PLATFORM,
+    displayName: DESKTOP_DISPLAY_NAME,
+    replyStyleGuide: DESKTOP_REPLY_STYLE_GUIDE,
   },
 });
 
