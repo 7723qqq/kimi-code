@@ -8,7 +8,7 @@ import type { LoopAck, LoopEmitted } from './contract/emitted';
 import type { LoopHooks } from './contract/hook';
 import type { RemindMessage } from './contract/inbox';
 import type { TurnOutcome } from './contract/outcome';
-import type { LoopRequester, LoopRequestRuntime } from './request';
+import type { FullLoopLlmRequester, LoopRequester, LoopRequestRuntime } from './request';
 import type { LoopState } from './state';
 import type { WaitForTasks } from './tool/tasks';
 import type { ToolCompletionFactory } from './tool/outcome';
@@ -47,6 +47,7 @@ export interface Loop {
   readonly waitForTasks: WaitForTasks;
   readonly policy: PolicyRegistry;
   readonly baseRequester: LoopRequester | undefined;
+  readonly requester: FullLoopLlmRequester;
   submit(message: UserMessage): LoopAck<'prompt.submitted'> | undefined;
   notify(message: UserMessage): LoopAck<'prompt.notified'> | undefined;
   notifyScoped(message: UserMessage): LoopAck<'prompt.notified'> | undefined;

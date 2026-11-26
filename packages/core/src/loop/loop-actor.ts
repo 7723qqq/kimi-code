@@ -33,12 +33,15 @@ import {
   type TurnStartingRun,
 } from '#/hook/loop/run';
 import {
+  isFullLoopRequester,
   runLoopRequest,
+  type FullLoopLlmRequester,
   type LoopLlmRequester,
   type LoopRequester,
   type LoopRequestProgress,
   type LoopRequestRuntime,
 } from './request';
+import { createLoopRequester } from './requester';
 import { loopProjection, type LoopRecord, type LoopRecordState } from './record';
 import {
   allSettled,
@@ -314,6 +317,7 @@ class LoopActor implements Loop {
   readonly executor: LoopToolExecutor;
   readonly policy: PolicyRegistry;
   readonly waitForTasks: WaitForTasks;
+  readonly requester: FullLoopLlmRequester;
 
   private readonly hook: Partial<LoopHooks>;
   private readonly root: AbortScope = createAbortScope();
@@ -337,7 +341,7 @@ class LoopActor implements Loop {
   private step: StepState | undefined;
   private readonly tools = new Map<string, LiveTool>();
   private requesterTemplate: LoopRequester | undefined;
-  private requester: LoopRequester | undefined;
+  private turnRequester: LoopRequester | undefined;
   private profile: LoopProfile | undefined;
   private requesterError: unknown;
   private toolsSettled = false;
@@ -380,6 +384,16 @@ class LoopActor implements Loop {
     this.onListenerError = options.onListenerError;
     this.hook = options.hook ?? {};
     this.policy = createPolicyRegistry();
+    this.requester = createLoopRequester(
+      () => {
+        const base = this.requesterTemplate;
+        if (!isFullLoopRequester(base)) throw new Error('loop has no full core requester');
+        return base;
+      },
+      () => this.durable.messages,
+      () => this.durable.profile,
+      () => this.policy.asPolicy(),
+    );
     this.waitForTasks = createWaitForTasks(() =>
       Array.from(this.tools.values()).filter((slot) => slot.detached && !slot.done),
     );
@@ -1001,7 +1015,7 @@ class LoopActor implements Loop {
       });
       this.turn = undefined;
       this.step = undefined;
-      this.requester = undefined;
+      this.turnRequester = undefined;
       this.profile = undefined;
       this.requesterError = undefined;
       this.toolsSettled = false;
@@ -1278,10 +1292,10 @@ class LoopActor implements Loop {
     this.toolsSettled = false;
     try {
       const template = this.requesterTemplate;
-      this.requester = (template as LoopLlmRequester | undefined)?.snapshot?.() ?? template;
+      this.turnRequester = (template as LoopLlmRequester | undefined)?.snapshot?.() ?? template;
       this.requesterError = undefined;
     } catch (error) {
-      this.requester = undefined;
+      this.turnRequester = undefined;
       this.requesterError = error;
     }
     if (turn.resumed === true) {
@@ -1456,7 +1470,7 @@ class LoopActor implements Loop {
     if (this.finishSteeredStep(turn, step)) return;
     if (this.deferForRequest(turn, step, () => this.afterStepStarting(turn, step))) return;
     this.appendReminders(turn, step);
-    if (this.requester === undefined || this.profile === undefined) {
+    if (this.turnRequester === undefined || this.profile === undefined) {
       this.fail(turn, this.requesterError ?? new Error('loop has no requester'));
       return;
     }
@@ -1494,7 +1508,7 @@ class LoopActor implements Loop {
     if (!this.isCurrentStep(turn, step, 'requesting')) return;
     if (this.finishSteeredStep(turn, step)) return;
     if (this.deferForRequest(turn, step, () => this.startRequest(turn, step))) return;
-    const requester = this.requester;
+    const requester = this.turnRequester;
     const profile = this.profile;
     if (requester === undefined || profile === undefined) {
       this.fail(turn, this.requesterError ?? new Error('loop has no requester'));
@@ -2077,7 +2091,7 @@ class LoopActor implements Loop {
     this.completionContinuation = undefined;
     this.turn = undefined;
     this.phase = this.phase === 'closed' ? 'closed' : 'idle';
-    this.requester = undefined;
+    this.turnRequester = undefined;
     this.profile = undefined;
     this.requesterError = undefined;
     this.toolsSettled = false;
