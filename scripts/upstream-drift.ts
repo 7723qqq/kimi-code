@@ -157,20 +157,35 @@ function compile(patterns: readonly string[]): (path: string) => boolean {
   return (path) => globs.some((glob) => glob.match(path));
 }
 
-export function classifyPaths(changes: readonly RawChange[], config: PathConfig): PathKind {
-  const paths: string[] = [];
-  for (const change of changes) {
-    if (change.newSha !== ZERO) paths.push(change.newPath);
-    else if (change.oldSha !== ZERO) paths.push(change.oldPath);
-    if (change.oldPath !== change.newPath) paths.push(change.oldPath);
-  }
-  if (paths.length === 0) return 'empty';
-  const platform = compile(config.platform);
-  const tests = compile(config.tests);
-  const forkOnly = compile(config.forkOnly);
-  if (paths.every((path) => platform(path))) return 'platform';
-  if (paths.every((path) => tests(path))) return 'test';
-  if (paths.every((path) => forkOnly(path))) return 'fork-only';
+export interface PathMatcher {
+  readonly platform: (path: string) => boolean;
+  readonly tests: (path: string) => boolean;
+  readonly forkOnly: (path: string) => boolean;
+}
+
+export function createMatcher(config: PathConfig): PathMatcher {
+  return {
+    platform: compile(config.platform),
+    tests: compile(config.tests),
+    forkOnly: compile(config.forkOnly),
+  };
+}
+
+export function classifyPath(path: string, matcher: PathMatcher): PathKind {
+  if (matcher.platform(path)) return 'platform';
+  if (matcher.tests(path)) return 'test';
+  if (matcher.forkOnly(path)) return 'fork-only';
+  return 'source';
+}
+
+export function classifyPaths(changes: readonly RawChange[], matcher: PathMatcher): PathKind {
+  if (changes.length === 0) return 'empty';
+  const kinds = changes.map((change) =>
+    classifyPath(change.newSha !== ZERO ? change.newPath : change.oldPath, matcher),
+  );
+  if (kinds.every((kind) => kind === 'platform')) return 'platform';
+  if (kinds.every((kind) => kind === 'test')) return 'test';
+  if (kinds.every((kind) => kind === 'fork-only')) return 'fork-only';
   return 'source';
 }
 
@@ -347,7 +362,7 @@ export function analyzeCommit(
     readonly tree: ReadonlyMap<string, string>;
     readonly blobs: ReadonlySet<string>;
     readonly subjects: Map<string, Array<{ sha: string; patchId?: string }>>;
-    readonly config: PathConfig;
+    readonly matcher: PathMatcher;
     readonly ledger: Map<string, LedgerRow>;
   },
 ): CommitAnalysis {
@@ -357,7 +372,32 @@ export function analyzeCommit(
     ? { patch: '', changes: rawChanges(cwd, commit.sha) }
     : diffBundle(cwd, commit.sha);
   const { patch, changes } = bundle;
-  const kind = classifyPaths(changes, context.config);
+  const fileKinds = changes.map((change) => ({
+    change,
+    kind: classifyPath(change.newSha !== ZERO ? change.newPath : change.oldPath, context.matcher),
+  }));
+  const sourceChanges = fileKinds.filter((entry) => entry.kind === 'source').map((entry) => entry.change);
+  const platformChanges = fileKinds.filter((entry) => entry.kind === 'platform').map((entry) => entry.change);
+  const testChanges = fileKinds.filter((entry) => entry.kind === 'test').map((entry) => entry.change);
+  const forkOnlyChanges = fileKinds.filter((entry) => entry.kind === 'fork-only').map((entry) => entry.change);
+  const kind: PathKind =
+    sourceChanges.length > 0
+      ? 'source'
+      : platformChanges.length > 0
+        ? 'platform'
+        : testChanges.length > 0
+          ? 'test'
+          : forkOnlyChanges.length > 0
+            ? 'fork-only'
+            : 'empty';
+  const statusChanges =
+    kind === 'source'
+      ? sourceChanges
+      : kind === 'platform'
+        ? platformChanges
+        : kind === 'test'
+          ? testChanges
+          : changes;
   if (kind === 'empty') {
     return {
       sha: commit.sha,
@@ -396,7 +436,9 @@ export function analyzeCommit(
       }
     }
   }
-  const blobCounts = blobEvidence(changes, context.tree, context.blobs);
+  const blobCounts = blobEvidence(statusChanges, context.tree, context.blobs);
+  const platformCounts = blobEvidence(platformChanges, context.tree, context.blobs);
+  const testCounts = blobEvidence(testChanges, context.tree, context.blobs);
   let status: string;
   let evidence: string;
   if (options.fast === true) {
@@ -418,6 +460,12 @@ export function analyzeCommit(
         evidence += ` apply-error reverse=${reverse} forward=${forward}`;
       }
     }
+  }
+  if (platformChanges.length > 0) {
+    evidence += ` platform present=${platformCounts.present} missing=${platformCounts.missing} adapted=${platformCounts.adapted}`;
+  }
+  if (testChanges.length > 0) {
+    evidence += ` test present=${testCounts.present} missing=${testCounts.missing} adapted=${testCounts.adapted}`;
   }
   const staleLedger =
     (ledger?.verdict === 'ported' || ledger?.verdict === 'equivalent') && status === 'missing';
@@ -453,6 +501,7 @@ export function analyzeUpstream(options: AnalysisOptions): {
   try {
     mustGit(cwd, ['read-tree', 'HEAD'], undefined, { GIT_INDEX_FILE: indexPath });
     const config = loadPathConfig(cwd, options.pathsPath);
+    const matcher = createMatcher(config);
     const ledger = loadLedger(cwd, options.ledgerPath);
     const tree = forkTree(cwd);
     const blobs = blobSet(tree);
@@ -462,7 +511,7 @@ export function analyzeUpstream(options: AnalysisOptions): {
     );
     const patchPath = join(tempDir, 'change.patch');
     const analyses = commits.map((commit) =>
-      analyzeCommit(options, commit, { indexPath, patchPath, tree, blobs, subjects, config, ledger }),
+      analyzeCommit(options, commit, { indexPath, patchPath, tree, blobs, subjects, matcher, ledger }),
     );
     return {
       upstream,

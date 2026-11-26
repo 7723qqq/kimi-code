@@ -41,13 +41,18 @@ describe('upstream-drift', () => {
     try {
       write(root, 'src/a.ts', 'a1\n');
       write(root, 'src/m.ts', 'm1\n');
+      write(root, 'src/p.ts', 'p1\n');
       write(root, 'src/old.ts', 'old\n');
       write(root, 'test/a.test.ts', 'test1\n');
       write(root, 'package.json', '{"name":"x"}\n');
       write(
         root,
         '.upstream/drift-paths.json',
-        JSON.stringify({ platform: ['package.json'], tests: ['test/**'], forkOnly: [] }),
+        JSON.stringify({
+          platform: ['package.json', '.changeset/**'],
+          tests: ['test/**'],
+          forkOnly: [],
+        }),
       );
       const base = commit(root, 'base');
 
@@ -64,11 +69,16 @@ describe('upstream-drift', () => {
       const platformSha = commit(root, 'chore: bump package (#5)');
       git(root, ['mv', 'src/old.ts', 'src/new.ts']);
       const renameSha = commit(root, 'refactor: rename old to new (#6)');
+      write(root, 'src/p.ts', 'p2\n');
+      write(root, '.changeset/p.md', '---\n"kimi-code-app": patch\n---\n');
+      const mixedSha = commit(root, 'feat: change p and add a changeset (#7)');
 
       git(root, ['checkout', '-q', '-b', 'fork', base]);
       git(root, ['cherry-pick', equivalentSha]);
       write(root, 'src/a.ts', 'aX\n');
       commit(root, 'refactor: adapt a');
+      write(root, 'src/p.ts', 'p2\n');
+      commit(root, 'feat: p port');
 
       const result = analyzeUpstream({
         cwd: root,
@@ -87,6 +97,9 @@ describe('upstream-drift', () => {
       expect(bySha.get(platformSha)?.status).toBe('platform-missing');
       expect(bySha.get(renameSha)?.status).toBe('missing');
       expect(bySha.get(renameSha)?.changes[0]?.status.startsWith('R')).toBe(true);
+      expect(bySha.get(mixedSha)?.status).toBe('present');
+      expect(bySha.get(mixedSha)?.kind).toBe('source');
+      expect(bySha.get(mixedSha)?.evidence).toContain('platform present=0 missing=1');
 
       const fast = analyzeUpstream({
         cwd: root,
@@ -102,6 +115,7 @@ describe('upstream-drift', () => {
       expect(fastBySha.get(testSha)?.status).toBe('test-missing');
       expect(fastBySha.get(platformSha)?.status).toBe('platform-missing');
       expect(fastBySha.get(renameSha)?.status).toBe('missing');
+      expect(fastBySha.get(mixedSha)?.status).toBe('present');
 
       const only = analyzeUpstream({
         cwd: root,
