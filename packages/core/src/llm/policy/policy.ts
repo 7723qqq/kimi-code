@@ -48,6 +48,34 @@ export interface LlmRunControl {
   readonly onEvent?: (event: LlmRunEvent) => void;
 }
 
+function mergePolicyLists<T>(
+  base: LlmPolicyList<T> | undefined,
+  extra: LlmPolicyList<T> | undefined,
+): LlmPolicyList<T> | undefined {
+  if (base === undefined) return extra;
+  if (extra === undefined) return base;
+  return () => [...listOf(base), ...listOf(extra)];
+}
+
+export function mergeLlmPolicies(
+  base: LlmPolicy | undefined,
+  extra: LlmPolicy | undefined,
+): LlmPolicy | undefined {
+  if (base === undefined) return extra;
+  if (extra === undefined) return base;
+  const retry = base.retry === undefined
+    ? extra.retry
+    : extra.retry === undefined
+      ? base.retry
+      : { ...base.retry, ...extra.retry };
+  return {
+    resolvers: mergePolicyLists(base.resolvers, extra.resolvers),
+    recoveries: mergePolicyLists(base.recoveries, extra.recoveries),
+    retryables: mergePolicyLists(base.retryables, extra.retryables),
+    ...(retry === undefined ? {} : { retry }),
+  };
+}
+
 export interface LlmRequesterExecution {
   readonly recoveries: LlmRecoveryMemory;
 }

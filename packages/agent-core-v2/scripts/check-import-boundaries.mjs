@@ -8,6 +8,7 @@ export const SRC_ROOT = join(PKG_ROOT, 'src');
 const TEST_ROOT = join(PKG_ROOT, 'test');
 const HUMAN_ROOT = join(SRC_ROOT, 'human');
 const ADAPTER_ROOT = join(SRC_ROOT, 'llm-adapter');
+const PROVIDER_CATALOG_ROOT = join(SRC_ROOT, 'provider-catalog');
 const LOOP_MACHINE_ADAPTER_ROOT = join(SRC_ROOT, 'agent/loop/machine');
 const SESSION_LIFECYCLE_ADAPTER_ROOT = join(SRC_ROOT, 'session/agentLifecycle');
 const REMOTE_SERVER_ROOT = join(SRC_ROOT, 'remote/server');
@@ -126,6 +127,7 @@ const HUMAN_VOCABULARY = new Set([
 
 const V2_ONLY_FIRST_SEGMENTS = new Set([
   'llm-adapter',
+  'provider-catalog',
   'app',
   'workspace',
   'features',
@@ -186,6 +188,7 @@ export function checkSource(source, absFile) {
   const inHuman = isInside(HUMAN_ROOT, absFile);
   const inAdapter =
     isInside(ADAPTER_ROOT, absFile) ||
+    isInside(PROVIDER_CATALOG_ROOT, absFile) ||
     isInside(LOOP_MACHINE_ADAPTER_ROOT, absFile) ||
     isInside(SESSION_LIFECYCLE_ADAPTER_ROOT, absFile);
 
@@ -277,7 +280,7 @@ export function checkSource(source, absFile) {
       violations.push({
         file: absFile,
         line,
-        message: `only llm-adapter, agent/loop/machine and session/agentLifecycle may import the human implementation ('${specifier}') — v2 code outside those adapter layers is limited to the vocabulary modules (${[...HUMAN_VOCABULARY].join(', ')})`,
+        message: `only llm-adapter, provider-catalog, agent/loop/machine and session/agentLifecycle may import the human implementation ('${specifier}') — v2 code outside those adapter layers is limited to the vocabulary modules (${[...HUMAN_VOCABULARY].join(', ')})`,
       });
     }
   }

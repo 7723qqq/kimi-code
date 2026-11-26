@@ -18,7 +18,12 @@ import { runPipeline, type EncodeHooks, type PipelineSpec } from './pipeline';
 import type { MediaSupport } from './rules/media';
 import type { ToolCallIdPolicy } from './rules/tool-call-ids';
 
-export type ProtocolName = 'openai' | 'openai_responses' | 'anthropic' | 'google-genai';
+export type ProtocolName =
+  | 'openai'
+  | 'openai_responses'
+  | 'anthropic'
+  | 'google-genai'
+  | 'antigravity';
 
 export type ToolMessageConversion = 'extract_text' | 'keep_parts';
 

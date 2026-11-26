@@ -1,5 +1,9 @@
 import { createUserMessage } from '@moonshot-ai/core/llm/message';
-import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';
+import type {
+  LlmEndpoint,
+  LlmModelSpec,
+  ModelCapability as CoreModelCapability,
+} from '@moonshot-ai/core/llm/request';
 import type { LlmRequester as CoreLlmRequester } from '@moonshot-ai/core/llm/requester';
 import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
 import type { LlmErrorMessage } from '#human/llm/errors';
@@ -27,7 +31,7 @@ export interface CatalogModelOverrides {
   readonly maxContextSize?: number;
   readonly maxInputSize?: number;
   readonly maxOutputSize?: number;
-  readonly capability?: ModelCapability;
+  readonly capability?: CoreModelCapability;
   readonly displayName?: string;
   readonly reasoningKey?: string;
   readonly adaptiveThinking?: boolean;
@@ -39,6 +43,11 @@ export interface CatalogModelOverrides {
 
 export interface CatalogModelDefinition extends LlmModel {
   readonly id?: string;
+  readonly spec?: LlmModelSpec;
+  readonly endpoint?: LlmEndpoint;
+  readonly apiKey?: string;
+  readonly betaApi?: boolean;
+  readonly vertexai?: boolean;
   readonly displayName?: string;
   readonly maxOutputSize?: number;
   readonly reasoningKey?: string;
