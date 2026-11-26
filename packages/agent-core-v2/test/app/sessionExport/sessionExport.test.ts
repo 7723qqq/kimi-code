@@ -48,7 +48,7 @@ import {
   ISessionManager,
   type UnguardedSessionLifecycle,
 } from '#/app/sessionManager/sessionManager';
-import { IWorkspaceService } from '#/app/workspace/workspace';
+import { IWorkspaceService } from '#/app/project/project';
 import { Error2 } from '#/errors';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';

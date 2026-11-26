@@ -63,9 +63,9 @@ import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle'
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
-import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
 import type { ToolInfo } from '#/tool/toolContract';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
+import { WorkspaceStateService } from '#/project/state/projectStateService';
 
 import { BUILTIN_REPLAYABLE_STATE_KEYS } from '../state/builtinReplayableKeys';
 import { type EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
@@ -241,7 +241,7 @@ import { WireService } from '#/wire/wireService';
 import {
   type SessionCreatedEvent,
   type SessionWillCloseEvent,
-} from '#/workspace/sessionLifecycle/sessionLifecycle';
+} from '#/project/sessionLifecycle/sessionLifecycle';
 import { createOpenAIRequester } from '#/human/llm/requester/bases/openai/requester';
 import type { LlmRequester } from '#human/llm/requester/requester';
 import { type ThinkingEffort } from '#human/llm/thinking';

@@ -14,7 +14,7 @@ import { LifecycleScope } from '#/app/scopes';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { ISessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycle';
 import type { UserMessage } from '@moonshot-ai/core/llm/message';
 import { loopUserAttributes } from '#/agent/loop/userEntry';
 

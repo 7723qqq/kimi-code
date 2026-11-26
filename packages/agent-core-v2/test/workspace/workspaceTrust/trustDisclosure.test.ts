@@ -4,19 +4,19 @@ import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
 
-import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
-import type { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import type { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
 import type { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IConfigService } from '#/app/config/config';
 import type { ILogService } from '#/_base/log/log';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IWorkspaceSkillCatalog } from '#/features/skill/workspace/workspaceSkillCatalog';
-import type { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
+import type { IWorkspaceSkillCatalog } from '#/features/skill/project/projectSkillCatalog';
+import type { IWorkspaceAgentProfileLoader } from '#/project/projectAgentProfileLoader/projectAgentProfileLoader';
 import type { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
-import type { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
-import type { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
-import { WorkspaceTrustDisclosureService } from '#/workspace/workspaceTrust/trustDisclosureService';
+import type { IWorkspaceInstructionsService } from '#/project/projectInstructions/projectInstructions';
+import type { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
+import { WorkspaceTrustDisclosureService } from '#/project/projectTrust/trustDisclosureService';
 
 const missing = async (path: string): Promise<never> => {
   throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' });

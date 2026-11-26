@@ -2,7 +2,7 @@ import { workspaceRootKey } from '#/_base/utils/workdir-slug';
 import { LOCAL_ENVIRONMENT_ID, type EnvironmentBinding } from '#/environment/environment';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
-import type { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import type { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
 
 export interface EffectiveWorkspaceRoots {
   readonly workDir: string;

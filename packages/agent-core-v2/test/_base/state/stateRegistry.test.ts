@@ -18,8 +18,8 @@ import { AppStateService } from '#/app/state/appStateService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
 import { defineState } from '#/state/state';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
+import { IWorkspaceStateService } from '#/project/state/projectState';
+import { WorkspaceStateService } from '#/project/state/projectStateService';
 
 describe('StateRegistry', () => {
   const countKey = defineState('test.count', () => 0);

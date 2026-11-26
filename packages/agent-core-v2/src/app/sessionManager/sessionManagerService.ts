@@ -37,13 +37,13 @@ import {
   type SessionForkedEvent,
   type SessionWillCloseEvent,
   type SessionWillCreateEvent,
-} from '#/workspace/sessionLifecycle/sessionLifecycle';
-import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
+} from '#/project/sessionLifecycle/sessionLifecycle';
+import type { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
 import {
   IWorkspaceInstanceManager,
   type WorkspaceInstanceLease,
   type WorkspaceInstanceRef,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
+} from '#/project/projectInstance/projectInstanceManager';
 
 import {
   ISessionManager,

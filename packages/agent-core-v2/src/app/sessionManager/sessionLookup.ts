@@ -12,11 +12,11 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import {
   ISessionLifecycleService,
   type ResumeSessionOptions,
-} from '#/workspace/sessionLifecycle/sessionLifecycle';
+} from '#/project/sessionLifecycle/sessionLifecycle';
 import {
   IWorkspaceInstanceManager,
   type WorkspaceInstanceLease,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
+} from '#/project/projectInstance/projectInstanceManager';
 
 import {
   IWorkspaceLifecycleService,

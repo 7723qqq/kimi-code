@@ -5,13 +5,13 @@ import { LifecycleScope } from '#/app/scopes';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { BugIndicatingError } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
-import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
+import { ISessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycle';
+import type { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
+import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
 import {
   IWorkspaceInstanceManager,
   type WorkspaceInstanceLease,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
+} from '#/project/projectInstance/projectInstanceManager';
 
 import {
   IWorkspaceLifecycleService,

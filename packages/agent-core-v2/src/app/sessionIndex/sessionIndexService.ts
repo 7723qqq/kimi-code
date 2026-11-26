@@ -8,13 +8,13 @@ import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
 import type { SessionIndexDegradedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IWorkspaceService } from '#/app/workspace/workspace';
-import { IWorkspacePersistence } from '#/app/workspace/workspacePersistence';
+import { IWorkspaceService } from '#/app/project/project';
+import { IWorkspacePersistence } from '#/app/project/projectPersistence';
 import {
   SESSION_INDEX_KEY,
   SESSION_INDEX_SCOPE,
   readSessionIndexEntries,
-} from '#/app/workspace/workspaceAlias';
+} from '#/app/project/projectAlias';
 import { isError2 } from '#/errors';
 import { databaseBaseEnabled } from '#/persistence/configSection';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';

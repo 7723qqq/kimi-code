@@ -19,12 +19,12 @@ import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLi
 import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
 import { Error2, ErrorCodes } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
+import { ISessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycle';
+import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
 import {
   IWorkspaceInstanceManager,
   type WorkspaceInstanceRef,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
+} from '#/project/projectInstance/projectInstanceManager';
 
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 

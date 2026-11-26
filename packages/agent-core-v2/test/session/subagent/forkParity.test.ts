@@ -47,7 +47,7 @@ import type {
 } from '#/environment/environment';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { WireRecord } from '#/wire/record';
-import { IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/project/projectInstance/projectInstanceManager';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 
 import { stubFlag } from '../../app/flag/stubs';

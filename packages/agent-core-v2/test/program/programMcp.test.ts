@@ -17,10 +17,10 @@ import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import type { IHostProcess } from '#/os/interface/hostProcess';
 import type { ProgramDependencies } from '#/program/programDependencies';
 import { ProgramMcp, type ProgramMcpLease } from '#/program/programMcp';
-import type { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
-import type { WorkspaceTrustChange } from '#/workspace/workspaceTrust/workspaceTrust';
-import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
+import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
+import type { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import type { WorkspaceTrustChange } from '#/project/projectTrust/projectTrust';
+import { WorkspaceMcpConfigService } from '#/project/projectMcpConfig/projectMcpConfigService';
 
 import { waitForAssertion } from '#test/helpers/waitFor';
 import { stubLog } from '../_base/log/stubs';

@@ -5,7 +5,7 @@ import { ErrorCodes, Error2 } from '#/errors';
 import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkdir } from '#/session/workdir/workdir';
-import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
+import { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
 
 import { PersistedPermissionRuleSchema } from './configSection';
 import type { PermissionRule } from './permissionRules';

@@ -17,7 +17,7 @@ import { IAgentEnvironmentService } from '#/agent/environmentBinding/agentEnviro
 import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
 import { resolveEffectiveWorkspaceRoots, type EffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';

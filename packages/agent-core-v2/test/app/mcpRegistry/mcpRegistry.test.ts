@@ -28,8 +28,8 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import {
   TRUST_WORKSPACE_ENV,
   trustWorkspaceEnvTrusted,
-} from '#/workspace/workspaceTrust/workspaceTrustService';
-import { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
+} from '#/project/projectTrust/projectTrustService';
+import { IWorkspaceTrustStore } from '#/project/projectTrust/projectTrustStore';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 function stdioServer(name: string, command = 'npx'): GlobalMcpServerConfig {

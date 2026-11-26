@@ -24,7 +24,7 @@ import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
-import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
 
 import { IAgentEnvironmentBindingService } from './environmentBinding';
 import { EnvironmentStatusChanged } from './environmentEvents';

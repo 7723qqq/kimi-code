@@ -46,8 +46,8 @@ import {
 import { FileSessionIndex } from '#/app/sessionIndex/sessionIndexService';
 import { readSessionSummary } from '#/app/sessionIndex/sessionIndexSource';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
-import { IWorkspacePersistence } from '#/app/workspace/workspacePersistence';
+import { IWorkspaceService, type Workspace } from '#/app/project/project';
+import { IWorkspacePersistence } from '#/app/project/projectPersistence';
 import {
   drainQueryStoreDisposals,
   MiniDbQueryStore,

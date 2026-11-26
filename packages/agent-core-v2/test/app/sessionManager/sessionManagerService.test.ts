@@ -30,10 +30,10 @@ import type {
   SessionCreatedEvent,
   SessionCreateSource,
   SessionWillCreateEvent,
-} from '#/workspace/sessionLifecycle/sessionLifecycle';
-import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
-import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
-import type { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+} from '#/project/sessionLifecycle/sessionLifecycle';
+import type { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
+import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
+import type { IWorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 
 
 function environmentRegistryOf(workspaces: IWorkspaceInstanceManager): EnvironmentRegistry | undefined {

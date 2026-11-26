@@ -1,6 +1,6 @@
 import type { CacheBreakCause } from '#/agent/usage/cacheBreak';
 import type { TowerExitReason } from '#/features/tower/tower';
-import type { SessionCloseReason } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import type { SessionCloseReason } from '#/project/sessionLifecycle/sessionLifecycle';
 
 import type { AgentTelemetryContext } from './context';
 import type { TelemetryPrimitive } from './telemetry';

@@ -22,7 +22,7 @@ import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataServic
 import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
 import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { stubLog } from '../../_base/log/stubs';

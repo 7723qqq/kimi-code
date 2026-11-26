@@ -1,5 +1,5 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { IWorkspaceFsService } from '#/workspace/workspaceFs/fs';
+import type { IWorkspaceFsService } from '#/project/projectFs/fs';
 
 export interface ISessionWorkdir {
   readonly _serviceBrand: undefined;

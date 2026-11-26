@@ -40,7 +40,7 @@ import type {
   WorkspaceCreatedEvent,
   WorkspaceDeletedEvent,
   WorkspaceUpdatedEvent,
-} from '#/app/workspace/workspaceProtocol';
+} from '#/app/project/projectProtocol';
 import type { CronFiredEvent } from '#/features/cron/cronOps';
 import type { HookResultEvent } from '#/features/externalHooks/agent/agentExternalHooksService';
 import type { GoalUpdatedEvent } from '#/features/goal/goalOps';

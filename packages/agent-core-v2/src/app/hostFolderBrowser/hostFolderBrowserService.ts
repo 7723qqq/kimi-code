@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, sep } from 'node:path';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
-import { IWorkspaceService } from '#/app/workspace/workspace';
+import { IWorkspaceService } from '#/app/project/project';
 
 import type { FsBrowseEntry, FsBrowseResponse, FsHomeResponse } from './hostFolderBrowser';
 import {

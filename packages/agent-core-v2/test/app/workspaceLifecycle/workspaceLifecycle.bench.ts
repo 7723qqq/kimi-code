@@ -1,10 +1,10 @@
 import type { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
-import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
+import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
 import type {
   IWorkspaceInstanceManager,
   WorkspaceInstanceLease,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
+} from '#/project/projectInstance/projectInstanceManager';
 
 import { bench, reportBenchResults } from '../../_support/bench';
 

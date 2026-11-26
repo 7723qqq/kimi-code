@@ -12,7 +12,7 @@ import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { resolveEffectiveWorkspaceRoots } from '#/session/workspaceContext/workspaceRoots';
-import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
 import { defineState } from '#/state/state';
 
 import { isUntitled } from './promptMetadata';

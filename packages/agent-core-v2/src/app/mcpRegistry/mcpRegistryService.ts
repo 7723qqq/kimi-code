@@ -7,7 +7,7 @@ import { IPluginService } from '#/app/plugin/plugin';
 import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
+import { IWorkspaceTrustStore } from '#/project/projectTrust/projectTrustStore';
 
 import { IMcpRegistryService, type McpRegistryEntry, type McpRegistryQuery } from './mcpRegistry';
 

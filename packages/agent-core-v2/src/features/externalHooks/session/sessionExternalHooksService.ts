@@ -14,7 +14,7 @@ import {
 import {
   type SessionCloseReason,
   type SessionCreateSource,
-} from '#/workspace/sessionLifecycle/sessionLifecycle';
+} from '#/project/sessionLifecycle/sessionLifecycle';
 
 import { IExternalHooksRunnerService } from '../app/externalHooksRunner';
 import type { ISessionExternalHooksService } from './sessionExternalHooks';

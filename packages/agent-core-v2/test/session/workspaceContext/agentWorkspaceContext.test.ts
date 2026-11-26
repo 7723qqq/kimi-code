@@ -16,7 +16,7 @@ import {
   makeSessionContext,
 } from '#/session/sessionContext/sessionContext';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
 import { ISessionWorkdir } from '#/session/workdir/workdir';
 import {
   ISessionWorkspaceContext,
@@ -26,7 +26,7 @@ import {
   workspaceContextAdditionalDirsKey,
   workspaceContextWorkDirKey,
 } from '#/session/workspaceContext/workspaceContextService';
-import type { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import type { IWorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 
 interface AgentHarness {

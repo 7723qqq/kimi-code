@@ -34,8 +34,8 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
+import { IWorkspaceStateService } from '#/project/state/projectState';
+import { WorkspaceStateService } from '#/project/state/projectStateService';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 

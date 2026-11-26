@@ -77,7 +77,7 @@ import {
   type SessionCreatedEvent,
   type SessionCreateSource,
   type SessionWillCloseEvent,
-} from '#/workspace/sessionLifecycle/sessionLifecycle';
+} from '#/project/sessionLifecycle/sessionLifecycle';
 import { emptyUsage } from '#human/llm/usage';
 
 import { stubLoopWithHooks, stubToolExecutor } from '../../agent/loop/stubs';

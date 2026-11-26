@@ -14,8 +14,8 @@ import { ISessionSkillCatalogData } from '#/features/skill/session/skillCatalogD
 import { SessionSkillCatalogService } from '#/features/skill/session/skillCatalogService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
+import { IWorkspaceStateService } from '#/project/state/projectState';
+import { WorkspaceStateService } from '#/project/state/projectStateService';
 
 import { stubSkill } from '../catalog/stubs';
 

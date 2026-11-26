@@ -97,12 +97,12 @@ import {
 import { SessionSubagentScopeCacheService } from '#/session/subagent/subagentScopeCacheService';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { ISessionWorkdir } from '#/session/workdir/workdir';
-import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
+import { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IWorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 import type { AgentEventStore } from '#human/agent/slices';
 import { restoreEnvs, setEnv } from '#test/helpers/stubs';
 import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';

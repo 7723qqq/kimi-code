@@ -17,7 +17,7 @@ import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
-import { IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/project/projectInstance/projectInstanceManager';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import type { Environment } from '#/environment/environment';
 

@@ -1,0 +1,34 @@
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { IDisposable } from '#/_base/di/lifecycle';
+import type { Event } from '#/_base/event';
+import type { ISessionWorkspaceInfo } from '#/session/projectInfo/projectInfo';
+
+export interface WorkspaceAddDirInput {
+  readonly path: string;
+  readonly persist?: boolean;
+}
+
+export interface WorkspaceAdditionalDirsResult {
+  readonly projectRoot: string;
+  readonly configPath: string;
+  readonly additionalDirs: readonly string[];
+  readonly persisted: boolean;
+}
+
+export interface IWorkspaceDirs {
+  readonly _serviceBrand: undefined;
+
+  readonly ready: Promise<void>;
+  readonly primary: string;
+  readonly additionalDirs: readonly string[];
+  readonly sharedAdditionalDirs: readonly string[];
+  readonly primaryByWorkspace: Readonly<Record<string, string>>;
+  readonly onDidChange: Event<void>;
+  addDir(input: WorkspaceAddDirInput): Promise<WorkspaceAdditionalDirsResult>;
+  mergeAdditionalDirs(baseDir: string, dirs: readonly string[]): Promise<IDisposable>;
+  reload(): Promise<void>;
+  sessionInfo(): ISessionWorkspaceInfo;
+}
+
+export const IWorkspaceDirs: ServiceIdentifier<IWorkspaceDirs> =
+  createDecorator<IWorkspaceDirs>('workspaceDirs');

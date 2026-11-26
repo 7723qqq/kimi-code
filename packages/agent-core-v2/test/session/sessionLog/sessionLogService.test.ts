@@ -20,8 +20,8 @@ import { makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { SessionLogService } from '#/session/sessionLog/sessionLogService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
+import { IWorkspaceStateService } from '#/project/state/projectState';
+import { WorkspaceStateService } from '#/project/state/projectStateService';
 
 let homeDir: string;
 let sessionDir: string;

@@ -8,7 +8,7 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { IWorkspaceService } from '#/app/workspace/workspace';
+import { IWorkspaceService } from '#/app/project/project';
 import { ErrorCodes, Error2 } from '#/errors';
 import { FILE_HISTORY_BLOB_PREFIX } from '#/features/fileHistory/fileHistoryService';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
@@ -17,7 +17,7 @@ import { IWireService } from '#/wire/wire';
 import {
   sessionDirOf,
   workspacePersistenceScope,
-} from '#/workspace/sessionLifecycle/internal/addressing';
+} from '#/project/sessionLifecycle/internal/addressing';
 
 import { openZipSource, type ZipSource } from './file-source';
 import { buildExportManifest, type ExportSessionManifestSummary } from './manifest';

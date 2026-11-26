@@ -1,12 +1,12 @@
 import type { IEnvironmentService } from '#/app/environment/environment';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
-import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
-import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpService';
-import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
-import type { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
+import type { IWorkspaceContext } from '#/project/projectContext/projectContext';
+import type { IWorkspaceDirs } from '#/project/projectDirs/projectDirs';
+import type { IWorkspaceMcpService } from '#/project/projectMcp/projectMcp';
+import { WorkspaceMcpService } from '#/project/projectMcp/projectMcpService';
+import { WorkspaceMcpConfigService } from '#/project/projectMcpConfig/projectMcpConfigService';
+import type { IWorkspaceTrust } from '#/project/projectTrust/projectTrust';
 
 import type { ProgramDependencies } from './programDependencies';
 

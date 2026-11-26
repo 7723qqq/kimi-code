@@ -5,8 +5,8 @@ import { IAppStateService } from '#/app/state/appState';
 import { AppStateService } from '#/app/state/appStateService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
+import { IWorkspaceStateService } from '#/project/state/projectState';
+import { WorkspaceStateService } from '#/project/state/projectStateService';
 
 export function registerStateServices(reg: ServiceRegistration) {
   const app = new AppStateService();
