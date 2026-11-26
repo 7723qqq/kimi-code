@@ -55,7 +55,10 @@ export interface Loop {
   steer(promptIds: readonly string[], merged?: UserMessage): LoopAck<'prompt.steered'> | undefined;
   sendNow(message: UserMessage): LoopAck<'prompt.notified'> | undefined;
   sendNow(promptIds: readonly string[]): void;
-  cancel(promptId: string): LoopAck<'prompt.canceled'> | undefined;
+  cancel(
+    promptId: string,
+    options?: { readonly includeStarting?: boolean },
+  ): LoopAck<'prompt.canceled'> | undefined;
   start(): void;
   resume(): void;
   continue(options?: { readonly force?: boolean }): void;

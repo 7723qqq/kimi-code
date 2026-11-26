@@ -205,13 +205,18 @@ class LoopMailbox {
     this.notifyEntries = [];
   }
 
-  cancel(promptId: string): LoopAck<'prompt.canceled'> {
+  cancel(promptId: string, startingTurnId?: number): LoopAck<'prompt.canceled'> {
     const normal = this.normal.filter((message) => message.attributes?.promptId !== promptId);
     const notify = this.notifyEntries.filter((message) => message.attributes?.promptId !== promptId);
     const canceled = normal.length !== this.normal.length || notify.length !== this.notifyEntries.length;
     this.normal = normal;
     this.notifyEntries = notify;
-    const ack: LoopAck<'prompt.canceled'> = { type: 'prompt.canceled', promptId, canceled };
+    const ack: LoopAck<'prompt.canceled'> = {
+      type: 'prompt.canceled',
+      promptId,
+      canceled,
+      ...(startingTurnId === undefined ? {} : { startingTurnId }),
+    };
     this.emit(ack);
     return ack;
   }
@@ -863,9 +868,23 @@ class LoopActor implements Loop {
     this.turn.pending.push(...pending.map((message) => ({ kind: 'notify' as const, message })));
   }
 
-  cancel(promptId: string): LoopAck<'prompt.canceled'> | undefined {
+  cancel(
+    promptId: string,
+    options?: Parameters<Loop['cancel']>[1],
+  ): LoopAck<'prompt.canceled'> | undefined {
     this.check({ type: 'input.cancel', promptId });
     if (!this.open()) return undefined;
+    const turn = options?.includeStarting === true ? this.turn : undefined;
+    if (
+      turn?.pending.some(
+        (item) => item.kind !== 'remind' && item.message.attributes?.promptId === promptId,
+      )
+    ) {
+      const startingTurnId = turn.announced ? undefined : turn.id;
+      if (startingTurnId !== undefined) turn.cancelledBeforeStart = true;
+      this.requestAbort(turn, undefined, !this.held);
+      return this.mailbox.cancel(promptId, startingTurnId);
+    }
     const ack = this.mailbox.cancel(promptId);
     this.kick();
     return ack;
@@ -1105,7 +1124,7 @@ class LoopActor implements Loop {
   }
 
   private announceTurn(turn: LiveTurn): void {
-    if (turn.announced) return;
+    if (turn.announced || turn.cancelledBeforeStart === true) return;
     turn.announced = true;
     if (turn.resumed === true) this.record({ type: 'turn.resumed', turnId: turn.id, step: turn.step });
     else this.record({

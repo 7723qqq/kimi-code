@@ -65,6 +65,7 @@ export interface LiveTurn extends LoopTurn {
   readonly promptOnly?: true;
   readonly resumed?: true;
   announced: boolean;
+  cancelledBeforeStart?: boolean;
   readonly completion?: TurnCompletion;
   readonly signal?: AbortSignal;
   onAbort?: () => void;

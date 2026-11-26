@@ -63,7 +63,7 @@ export type LoopEmitted =
   | { type: 'prompt.notified'; message: UserMessage }
   | { type: 'prompt.reminded'; message: RemindMessage }
   | { type: 'prompt.steered'; promptIds: string[]; messages?: readonly UserMessage[] }
-  | { type: 'prompt.canceled'; promptId: string; canceled: boolean }
+  | { type: 'prompt.canceled'; promptId: string; canceled: boolean; startingTurnId?: number }
   | { type: 'turn.started'; turnId: number; trigger: TurnTrigger; promptOnly?: true; message?: UserMessage }
   | { type: 'turn.resumed'; turnId: number; step: number }
   | {

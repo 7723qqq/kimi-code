@@ -29,7 +29,7 @@ import type { AssistantMessage, Message, UserMessage } from '@moonshot-ai/core/l
 import { usageFromCore } from '#/human/llm/usage';
 
 import { contextFromHistoryEntry, historyFromContext } from './history';
-import { TurnPrompt } from './turnOps';
+import { TurnCancel, TurnPrompt } from './turnOps';
 import type {
   LoopEmitted,
   LoopInput,
@@ -348,6 +348,15 @@ export class LoopJournal {
         if (event.canceled) {
           const index = this.normal.findIndex((entry) => entry.attributes?.promptId === event.promptId);
           if (index >= 0) this.normal.splice(index, 1);
+          if (event.startingTurnId !== undefined) {
+            const cancellation = {
+              agentId: this.agentId,
+              turnId: event.startingTurnId,
+              target: 'queued' as const,
+            };
+            if (this.dispatcher === undefined) this.write({ type: 'turn.cancel', ...cancellation });
+            else void this.dispatcher.dispatch(new TurnCancel(cancellation));
+          }
         }
         return;
       case 'prompt.steered': {

@@ -393,6 +393,44 @@ describe('core LoopService integration', () => {
     expect(JSON.stringify(ctx.lastLlmInput())).toContain('hook-prefix');
   });
 
+  it('cancels a prompt while its turn is starting and runs the next queued prompt', async () => {
+    const loop = ctx.get(IAgentLoopService);
+    const entered = createControlledPromise<void>();
+    const release = createControlledPromise<void>();
+    const firstPrompt = 'Cancel this prompt.';
+    const nextPrompt = 'Keep this prompt.';
+    const hook = loop.hooks.onBeforeSubmitPrompt.register('hold-starting-prompt', async (hookCtx, next) => {
+      const text = hookCtx.promptMessage.content[0];
+      if (text?.type === 'text' && text.text === firstPrompt) {
+        entered.resolve();
+        await release.promise;
+      }
+      await next();
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'Here is the reply.' });
+    try {
+      const starting = loop.submit(loopUserEntry({
+        message: { role: 'user', content: [{ type: 'text', text: firstPrompt }] },
+        meta: { tracked: true, promptId: 'starting' },
+      }));
+      await entered.promise;
+      const queued = loop.submit(loopUserEntry({
+        message: { role: 'user', content: [{ type: 'text', text: nextPrompt }] },
+        meta: { tracked: true, promptId: 'queued' },
+      }));
+
+      expect(loop.cancel({ promptId: starting.id })).toBe(true);
+      release.resolve();
+      await expect(loop.promptHandle(starting.id)!.completion).resolves.toMatchObject({ state: 'cancelled' });
+      await expect(loop.promptHandle(queued.id)!.completion).resolves.toMatchObject({ state: 'completed' });
+
+      expect(ctx.llmCalls).toHaveLength(1);
+    } finally {
+      release.resolve();
+      hook.dispose();
+    }
+  });
+
   it('resets the same core loop after undo with continuous turn ids and history revision', async () => {
     ctx.mockNextResponse({ type: 'text', text: 'first' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'first' }] });
