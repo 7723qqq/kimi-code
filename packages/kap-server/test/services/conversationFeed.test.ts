@@ -391,6 +391,9 @@ describe('recorded conversation feed', () => {
           errorMessage: 'retry',
         }),
       );
+      expect(t.feed.turns()[0]!.items).toContainEqual(
+        expect.objectContaining({ item_id: 's1:attempt1:0', text: 'discard' }),
+      );
       expect(t.feed.turns()[0]!.items.some((item) => item.item_id === 's1:0')).toBe(false);
       await t.step('s2', 2);
       await t.result('c1', 'done');

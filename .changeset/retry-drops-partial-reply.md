@@ -2,4 +2,4 @@
 "@moonshot-ai/kimi-code": patch
 ---
 
-Fix the partial reply of a model request that failed mid-stream staying on screen next to the reply from its automatic retry.
+Keep the partial reply of a model request that failed mid-stream when its retry is exhausted, and replace that partial reply only after the next attempt succeeds.

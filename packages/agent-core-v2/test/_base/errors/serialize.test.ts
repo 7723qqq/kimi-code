@@ -21,6 +21,43 @@ describe('toErrorPayload', () => {
     });
   });
 
+  it('maps a 401 model status to provider.auth_error', () => {
+    const payload = toErrorPayload({
+      kind: 'status',
+      message: 'invalid api key',
+      statusCode: 401,
+      requestId: null,
+      retryAfterMs: null,
+      headers: null,
+      retryable: false,
+    } as never);
+    expect(payload).toMatchObject({
+      code: 'provider.auth_error',
+      message: 'invalid api key',
+      details: { statusCode: 401 },
+      retryable: false,
+    });
+  });
+
+  it('serializes a plain LlmErrorMessage without collapsing it to [object Object]', () => {
+    const payload = toErrorPayload({
+      kind: 'status',
+      message: 'stub error 500',
+      statusCode: 500,
+      requestId: null,
+      retryAfterMs: null,
+      headers: null,
+      retryable: false,
+    } as never);
+    expect(payload).toMatchObject({
+      code: 'provider.api_error',
+      message: 'stub error 500',
+      name: 'APIStatusError',
+      details: { statusCode: 500, requestId: null },
+      retryable: false,
+    });
+  });
+
   it('prefers explicit model retryability over registry metadata', () => {
     const retryable = Object.assign(new Error2('provider.api_error', 'retry'), {
       retryable: true,

@@ -117,7 +117,7 @@ describe('official conversation record contract', () => {
         {
           turnId: 7,
           step: 1,
-          stepId: 's1',
+          stepId: 'retry-alias',
           failedAttempt: 1,
           nextAttempt: 2,
           maxAttempts: 3,
@@ -137,6 +137,9 @@ describe('official conversation record contract', () => {
       delay_ms: 500,
       error: { name: 'APIStatusError', message: 'rate limited', status_code: 429 },
     });
+    expect(state.turns[0]?.items).toContainEqual(
+      expect.objectContaining({ item_id: 's1:attempt1:0', text: 'answer' }),
+    );
     expect(state.turns[0]?.items.some((item) => item.item_id === 's1:0')).toBe(false);
 
     applyConversationRecord(
@@ -146,6 +149,16 @@ describe('official conversation record contract', () => {
 
     expect(state.turns[0]?.retry).toBeUndefined();
     expect(state.turns[0]?.status).toBe('running');
+
+    applyConversationRecord(
+      state,
+      record(
+        'context.append_loop_event',
+        { event: { type: 'step.end', uuid: 's1', finishReason: 'end_turn' } },
+        2900,
+      ),
+    );
+    expect(state.turns[0]?.items.some((item) => item.item_id.startsWith('s1:attempt'))).toBe(false);
   });
 
   it('ignores malformed task records without changing the tool', () => {

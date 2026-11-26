@@ -120,6 +120,7 @@ export interface ConversationState {
   latestPromptId?: string;
   stepParts: Record<string, number>;
   stepNextBlock: Record<string, number>;
+  superseded: Record<string, number>;
   compaction?: CompactionDetails;
 }
 
@@ -148,6 +149,7 @@ export function createConversationState(
     trailingRejectedPrompt: false,
     stepParts: {},
     stepNextBlock: {},
+    superseded: {},
   };
 }
 
@@ -591,7 +593,11 @@ function applyLoopEvent(
       const index = event.step ?? steps.length + 1;
       const previous = steps.at(-1);
       if (previous?.failed === true && previous.index === index) {
-        turn.items = turn.items.filter((item) => !item.item_id.startsWith(`${previous.id}:`));
+        turn.items = turn.items.filter(
+          (item) =>
+            !item.item_id.startsWith(`${previous.id}:`) ||
+            item.item_id.startsWith(`${previous.id}:attempt`),
+        );
         reindexTools(state);
       }
       steps.push({ id: event.uuid, index, startedAt: time, ended: false });
@@ -612,6 +618,12 @@ function applyLoopEvent(
       turn.retry = undefined;
       step.ended = true;
       step.failed = event.finishReason === 'error';
+      if (!step.failed && state.superseded[step.id] !== undefined) {
+        turn.items = turn.items.filter((item) => !item.item_id.startsWith(`${step.id}:attempt`));
+        delete state.superseded[step.id];
+      } else if (step.failed) {
+        delete state.superseded[step.id];
+      }
       const summary = stepSummary(step.index, step.startedAt, time, step.interruptReason, event);
       turn.steps = [
         ...turn.steps.filter((existing) => existing.index !== step.index),
@@ -721,13 +733,18 @@ function applyStepRetrying(state: ConversationState, record: WireRecord): void {
   )
     return;
   const stepId = stringField(record['stepId']);
-  const step = state.steps[turn.turn_id]?.findLast((candidate) =>
-    stepId === undefined
-      ? candidate.index === numberField(record['step'])
-      : candidate.id === stepId,
-  );
+  const steps = state.steps[turn.turn_id] ?? [];
+  const step =
+    (stepId === undefined ? undefined : steps.findLast((candidate) => candidate.id === stepId)) ??
+    steps.findLast((candidate) => candidate.index === numberField(record['step']));
   if (step !== undefined) {
-    turn.items = turn.items.filter((item) => !item.item_id.startsWith(`${step.id}:`));
+    const prefix = `${step.id}:`;
+    turn.items = turn.items.map((item) =>
+      item.item_id.startsWith(prefix)
+        ? { ...item, item_id: `${step.id}:attempt${attempt}:${item.item_id.slice(prefix.length)}` }
+        : item,
+    );
+    state.superseded[step.id] = attempt;
     reindexTools(state);
   }
   turn.retry = retryStateOf({

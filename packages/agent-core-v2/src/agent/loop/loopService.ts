@@ -39,6 +39,7 @@ import {
   type UserMessage,
 } from '@moonshot-ai/core/llm/message';
 import { BugIndicatingError, ErrorCodes, Error2, isError2 } from '#/errors';
+import { unwrapErrorCause } from '#/_base/errors/errors';
 import { OrderedHookSlot } from '#/hooks';
 import { toCorePart } from '#/llm-adapter/contract/message';
 import type { StreamedMessagePart as ForkStreamedPart } from '#human/llm/message';
@@ -67,7 +68,7 @@ import type { ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
 import { toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
-import { isRetryableGenerateError } from '#/llm-adapter/contract/errors';
+import { isRetryableGenerateError, llmMessageFromError } from '#/llm-adapter/contract/errors';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import type { ModelRequestParams } from '#/llm-adapter/model/model-requester';
 import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
@@ -895,8 +896,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
                 reason: control.signal.reason,
               } as unknown as LlmOutcome;
             }
+            const raw = unwrapErrorCause(error);
+            const known = llmMessageFromError(raw) ?? (raw === error ? undefined : llmMessageFromError(error));
             const llmError = {
-              ...toLlmErrorMessage(error),
+              ...(known ?? toLlmErrorMessage(raw)),
               retryable: isRetryableGenerateError(error),
             };
             const failure = task.attemptFailure?.();

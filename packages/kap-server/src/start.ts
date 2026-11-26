@@ -45,7 +45,7 @@ import {
   type KimiHostIdentity,
 } from '@moonshot-ai/kimi-code-oauth';
 import { createRemoteControlManager, RemoteControlDeviceClient } from '@moonshot-ai/remote-control';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { LogController, type FastifyInstance } from 'fastify';
 
 import { installErrorHandler } from './error-handler';
 import { createInstanceRegistry, type InstanceRegistration } from './instanceRegistry';
@@ -339,7 +339,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
 
   const app = Fastify({
     loggerInstance: logger,
-    disableRequestLogging: true,
+    logController: new LogController({ disableRequestLogging: true }),
     genReqId: (req) => resolveRequestId(req.headers),
   }) as unknown as FastifyInstance;
   app.server.requestTimeout = 0;

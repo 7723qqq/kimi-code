@@ -306,6 +306,14 @@ export async function startStubModel(): Promise<StubModel> {
       const sinceReply = messages.slice(messages.findLastIndex(message => message.role === 'assistant') + 1);
       const sinceUser = sinceReply.filter(message => message.role === 'user').map(message => textOf(message.content));
       const firstUser = withoutReminders(textOf(messages.find(message => message.role === 'user')?.content));
+      if (firstUser.startsWith('Write a short title for this conversation')) {
+        sideRequests += 1;
+        sideBodies.push(messages);
+        response.writeHead(200, SSE_HEADERS);
+        response.write(delta({ role: 'assistant', content: sideReplies.shift() ?? 'Say hello' }));
+        finishHeld(response);
+        return;
+      }
       const route = routes.find(entry => firstUser.includes(entry.key));
       const step = (route === undefined ? steps.shift() : route.steps.shift()) ?? null;
       const record: RequestState = {
@@ -476,7 +484,6 @@ export type PermissionMode = 'manual' | 'auto' | 'yolo';
 export function stubModelConfig(baseUrl: string, permissionMode?: PermissionMode): string {
   return [
     'default_model = "e2e/stub"',
-    'auto_session_title = false',
     ...(permissionMode === undefined ? [] : [`default_permission_mode = "${permissionMode}"`]),
     '',
     '[providers.e2e]',
