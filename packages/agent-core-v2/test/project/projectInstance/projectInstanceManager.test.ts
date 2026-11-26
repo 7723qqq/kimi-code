@@ -76,9 +76,11 @@ function manager(
     setPrimary: async () => undefined,
     readProjectConfigDirs: async () => [],
     delete: async () => {},
-    resolveImplicit: async () => {
-      throw new Error('unused');
-    },
+    resolveImplicit: mock(async (root: string) => {
+      const value = values.find((entry) => entry.root === root);
+      if (value === undefined) throw new Error(`unknown root ${root}`);
+      return { ...value };
+    }),
     peekImplicit: async () => {
       throw new Error('unused');
     },
