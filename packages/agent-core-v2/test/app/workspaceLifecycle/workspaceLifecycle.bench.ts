@@ -1,6 +1,6 @@
 import type { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
-import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
+import type { ProjectInstance } from '#/project/projectInstance/projectInstance';
 import type {
   IProjectInstanceManager,
   WorkspaceInstanceLease,
@@ -16,7 +16,7 @@ function reset(): void {
   counters.live = 0;
 }
 
-const instance = { id: 'wd-bench', root: '/wd-bench' } as unknown as WorkspaceInstance;
+const instance = { id: 'wd-bench', root: '/wd-bench' } as unknown as ProjectInstance;
 
 function stubManager(): IProjectInstanceManager {
   return {

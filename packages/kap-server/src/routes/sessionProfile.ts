@@ -5,7 +5,7 @@ import {
   ISessionContext,
   ISessionMetadata,
   ISessionManager,
-  IWorkspaceService,
+  IProjectService,
   PARENT_SESSION_ID_KEY,
   resumeSessionById,
   type Scope,
@@ -52,7 +52,7 @@ export async function updateSessionProfile(
     typeof requestedCwd === 'string' &&
     requestedCwd !== session.accessor.get(ISessionContext).cwd
   ) {
-    const workspace = await core.accessor.get(IWorkspaceService).createOrTouch(requestedCwd);
+    const workspace = await core.accessor.get(IProjectService).createOrTouch(requestedCwd);
     session = await core.accessor
       .get(ISessionManager)
       .move(sessionId, { workspaceId: workspace.id, root: workspace.root });

@@ -30,7 +30,7 @@ import { IMcpManagementService } from '@moonshot-ai/agent-core-v2/app/mcpManagem
 import { IPluginService } from '@moonshot-ai/agent-core-v2/app/plugin/plugin';
 import { ISessionIndex } from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
 import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
-import { IWorkspaceService } from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
+import { IProjectService } from '@moonshot-ai/agent-core-v2/app/project/project';
 import { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
 import { ISessionSkillCatalog } from '@moonshot-ai/agent-core-v2/features/skill/session/skillCatalog';
 import { IModelCatalog } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
@@ -42,12 +42,12 @@ import { ISessionTitleService } from '@moonshot-ai/agent-core-v2/session/session
 import { IAgentEnvironmentBindingService, IAgentOperationService } from '@moonshot-ai/agent-core-v2';
 import { ISessionTokenCountingService } from '@moonshot-ai/agent-core-v2/session/tokenCounting/sessionTokenCounting';
 import { ISessionUsageService } from '@moonshot-ai/agent-core-v2/session/usage/sessionUsage';
-import { IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
+import { IProjectInstanceManager } from '@moonshot-ai/agent-core-v2/project/projectInstance/projectInstanceManager';
 
 /** Wire service name (decorator id string) → token. */
 export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>> = {
   sessionIndex: ISessionIndex,
-  workspaceService: IWorkspaceService,
+  workspaceService: IProjectService,
   configService: IConfigService,
   modelService: IModelService,
   modelResolver: IModelCatalog,
@@ -62,7 +62,7 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   hostFolderBrowser: IHostFolderBrowser,
   bootstrapService: IBootstrapService,
   fileService: IFileService,
-  workspaceInstanceManager: IWorkspaceInstanceManager,
+  workspaceInstanceManager: IProjectInstanceManager,
   sessionManager: ISessionManager,
   sessionMetadata: ISessionMetadata,
   sessionSkillCatalog: ISessionSkillCatalog,

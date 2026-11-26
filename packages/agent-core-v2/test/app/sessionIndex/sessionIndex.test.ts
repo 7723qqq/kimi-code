@@ -46,7 +46,7 @@ import {
 import { FileSessionIndex } from '#/app/sessionIndex/sessionIndexService';
 import { readSessionSummary } from '#/app/sessionIndex/sessionIndexSource';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { IProjectService, type Workspace } from '#/app/project/project';
+import { IProjectService, type Project } from '#/app/project/project';
 import { IProjectPersistence } from '#/app/project/projectPersistence';
 import {
   drainQueryStoreDisposals,
@@ -1691,7 +1691,7 @@ describe('FileSessionIndex (read model)', () => {
 
   it('reprojects closed sessions on primary changes and detects stale primaries after restart', async () => {
     const changes = new Emitter<void>();
-    const workspace: Workspace = {
+    const workspace: Project = {
       id: workspaceId,
       root: '/old',
       name: 'project',
@@ -1742,7 +1742,7 @@ describe('FileSessionIndex (read model)', () => {
 
   it('publishes the primary snapshot used to build reconciliation summaries', async () => {
     const changes = new Emitter<void>();
-    const workspace: Workspace = {
+    const workspace: Project = {
       id: workspaceId,
       root: '/old',
       name: 'project',
@@ -1760,7 +1760,7 @@ describe('FileSessionIndex (read model)', () => {
     store.stopReconcileLoop();
 
     let reads = 0;
-    (service as { list: () => Promise<readonly Workspace[]> }).list = async () => [
+    (service as { list: () => Promise<readonly Project[]> }).list = async () => [
       { ...workspace, root: reads++ === 0 ? '/old' : '/new' },
     ];
     await store.reconcileNow();
@@ -1772,7 +1772,7 @@ describe('FileSessionIndex (read model)', () => {
 
   it('subscribes when workspace persistence activates after the index', async () => {
     const changes = new Emitter<void>();
-    const workspace: Workspace = {
+    const workspace: Project = {
       id: workspaceId,
       root: '/old',
       name: 'project',

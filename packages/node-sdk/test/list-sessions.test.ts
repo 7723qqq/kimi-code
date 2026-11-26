@@ -11,7 +11,7 @@ import {
   ISessionIndex,
   ISessionIndexMirror,
   ISessionManager,
-  IWorkspaceService,
+  IProjectService,
 } from '@moonshot-ai/agent-core-v2';
 
 import { createKimiHarness, SDKRpcClientV2 } from '#/index';
@@ -161,7 +161,7 @@ describe('KimiHarness.listSessions', () => {
     try {
       const legacyWorkDir = `${workDir}/.`;
       const workspace = await client.engineAccessor
-        .get(IWorkspaceService)
+        .get(IProjectService)
         .createOrTouch(legacyWorkDir);
       await client.engineAccessor.get(ISessionManager).create({
         workspaceId: workspace.id,
@@ -184,7 +184,7 @@ describe('KimiHarness.listSessions', () => {
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
 
     try {
-      const registry = client.engineAccessor.get(IWorkspaceService);
+      const registry = client.engineAccessor.get(IProjectService);
       const projectM = await registry.create({ root: dirA, additionalDirs: [dirB], name: 'M' });
       const projectN = await registry.create({ root: dirC, additionalDirs: [dirA], name: 'N' });
       const sessionManager = client.engineAccessor.get(ISessionManager);

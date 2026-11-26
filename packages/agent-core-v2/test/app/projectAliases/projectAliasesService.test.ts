@@ -27,7 +27,7 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IEventService } from '#/app/event/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
-import { IProjectService, type Workspace } from '#/app/project/project';
+import { IProjectService, type Project } from '#/app/project/project';
 import { WorkspaceService } from '#/app/project/projectService';
 import { FileProjectPersistence } from '#/app/project/fileProjectPersistence';
 import {
@@ -356,7 +356,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       new FileProjectPersistence(new JsonAtomicDocumentStore(storage), storage, stubBootstrap(homeDir)),
     );
     const aliases = build(undefined, storage, persistence);
-    const ws = (id: string, root: string): Workspace => ({
+    const ws = (id: string, root: string): Project => ({
       id,
       root,
       name: 'proj',
@@ -416,7 +416,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     const aliases = build(undefined, storage);
     const persistence = currentHost!.app.accessor.get(IProjectPersistence);
     const appendLogs = currentHost!.app.accessor.get(IAppendLogStore);
-    const ws = (id: string, root: string): Workspace => ({
+    const ws = (id: string, root: string): Project => ({
       id,
       root,
       name: 'proj',

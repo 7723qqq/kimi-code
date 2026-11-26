@@ -37,7 +37,7 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
-import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
+import type { ProjectInstance } from '#/project/projectInstance/projectInstance';
 import { IProjectInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 import { IEnvironmentService, type EnvironmentResolver } from '#/app/environment/environment';
 import {
@@ -176,7 +176,7 @@ describe('McpManagementService', () => {
     identityReady = Promise.resolve(identitySnapshot);
     trusted = true;
     acquire = mock<IProjectInstanceManager['acquire']>(async () => ({
-      instance: { id: 'test-workspace' } as unknown as WorkspaceInstance,
+      instance: { id: 'test-workspace' } as unknown as ProjectInstance,
       dispose: () => {},
     }));
     findContaining = mock<IProjectInstanceManager['findContaining']>(() => undefined);

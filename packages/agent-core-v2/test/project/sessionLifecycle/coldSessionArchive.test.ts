@@ -29,7 +29,7 @@ import {
 } from '#/project/sessionLifecycle/coldSessionArchive';
 import type { SessionCreatedEvent } from '#/project/sessionLifecycle/sessionLifecycle';
 import type { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
-import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
+import type { ProjectInstance } from '#/project/projectInstance/projectInstance';
 import type { IProjectInstanceManager } from '#/project/projectInstance/projectInstanceManager';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
@@ -245,7 +245,7 @@ function sessionManagerResuming(sessionId: string): SessionManager {
       sessionControllerGeneration: 'generation-1',
       createSessionController: () => controller,
     },
-  } as unknown as WorkspaceInstance;
+  } as unknown as ProjectInstance;
   const environments = new EnvironmentRegistry() as unknown as IEnvironmentService;
   return new SessionManager(
     {

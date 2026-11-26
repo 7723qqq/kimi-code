@@ -20,14 +20,14 @@ import {
   ISessionIndex,
   ISessionManager,
   ISessionMetadata,
-  IWorkspaceInstanceManager,
-  IWorkspaceService,
+  IProjectInstanceManager,
+  IProjectService,
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
 import type {
   AgentEnvironmentBindingSnapshot,
   ServiceIdentifier,
-  SessionWorkspaceAssociationSnapshot,
+  SessionProjectAssociationSnapshot,
   WorkspaceInstanceSnapshot,
 } from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
@@ -231,7 +231,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const cwd = home as string;
     const created = await call<{ id: string; root: string }>(
       'POST',
-      rpc('core', IWorkspaceService, 'createOrTouch'),
+      rpc('core', IProjectService, 'createOrTouch'),
       cwd,
     );
     expect(created.body.code).toBe(0);
@@ -239,7 +239,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
 
     const got = await call<{ id: string; root: string }>(
       'GET',
-      rpc('core', IWorkspaceService, 'get'),
+      rpc('core', IProjectService, 'get'),
       created.body.data.id,
     );
     expect(got.body.code).toBe(0);
@@ -267,7 +267,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     expect(workspace.body.data).not.toHaveProperty('accessor');
     expect(workspace.body.data).not.toHaveProperty('container');
 
-    const association = await call<SessionWorkspaceAssociationSnapshot>(
+    const association = await call<SessionProjectAssociationSnapshot>(
       'GET',
       `/api/v1/debug/session/${sessionId}/association`,
     );
@@ -297,7 +297,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const missing = join(home as string, 'never-created');
     const created = await call<{ id: string; root: string }>(
       'POST',
-      rpc('core', IWorkspaceService, 'createOrTouch'),
+      rpc('core', IProjectService, 'createOrTouch'),
       missing,
     );
     expect(created.body.code).toBe(0);
@@ -305,7 +305,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
 
     const got = await call<{ id: string; root: string }>(
       'GET',
-      rpc('core', IWorkspaceService, 'get'),
+      rpc('core', IProjectService, 'get'),
       created.body.data.id,
     );
     expect(got.body.code).toBe(0);
@@ -316,14 +316,14 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const cwd = home as string;
     const created = await call<{ id: string; name: string }>(
       'POST',
-      rpc('core', IWorkspaceService, 'createOrTouch'),
+      rpc('core', IProjectService, 'createOrTouch'),
       cwd,
     );
     const id = created.body.data.id;
 
     const updated = await call<{ id: string; name: string }>(
       'POST',
-      rpc('core', IWorkspaceService, 'update'),
+      rpc('core', IProjectService, 'update'),
       [id, { name: 'renamed' }],
     );
     expect(updated.body.code).toBe(0);
@@ -331,7 +331,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
 
     const got = await call<{ id: string; name: string }>(
       'GET',
-      rpc('core', IWorkspaceService, 'get'),
+      rpc('core', IProjectService, 'get'),
       id,
     );
     expect(got.body.data.name).toBe('renamed');
@@ -341,7 +341,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const cwd = home as string;
     const created = await call<{ id: string }>(
       'POST',
-      rpc('core', IWorkspaceService, 'createOrTouch'),
+      rpc('core', IProjectService, 'createOrTouch'),
       cwd,
     );
     await createSession(cwd);

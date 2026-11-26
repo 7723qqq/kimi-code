@@ -15,10 +15,10 @@ async function viWaitFor(fn: () => void | Promise<void>, opts?: { timeout?: numb
 }
 
 
-import type { Workspace, IProjectService } from '#/app/project/project';
+import type { Project, IProjectService } from '#/app/project/project';
 import { FakeEnvironment } from '#/environment/fakeEnvironment';
 import type { Environment } from '#/environment/environment';
-import { WorkspaceInstanceManager } from '#/project/projectInstance/projectInstanceManagerService';
+import { ProjectInstanceManager } from '#/project/projectInstance/projectInstanceManagerService';
 
 function deferred(): { readonly promise: Promise<void>; resolve(): void } {
   let resolve!: () => void;
@@ -26,7 +26,7 @@ function deferred(): { readonly promise: Promise<void>; resolve(): void } {
   return { promise, resolve };
 }
 
-function workspace(id: string): Workspace {
+function workspace(id: string): Project {
   return { id, root: `/${id}`, name: id, kind: 'implicit', additionalDirs: [], createdAt: 0, lastOpenedAt: 0 };
 }
 
@@ -47,12 +47,12 @@ function environmentService(ready: Promise<void> = Promise.resolve()): Environme
 }
 
 function manager(
-  values: readonly Workspace[],
+  values: readonly Project[],
   ready: Promise<void> = Promise.resolve(),
   _events: string[] = [],
   customize?: (args: unknown[]) => void,
   environments = environmentService(ready),
-): WorkspaceInstanceManager {
+): ProjectInstanceManager {
   const byId = new Map(values.map((value) => [value.id, value]));
   const workspaces: IProjectService = {
     _serviceBrand: undefined,
@@ -89,7 +89,7 @@ function manager(
   args[30] = { onDidChange: () => ({ dispose: () => {} }) };
   args[31] = { assertAllowed: () => {} };
   customize?.(args);
-  return Reflect.construct(WorkspaceInstanceManager, args) as WorkspaceInstanceManager;
+  return Reflect.construct(ProjectInstanceManager, args) as ProjectInstanceManager;
 }
 
 describe('WorkspaceInstanceManager', () => {
@@ -113,7 +113,7 @@ describe('WorkspaceInstanceManager', () => {
   });
 
   it('reuses the instance and program when the workspace primary changes', async () => {
-    const initial = workspace('one') as { -readonly [K in keyof Workspace]: Workspace[K] };
+    const initial = workspace('one') as { -readonly [K in keyof Project]: Project[K] };
     const value = manager([initial]);
     const first = await value.acquire({ workspaceId: 'one' });
     const instance = first.instance;
@@ -162,7 +162,7 @@ describe('WorkspaceInstanceManager', () => {
   });
 
   describe('findContaining', () => {
-    function rootedWorkspace(id: string, root: string): Workspace {
+    function rootedWorkspace(id: string, root: string): Project {
       return { id, root, name: id, kind: 'implicit', additionalDirs: [], createdAt: 0, lastOpenedAt: 0 };
     }
 

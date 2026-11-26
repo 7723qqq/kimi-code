@@ -21,7 +21,7 @@ import { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSour
 import { IAppStateService } from '#/app/state/appState';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { LifecycleScope } from '#/app/scopes';
-import { IProjectService, type Workspace } from '#/app/project/project';
+import { IProjectService, type Project } from '#/app/project/project';
 import { IProjectPersistence } from '#/app/project/projectPersistence';
 import { IModelService } from '#/llm-adapter/model/model';
 import { IProviderService } from '#/llm-adapter/provider/provider';
@@ -37,17 +37,17 @@ import { canonicalProjectRoot } from '#/_base/utils/paths';
 import { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
 import { IProjectTrustStore } from '#/project/projectTrust/projectTrustStore';
 
-import { WorkspaceInstance } from './projectInstance';
+import { ProjectInstance } from './projectInstance';
 import { IProjectInstanceManager, type WorkspaceInstanceLease, type WorkspaceInstanceRef } from './projectInstanceManager';
 
-export class WorkspaceInstanceManager implements IProjectInstanceManager {
+export class ProjectInstanceManager implements IProjectInstanceManager {
   declare readonly _serviceBrand: undefined;
-  private readonly instances = new Map<string, WorkspaceInstance>();
-  private readonly requests = new Map<string, Promise<Workspace>>();
-  private readonly inflight = new Map<string, Promise<WorkspaceInstance>>();
+  private readonly instances = new Map<string, ProjectInstance>();
+  private readonly requests = new Map<string, Promise<Project>>();
+  private readonly inflight = new Map<string, Promise<ProjectInstance>>();
   private readonly closing = new Map<string, Promise<void>>();
   private readonly references = new Map<string, number>();
-  private readonly changeEmitter = new Emitter<{ workspaceId: string; instance?: WorkspaceInstance }>();
+  private readonly changeEmitter = new Emitter<{ workspaceId: string; instance?: ProjectInstance }>();
   private disposing = false;
   readonly onDidChange = this.changeEmitter.event;
   private readonly workspaceStoreSubscription: { dispose(): void };
@@ -102,18 +102,18 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
     });
   }
 
-  get(workspaceId: string): WorkspaceInstance | undefined {
+  get(workspaceId: string): ProjectInstance | undefined {
     return this.instances.get(workspaceId);
   }
 
-  findByRoot(root: string): WorkspaceInstance | undefined {
+  findByRoot(root: string): ProjectInstance | undefined {
     const normalized = root.replace(/[\\/]$/, '');
     return [...this.instances.values()].find((instance) => instance.root.replace(/[\\/]$/, '') === normalized);
   }
 
-  findContaining(cwd: string): WorkspaceInstance | undefined {
+  findContaining(cwd: string): ProjectInstance | undefined {
     const probe = canonicalProjectRoot(cwd);
-    let best: { readonly instance: WorkspaceInstance; readonly rootLength: number } | undefined;
+    let best: { readonly instance: ProjectInstance; readonly rootLength: number } | undefined;
     for (const instance of this.instances.values()) {
       for (const dir of [instance.root, ...instance.program.dirs.additionalDirs]) {
         const root = canonicalProjectRoot(dir);
@@ -127,11 +127,11 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
     return best?.instance;
   }
 
-  list(): readonly WorkspaceInstance[] {
+  list(): readonly ProjectInstance[] {
     return [...this.instances.values()];
   }
 
-  snapshot(): { readonly workspaces: readonly ReturnType<WorkspaceInstance['snapshot']>[] } {
+  snapshot(): { readonly workspaces: readonly ReturnType<ProjectInstance['snapshot']>[] } {
     return { workspaces: this.list().map((instance) => instance.snapshot()) };
   }
 
@@ -142,7 +142,7 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
       : `root:${ref.root.replace(/[\\/]$/, '')}`;
     let request = this.requests.get(key);
     if (request === undefined) {
-      const pending: Promise<Workspace> = this.resolveWorkspace(ref).finally(() => {
+      const pending: Promise<Project> = this.resolveWorkspace(ref).finally(() => {
         if (this.requests.get(key) === pending) this.requests.delete(key);
       });
       this.requests.set(key, pending);
@@ -151,8 +151,8 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
     return request.then((workspace) => this.acquireWorkspace(workspace));
   }
 
-  private async resolveWorkspace(ref: WorkspaceInstanceRef): Promise<Workspace> {
-    let workspace: Workspace | undefined;
+  private async resolveWorkspace(ref: WorkspaceInstanceRef): Promise<Project> {
+    let workspace: Project | undefined;
     if ('workspaceId' in ref) {
       workspace = await this.workspaces.get(ref.workspaceId);
       if (workspace === undefined && ref.root !== undefined) workspace = await this.workspaces.createOrTouch(ref.root);
@@ -163,7 +163,7 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
     return workspace;
   }
 
-  private async acquireWorkspace(workspace: Workspace): Promise<WorkspaceInstanceLease> {
+  private async acquireWorkspace(workspace: Project): Promise<WorkspaceInstanceLease> {
     while (!this.disposing) {
       const existing = this.instances.get(workspace.id);
       if (existing !== undefined) {
@@ -177,7 +177,7 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
       }
       let pending = this.inflight.get(workspace.id);
       if (pending === undefined) {
-        const materialization: Promise<WorkspaceInstance> = this.materialize(workspace).finally(() => {
+        const materialization: Promise<ProjectInstance> = this.materialize(workspace).finally(() => {
           if (this.inflight.get(workspace.id) === materialization) this.inflight.delete(workspace.id);
         });
         this.inflight.set(workspace.id, materialization);
@@ -188,7 +188,7 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
     throw new Error('workspace instance manager is disposing');
   }
 
-  private retain(instance: WorkspaceInstance): WorkspaceInstanceLease {
+  private retain(instance: ProjectInstance): WorkspaceInstanceLease {
     this.references.set(instance.id, (this.references.get(instance.id) ?? 0) + 1);
     let released = false;
     return {
@@ -201,7 +201,7 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
     };
   }
 
-  private release(instance: WorkspaceInstance): void {
+  private release(instance: ProjectInstance): void {
     if (this.instances.get(instance.id) !== instance) return;
     const references = this.references.get(instance.id);
     if (references === undefined) return;
@@ -212,7 +212,7 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
     void this.close(instance);
   }
 
-  private close(instance: WorkspaceInstance): Promise<void> {
+  private close(instance: ProjectInstance): Promise<void> {
     if (this.instances.get(instance.id) !== instance) {
       return this.closing.get(instance.id) ?? Promise.resolve();
     }
@@ -242,10 +242,10 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
     this.changeEmitter.dispose();
   }
 
-  private async materialize(workspace: Workspace): Promise<WorkspaceInstance> {
+  private async materialize(workspace: Project): Promise<ProjectInstance> {
     await this.environment.ready;
     await this.environments.ready;
-    const instance = new WorkspaceInstance(
+    const instance = new ProjectInstance(
       workspace,
       this.environments,
       {
@@ -321,7 +321,7 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
     }
   }
 
-  private async disposeInstance(instance: WorkspaceInstance): Promise<void> {
+  private async disposeInstance(instance: ProjectInstance): Promise<void> {
     try {
       await instance.dispose();
     } catch (error) {
@@ -330,4 +330,4 @@ export class WorkspaceInstanceManager implements IProjectInstanceManager {
   }
 }
 
-registerScopedService(LifecycleScope.App, IProjectInstanceManager, WorkspaceInstanceManager, ScopeActivation.OnScopeCreated, 'workspaceInstanceManager');
+registerScopedService(LifecycleScope.App, IProjectInstanceManager, ProjectInstanceManager, ScopeActivation.OnScopeCreated, 'workspaceInstanceManager');

@@ -23,7 +23,7 @@ export const workspaceSchema = z.object({
   host_id: z.string().optional(),
 });
 
-export type Workspace = z.infer<typeof workspaceSchema>;
+export type Project = z.infer<typeof workspaceSchema>;
 
 export const workspaceCreateSchema = z.object({
   root: z.string().min(1),
@@ -32,11 +32,11 @@ export const workspaceCreateSchema = z.object({
   idempotency_key: z.string().min(1).max(200).optional(),
 });
 
-export type WorkspaceCreate = z.infer<typeof workspaceCreateSchema>;
+export type ProjectCreate = z.infer<typeof workspaceCreateSchema>;
 
 export const workspaceUpdateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   additional_dirs: z.array(z.string().min(1)).max(64).optional(),
 });
 
-export type WorkspaceUpdate = z.infer<typeof workspaceUpdateSchema>;
+export type ProjectUpdate = z.infer<typeof workspaceUpdateSchema>;

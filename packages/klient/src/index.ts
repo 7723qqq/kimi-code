@@ -103,7 +103,7 @@ export type { AgentEventPayloads } from './contract/agent/events.js';
 // not pulled in at runtime for http consumers).
 export type { SessionListQuery, SessionSummary } from '@moonshot-ai/agent-core-v2';
 export type { Page } from '@moonshot-ai/agent-core-v2';
-export type { Workspace, WorkspaceUpdate } from '@moonshot-ai/agent-core-v2';
+export type { Project as Workspace, ProjectUpdate as WorkspaceUpdate } from '@moonshot-ai/agent-core-v2';
 export type { ConfigDiagnostic, ConfigInspectValue } from '@moonshot-ai/agent-core-v2';
 export type { ProviderConfig } from '@moonshot-ai/agent-core-v2';
 export type { AuthStatus } from '@moonshot-ai/agent-core-v2';

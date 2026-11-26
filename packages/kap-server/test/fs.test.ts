@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
-import { HostFileSystem, HostProcessService, IModelCatalog, ISessionManager, IWorkspaceInstanceManager, WorkspaceFsService } from '@moonshot-ai/agent-core-v2';
+import { HostFileSystem, HostProcessService, IModelCatalog, ISessionManager, IProjectInstanceManager, WorkspaceFsService } from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 import type { EnvironmentCapability } from '@moonshot-ai/agent-core-v2/environment/environment';
 import { ErrorCode } from '../src/protocol/error-codes';
@@ -1164,7 +1164,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect((await listWorkspaces()).some((w) => workAliases.has(w.root))).toBe(false);
     expect(
       server!.core.accessor
-        .get(IWorkspaceInstanceManager)
+        .get(IProjectInstanceManager)
         .list()
         .some((w) => workAliases.has(w.root)),
     ).toBe(false);

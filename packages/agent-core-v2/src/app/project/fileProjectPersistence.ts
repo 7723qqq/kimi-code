@@ -19,7 +19,7 @@ import {
 } from '#/persistence/interface/storage';
 import { watchCandidates } from '#human/utils/watch';
 
-import type { Workspace } from './project';
+import type { Project } from './project';
 import {
   IProjectPersistence,
   type PersistedProjectsFile,
@@ -255,7 +255,7 @@ function parseProjectsDocument(value: unknown): {
   }
   const rawProjects = asRecord(raw['projects'], `${PROJECTS_KEY} projects`);
   const now = Date.now();
-  const workspaces: Workspace[] = [];
+  const workspaces: Project[] = [];
   for (const [id, rawEntry] of Object.entries(rawProjects)) {
     const entry = sanitizeEntry(rawEntry, version === PROJECTS_SCHEMA_VERSION);
     if (entry === null) throw projectsCorrupted(`invalid project entry ${id}`);

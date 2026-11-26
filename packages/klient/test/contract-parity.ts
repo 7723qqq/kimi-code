@@ -102,7 +102,7 @@ import type {
 } from '@moonshot-ai/agent-core-v2';
 import type { ProviderConfig } from '@moonshot-ai/agent-core-v2';
 import type { SessionListQuery, SessionSummary } from '@moonshot-ai/agent-core-v2';
-import type { Workspace, WorkspaceUpdate } from '@moonshot-ai/agent-core-v2';
+import type { Project, ProjectUpdate } from '@moonshot-ai/agent-core-v2';
 import type {
   CompactionBlockedEvent,
   CompactionCancelledEvent,
@@ -337,8 +337,8 @@ const _sessionSummary: AssertWire<typeof sessionSummarySchema, SessionSummary> =
 const _sessionListQuery: AssertWire<typeof sessionListQuerySchema, SessionListQuery> = true;
 
 // workspaces.ts
-const _workspace: AssertWire<typeof workspaceSchema, Workspace> = true;
-const _workspaceUpdate: AssertWire<typeof workspaceUpdateSchema, WorkspaceUpdate> = true;
+const _workspace: AssertWire<typeof workspaceSchema, Project> = true;
+const _workspaceUpdate: AssertWire<typeof workspaceUpdateSchema, ProjectUpdate> = true;
 
 // config.ts
 // One-directional: the engine declares the `ConfigInspectValue` keys as

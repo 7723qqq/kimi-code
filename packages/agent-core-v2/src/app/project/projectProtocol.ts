@@ -1,4 +1,4 @@
-export interface Workspace {
+export interface Project {
   id: string;
   root: string;
   name: string;
@@ -9,12 +9,12 @@ export interface Workspace {
 
 export interface WorkspaceCreatedEvent {
   readonly type: 'event.workspace.created';
-  readonly workspace: Workspace;
+  readonly workspace: Project;
 }
 
 export interface WorkspaceUpdatedEvent {
   readonly type: 'event.workspace.updated';
-  readonly workspace: Workspace;
+  readonly workspace: Project;
 }
 
 export interface WorkspaceDeletedEvent {

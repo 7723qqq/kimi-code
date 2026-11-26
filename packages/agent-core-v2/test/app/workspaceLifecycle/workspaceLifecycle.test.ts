@@ -20,7 +20,7 @@ import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLif
 import { Error2, ErrorCodes } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycle';
-import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
+import type { ProjectInstance } from '#/project/projectInstance/projectInstance';
 import {
   IProjectInstanceManager,
   type WorkspaceInstanceRef,
@@ -37,14 +37,14 @@ interface FakeController {
   dispose: ReturnType<typeof mock>;
 }
 
-function fakeInstance(id: string, root: string, controller: FakeController): WorkspaceInstance {
+function fakeInstance(id: string, root: string, controller: FakeController): ProjectInstance {
   return {
     id,
     root,
     program: {
       createSessionController: () => controller,
     },
-  } as unknown as WorkspaceInstance;
+  } as unknown as ProjectInstance;
 }
 
 function controllerStub(id: string): FakeController {
@@ -63,17 +63,17 @@ function controllerStub(id: string): FakeController {
 }
 
 function managerStub(
-  seed: WorkspaceInstance[] = [],
-  createInstance?: (ref: WorkspaceInstanceRef) => WorkspaceInstance,
+  seed: ProjectInstance[] = [],
+  createInstance?: (ref: WorkspaceInstanceRef) => ProjectInstance,
 ) {
   const instances = new Map(seed.map((instance) => [instance.id, instance]));
   const changeListeners = new Set<
-    (change: { workspaceId: string; instance?: WorkspaceInstance }) => void
+    (change: { workspaceId: string; instance?: ProjectInstance }) => void
   >();
   let liveLeases = 0;
   let minLiveLeases = Number.POSITIVE_INFINITY;
   let disposedLeases = 0;
-  const trackLease = (instance: WorkspaceInstance) => {
+  const trackLease = (instance: ProjectInstance) => {
     liveLeases += 1;
     minLiveLeases = Math.min(minLiveLeases, liveLeases);
     let released = false;
@@ -120,7 +120,7 @@ function managerStub(
     list: () => [...instances.values()],
     snapshot: () => ({ workspaces: [] }),
   };
-  const fire = (workspaceId: string, instance: WorkspaceInstance): void => {
+  const fire = (workspaceId: string, instance: ProjectInstance): void => {
     instances.set(workspaceId, instance);
     for (const listener of changeListeners) listener({ workspaceId, instance });
   };
@@ -193,9 +193,9 @@ describe('WorkspaceLifecycleService', () => {
 
   function build(
     options: {
-      instances?: WorkspaceInstance[];
+      instances?: ProjectInstance[];
       sessions?: readonly { readonly id: string; readonly workspaceId: string }[];
-      createInstance?: (ref: WorkspaceInstanceRef) => WorkspaceInstance;
+      createInstance?: (ref: WorkspaceInstanceRef) => ProjectInstance;
       extra?: ReturnType<typeof stubPair>[];
     } = {},
   ): {

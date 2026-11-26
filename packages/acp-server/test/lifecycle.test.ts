@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createDecorator, IOAuthToolkit, ISessionManager, ISessionMcpHandle, IWorkspaceInstanceManager, SyncDescriptor } from '@moonshot-ai/agent-core-v2';
+import { createDecorator, IOAuthToolkit, ISessionManager, ISessionMcpHandle, IProjectInstanceManager, SyncDescriptor } from '@moonshot-ai/agent-core-v2';
 import { createFakeModel, say, type FakeModel } from '@moonshot-ai/testkit/model';
 import type { SessionSummary } from '@moonshot-ai/klient';
 
@@ -138,7 +138,7 @@ describe('acp-server session lifecycle', () => {
     readonly { readonly name: string; readonly status: string; readonly error?: string }[]
   > {
     const warmup = await c.server.core.accessor
-      .get(IWorkspaceInstanceManager)
+      .get(IProjectInstanceManager)
       .acquire({ root: homeDir! });
     warmup.dispose();
     const handle = c.server.core.accessor.get(ISessionManager).get(sessionId);
@@ -398,7 +398,7 @@ describe('acp-server session lifecycle', () => {
     // The workspace handler merges create-time dirs into its
     // (ephemeral) additional-dir set.
     const lease = await c.server.core.accessor
-      .get(IWorkspaceInstanceManager)
+      .get(IProjectInstanceManager)
       .acquire({ root: homeDir! });
     try {
       const dirs = lease.instance.program.dirs;
@@ -700,7 +700,7 @@ describe('acp-server session lifecycle', () => {
       // The workspace handler merges create-time dirs into its
       // (ephemeral) additional-dir set.
       const lease = await c.server.core.accessor
-        .get(IWorkspaceInstanceManager)
+        .get(IProjectInstanceManager)
         .acquire({ root: homeDir! });
       try {
         const dirs = lease.instance.program.dirs;

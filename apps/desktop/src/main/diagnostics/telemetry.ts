@@ -1,4 +1,4 @@
-import { createCloudAppender, IConfigService, IOAuthToolkit, ITelemetryService, type Scope, type TelemetryProperties, ISessionIndex, IWorkspaceService } from '@moonshot-ai/agent-core-v2';
+import { createCloudAppender, IConfigService, IOAuthToolkit, ITelemetryService, type Scope, type TelemetryProperties, ISessionIndex, IProjectService } from '@moonshot-ai/agent-core-v2';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -120,7 +120,7 @@ export async function wireDesktopTelemetry(
     void appender.retryDiskEvents().catch(() => {});
     startDesktopSystemMetrics({
       sessionCount: async () => {
-        const workspaces = await core.accessor.get(IWorkspaceService).list();
+        const workspaces = await core.accessor.get(IProjectService).list();
         return core.accessor.get(ISessionIndex).count({ workspaceIds: workspaces.map((w) => w.id) });
       },
     });

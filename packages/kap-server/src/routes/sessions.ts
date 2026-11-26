@@ -26,8 +26,8 @@ import {
   IEventService,
   SessionCreated,
   ISessionManager,
-  IWorkspaceInstanceManager,
-  IWorkspaceService,
+  IProjectInstanceManager,
+  IProjectService,
   LOCAL_ENVIRONMENT_ID,
   closeSessionById,
   followSessionLifecycles,
@@ -273,7 +273,7 @@ export function registerSessionsRoutes(
       const rootPath = requestedRoots[0]?.path ?? 'workspace_root';
       const workspaceId = body.workspace_id;
 
-      const registry = core.accessor.get(IWorkspaceService);
+      const registry = core.accessor.get(IProjectService);
       let workDir: string;
       if (workspaceId !== undefined) {
         const workspace = await registry.get(workspaceId);
@@ -427,7 +427,7 @@ export function registerSessionsRoutes(
         return;
       }
       const cwd =
-        summary.cwd ?? (await core.accessor.get(IWorkspaceService).get(summary.workspaceId))?.root;
+        summary.cwd ?? (await core.accessor.get(IProjectService).get(summary.workspaceId))?.root;
       if (cwd === undefined) {
         reply.send(
           errEnvelope(
@@ -476,7 +476,7 @@ export function registerSessionsRoutes(
         return;
       }
       const cwd =
-        summary.cwd ?? (await core.accessor.get(IWorkspaceService).get(summary.workspaceId))?.root;
+        summary.cwd ?? (await core.accessor.get(IProjectService).get(summary.workspaceId))?.root;
       if (cwd === undefined) {
         reply.send(
           errEnvelope(
@@ -718,7 +718,7 @@ export function registerSessionsRoutes(
         }
 
         const roots = new Map(
-          (await core.accessor.get(IWorkspaceService).list()).map((w) => [w.id, w.root]),
+          (await core.accessor.get(IProjectService).list()).map((w) => [w.id, w.root]),
         );
         const items = matched
           .slice(0, pageSize)
@@ -1182,7 +1182,7 @@ async function readWaitSnapshot(
       throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
     }
     const cwd =
-      summary.cwd ?? (await core.accessor.get(IWorkspaceService).get(summary.workspaceId))?.root;
+      summary.cwd ?? (await core.accessor.get(IProjectService).get(summary.workspaceId))?.root;
     if (cwd === undefined) {
       throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} has no recoverable cwd`);
     }
@@ -1632,7 +1632,7 @@ async function refreshWorkspaceCatalogs(
   excludedSessionId: string,
 ): Promise<void> {
   if (workspaceId !== undefined) {
-    const target = core.accessor.get(IWorkspaceInstanceManager).get(workspaceId);
+    const target = core.accessor.get(IProjectInstanceManager).get(workspaceId);
     if (target !== undefined) {
       await target.program.reload();
     }

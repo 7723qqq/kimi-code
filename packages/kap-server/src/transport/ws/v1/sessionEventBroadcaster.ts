@@ -11,7 +11,7 @@ import type {
   QuestionResult,
   Scope,
   SessionActivityState,
-  Workspace,
+  Project,
 } from '@moonshot-ai/agent-core-v2';
 import {
   IAgentLifecycleService,
@@ -1691,13 +1691,13 @@ function sessionLifecyclePayload(
   return { sessionId: candidate.sessionId, workspaceId: candidate.workspaceId };
 }
 
-function workspaceLifecyclePayload(payload: unknown): Workspace | undefined {
+function workspaceLifecyclePayload(payload: unknown): Project | undefined {
   if (typeof payload !== 'object' || payload === null) return undefined;
   const candidate = (payload as { workspace?: unknown }).workspace;
   if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
     return undefined;
   }
-  const ws = candidate as Partial<Workspace>;
+  const ws = candidate as Partial<Project>;
   if (typeof ws.id !== 'string' || ws.id.length === 0) return undefined;
   if (typeof ws.root !== 'string' || ws.root.length === 0) return undefined;
   if (typeof ws.name !== 'string') return undefined;

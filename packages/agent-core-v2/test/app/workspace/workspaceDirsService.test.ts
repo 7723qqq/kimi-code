@@ -12,7 +12,7 @@ import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventService } from '#/app/event/event';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
-import { IProjectService, type Workspace } from '#/app/project/project';
+import { IProjectService, type Project } from '#/app/project/project';
 import { FileProjectPersistence } from '#/app/project/fileProjectPersistence';
 import { IProjectPersistence } from '#/app/project/projectPersistence';
 import { WorkspaceService } from '#/app/project/projectService';
@@ -40,9 +40,9 @@ describe('WorkspaceDirsService session sandbox', () => {
   let homeDir: string;
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let registered: readonly Workspace[] = [];
+  let registered: readonly Project[] = [];
   let registryChanges: Emitter<void>;
-  let listWorkspaces: Mock<() => Promise<readonly Workspace[]>>;
+  let listWorkspaces: Mock<() => Promise<readonly Project[]>>;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'kimi-workspace-dirs-'));
@@ -201,7 +201,7 @@ describe('WorkspaceDirsService session sandbox', () => {
   it('coalesces pending registry reloads and applies changes received during an active reload', async () => {
     const extra = join(root, 'extra');
     await mkdir(extra, { recursive: true });
-    const project: Workspace = {
+    const project: Project = {
       id: 'ws_test',
       root: workspaceDir,
       name: 'workspace',
@@ -214,8 +214,8 @@ describe('WorkspaceDirsService session sandbox', () => {
     const dirs = await service();
     expect(dirs.primary).toBe(workspaceDir);
     listWorkspaces.mockClear();
-    let release!: (workspaces: readonly Workspace[]) => void;
-    const held = new Promise<readonly Workspace[]>((resolve) => {
+    let release!: (workspaces: readonly Project[]) => void;
+    const held = new Promise<readonly Project[]>((resolve) => {
       release = resolve;
     });
     listWorkspaces.mockImplementationOnce(() => held);

@@ -17,7 +17,7 @@
 #   defaultPlanMode          src/features/plan/configSection.ts
 #   environments             src/remote/declaration/configSection.ts
 #   experimental             src/app/flag/flag.ts
-#   extraAgentDirs           src/workspace/workspaceAgentProfileLoader/configSection.ts
+#   extraAgentDirs           src/project/projectAgentProfileLoader/configSection.ts
 #   extraSkillDirs           src/features/skill/catalog/configSection.ts
 #   github                   src/agent/tools/github/configSection.ts
 #   github_proxy             src/agent/tools/github/configSection.ts
@@ -50,7 +50,7 @@
 #   tokenCounting            src/agent/tokenCounting/configSection.ts
 #   tools                    src/agent/toolPolicy/configSection.ts
 #   watch                    src/app/watch/configSection.ts
-#   workspace                src/workspace/workspaceTrust/configSection.ts
+#   workspace                src/project/projectTrust/configSection.ts
 #   (overlay) githubEnvOverlay  src/agent/tools/github/envOverlay.ts
 #   (overlay) servicesCredentialEnvOverlay  src/app/auth/configSection.ts
 #   (overlay) kimiModelEnvOverlay  src/app/kosongConfig/envOverlay.ts
@@ -171,7 +171,7 @@ default_plan_mode = false
 
 # ##########################################################################
 # extraAgentDirs (config.toml: extra_agent_dirs)
-#   owner: src/workspace/workspaceAgentProfileLoader/configSection.ts
+#   owner: src/project/projectAgentProfileLoader/configSection.ts
 #   scope: core
 # ##########################################################################
 
@@ -681,7 +681,7 @@ strategy = "measured+estimated"
 
 # ##########################################################################
 # workspace
-#   owner: src/workspace/workspaceTrust/configSection.ts
+#   owner: src/project/projectTrust/configSection.ts
 #   scope: core
 # ##########################################################################
 

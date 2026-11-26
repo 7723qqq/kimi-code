@@ -3,7 +3,7 @@ import { LifecycleScope } from '#/app/scopes';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { encodeWorkDirKey, isWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
-import { IProjectService, type Workspace } from '#/app/project/project';
+import { IProjectService, type Project } from '#/app/project/project';
 import {
   readSessionIndexEntries,
   SESSION_INDEX_KEY,
@@ -16,7 +16,7 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IProjectAliases } from './projectAliases';
 
 interface CatalogSnapshot {
-  readonly byId: ReadonlyMap<string, Workspace>;
+  readonly byId: ReadonlyMap<string, Project>;
   readonly wdIdsByRootKey: ReadonlyMap<string, readonly string[]>;
 }
 

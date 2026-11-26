@@ -191,7 +191,7 @@ packages/
 
 **`agent-core-v2`** (v0.6.1) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server`, `klient`, `acp-server`, `product`, `remote-control`, `migration-legacy` and the `apps/kimi-inspect` debug client. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
 
-  - **Three** `LifecycleScope` tiers — `App` / `Session` / `Agent` (`app/scopes.ts`, mirrored in `SCOPE_TOPOLOGY`). `Workspace` is a **directory namespace prefix** inside the engine (`app/workspaceLifecycle/`, `app/workspaceSessions/`), **not** a fourth tier: there is no `LifecycleScope.Workspace`, and adding one is not a valid change.
+  - **Three** `LifecycleScope` tiers — `App` / `Session` / `Agent` (`app/scopes.ts`, mirrored in `SCOPE_TOPOLOGY`). The persisted project entity lives under `app/project/` and `app/projectSessions/`; `Workspace` remains a **directory namespace prefix** in `app/workspaceLifecycle/`, **not** a fourth tier: there is no `LifecycleScope.Workspace`, and adding one is not a valid change.
   - There is no App-level session lifecycle facade. Callers compose `ISessionIndex` → `IWorkspaceLifecycleService.handlerFor` → the handler.
   - `bootstrap()` (`src/app/bootstrap/bootstrap.ts`) is the only composition root; `kap-server`, `acp-server` and `node-sdk` call it and receive an App `Scope`.
 

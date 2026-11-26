@@ -1,10 +1,10 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { Event2 } from '#/app/event/event2';
 
-import type { Workspace } from './project';
+import type { Project } from './project';
 
 export interface WorkspaceCreatedPayload {
-  readonly workspace: Workspace;
+  readonly workspace: Project;
 }
 
 export class WorkspaceCreated extends Event2<{ readonly payload: WorkspaceCreatedPayload }> {
@@ -15,7 +15,7 @@ export interface WorkspaceCreated {
 }
 
 export interface WorkspaceUpdatedPayload {
-  readonly workspace: Workspace;
+  readonly workspace: Project;
 }
 
 export class WorkspaceUpdated extends Event2<{ readonly payload: WorkspaceUpdatedPayload }> {
@@ -28,7 +28,7 @@ export interface WorkspaceUpdated {
 export interface WorkspaceDeletedPayload {
   readonly workspaceId: string;
   readonly root: string;
-  readonly workspace?: Workspace;
+  readonly workspace?: Project;
 }
 
 export class WorkspaceDeleted extends Event2<{ readonly payload: WorkspaceDeletedPayload }> {

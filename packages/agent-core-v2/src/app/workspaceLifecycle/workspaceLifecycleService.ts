@@ -7,7 +7,7 @@ import { BugIndicatingError } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycle';
 import type { SessionLifecycleService } from '#/project/sessionLifecycle/sessionLifecycleService';
-import type { WorkspaceInstance } from '#/project/projectInstance/projectInstance';
+import type { ProjectInstance } from '#/project/projectInstance/projectInstance';
 import {
   IProjectInstanceManager,
   type WorkspaceInstanceLease,
@@ -65,7 +65,7 @@ export class WorkspaceLifecycleService extends Service implements IWorkspaceLife
     return handle;
   }
 
-  private handleOf(instance: WorkspaceInstance): IWorkspaceScopeHandle {
+  private handleOf(instance: ProjectInstance): IWorkspaceScopeHandle {
     const existing = this.handles.get(instance.id);
     if (existing !== undefined) return existing;
     const handle: IWorkspaceScopeHandle = {
@@ -98,7 +98,7 @@ export class WorkspaceLifecycleService extends Service implements IWorkspaceLife
     return handle;
   }
 
-  private controllerOf(instance: WorkspaceInstance): SessionLifecycleService {
+  private controllerOf(instance: ProjectInstance): SessionLifecycleService {
     const existing = this.controllers.get(instance.id);
     if (existing !== undefined) return existing;
     const controller = instance.program.createSessionController();

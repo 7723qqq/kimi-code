@@ -90,8 +90,8 @@ describe('memory dispatcher specifics', () => {
       expect(errors[0]?.message).toContain('workspace scope is not supported');
 
       // The workspace was never materialized, so no instance lingers either.
-      const { IWorkspaceInstanceManager } = await import('@moonshot-ai/agent-core-v2');
-      expect(app.accessor.get(IWorkspaceInstanceManager).get('ws_x')).toBeUndefined();
+      const { IProjectInstanceManager } = await import('@moonshot-ai/agent-core-v2');
+      expect(app.accessor.get(IProjectInstanceManager).get('ws_x')).toBeUndefined();
     } finally {
       await cleanupEngine({ homeDir, app });
     }

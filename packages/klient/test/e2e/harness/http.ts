@@ -45,9 +45,9 @@ import type {
   SessionCreate,
 } from '@moonshot-ai/kap-server/protocol/session';
 import type {
-  Workspace,
-  WorkspaceCreate,
-  WorkspaceUpdate,
+  Project,
+  ProjectCreate,
+  ProjectUpdate,
 } from '@moonshot-ai/kap-server/protocol/workspace';
 
 import { unwrap } from './envelope.js';
@@ -284,14 +284,14 @@ export class HttpClient {
   }
 
   // ── Workspaces ──────────────────────────────────────────────────────────
-  listWorkspaces(): Promise<{ items: Workspace[] }> {
+  listWorkspaces(): Promise<{ items: Project[] }> {
     return this.request('GET', '/workspaces', undefined);
   }
-  createWorkspace(body: WorkspaceCreate): Promise<Workspace> {
-    return this.request<Workspace>('POST', '/workspaces', body);
+  createWorkspace(body: ProjectCreate): Promise<Project> {
+    return this.request<Project>('POST', '/workspaces', body);
   }
-  updateWorkspace(workspaceId: string, body: WorkspaceUpdate): Promise<Workspace> {
-    return this.request<Workspace>(
+  updateWorkspace(workspaceId: string, body: ProjectUpdate): Promise<Project> {
+    return this.request<Project>(
       'PATCH',
       `/workspaces/${encodeURIComponent(workspaceId)}`,
       body,

@@ -40,7 +40,7 @@ import {
   ISessionRunGate,
   ISessionManager,
   ITelemetryService,
-  IWorkspaceInstanceManager,
+  IProjectInstanceManager,
   InMemorySessionLockService,
   Error2,
   ErrorCodes,
@@ -355,7 +355,7 @@ function makeFakeHarness() {
     [IFileSystemStorageService, {}],
     [IHostFileSystem, {}],
     [
-      IWorkspaceInstanceManager,
+      IProjectInstanceManager,
       {
         acquire: jest.fn(async () => ({
           instance: {
@@ -1278,7 +1278,7 @@ describe('runV2Print', () => {
     const stderr = writer();
     const { app, appServices, trustState } = makeFakeHarness();
     trustState.trusted = false;
-    const workspaces = appServices.get(IWorkspaceInstanceManager) as {
+    const workspaces = appServices.get(IProjectInstanceManager) as {
       acquire: ReturnType<typeof jest.fn>;
     };
     workspaces.acquire.mockRejectedValueOnce(new Error('trust store unavailable'));

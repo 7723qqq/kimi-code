@@ -57,9 +57,9 @@ import {
   IMcpOAuthService,
   ISessionManager,
   ISessionLockService,
-  IWorkspaceInstanceManager,
+  IProjectInstanceManager,
   IEnvironmentService,
-  IWorkspaceService,
+  IProjectService,
   MAIN_AGENT_ID,
   OsProcessErrors,
 } from '@moonshot-ai/agent-core-v2';
@@ -2477,7 +2477,7 @@ key = "${titleOAuthRef.key}"
         .accessor.get(IAgentChangeNotifierService)
         .notifyWorkspaceDirsChanges();
       const currentProgram = () => {
-        const current = client.engineAccessor.get(IWorkspaceInstanceManager).get(workspaceId);
+        const current = client.engineAccessor.get(IProjectInstanceManager).get(workspaceId);
         if (current === undefined) throw new Error('expected the current workspace program');
         return current.program;
       };
@@ -2545,7 +2545,7 @@ key = "${titleOAuthRef.key}"
       const workspaceId = before.accessor.get(ISessionContext).workspaceId;
       const beforeMain = before.accessor.get(IAgentLifecycleService).handleOf('main')!;
       await beforeMain.accessor.get(IAgentChangeNotifierService).notifyWorkspaceDirsChanges();
-      const target = client.engineAccessor.get(IWorkspaceInstanceManager).get(workspaceId);
+      const target = client.engineAccessor.get(IProjectInstanceManager).get(workspaceId);
       if (target === undefined) throw new Error('expected the current workspace program');
       const projectsPath = join(homeDir, 'workspaces.json');
       const projects = JSON.parse(await readFile(projectsPath, 'utf8')) as {

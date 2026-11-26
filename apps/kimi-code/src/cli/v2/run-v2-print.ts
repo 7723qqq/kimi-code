@@ -38,7 +38,7 @@ import {
   ISessionManager,
   ISessionRunGate,
   ITelemetryService,
-  IWorkspaceInstanceManager,
+  IProjectInstanceManager,
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
   applyPrintModeConfigDefaults,
@@ -562,7 +562,7 @@ export async function listTrustGatedMcpServers(
   homeDir: string,
 ): Promise<readonly TrustGatedMcpServer[]> {
   const lease = await services
-    .get(IWorkspaceInstanceManager)
+    .get(IProjectInstanceManager)
     .acquire({ root: workDir });
   try {
     if (await lease.instance.program.trust.get()) return [];

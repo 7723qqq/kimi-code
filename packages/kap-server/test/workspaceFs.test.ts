@@ -6,8 +6,8 @@ import { dirname, join, parse } from 'node:path';
 import { IEnvironmentService } from '@moonshot-ai/agent-core-v2';
 import {
   IModelCatalog,
-  IWorkspaceInstanceManager,
-  IWorkspaceService,
+  IProjectInstanceManager,
+  IProjectService,
 } from '@moonshot-ai/agent-core-v2';
 import { FakeEnvironment } from '@moonshot-ai/agent-core-v2/environment/fakeEnvironment';
 

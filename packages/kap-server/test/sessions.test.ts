@@ -41,8 +41,8 @@ import {
   ISessionPromptPredictionService,
   ISessionTitleService,
   IWireService,
-  IWorkspaceInstanceManager,
-  IWorkspaceService,
+  IProjectInstanceManager,
+  IProjectService,
   MAIN_AGENT_ID,
   closeSessionById,
   ContextAppendMessage,
@@ -627,7 +627,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
   it('preserves a selected managed workspace identity when creating a session', async () => {
     const workspace = await server!.core.accessor
-      .get(IWorkspaceService)
+      .get(IProjectService)
       .create({ root: home as string, name: 'Managed project' });
     const created = await postJson<SessionWire>('/api/v1/sessions', { workspace_id: workspace.id });
     expect(created.body.code).toBe(0);
@@ -1761,7 +1761,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const id = created.body.data.id;
     await closeSessionById((server as RunningServer).core.accessor, id);
     await (server as RunningServer).core.accessor
-      .get(IWorkspaceService)
+      .get(IProjectService)
       .delete(encodeWorkDirKey(cwd));
     await rm(cwd, { recursive: true, force: true });
 
@@ -1974,7 +1974,7 @@ describe('server-v2 /api/v1/sessions', () => {
       const main = await ensureMainAgent(before);
       await main.accessor.get(IAgentChangeNotifierService).notifyWorkspaceDirsChanges();
       const target = (server as RunningServer).core.accessor
-        .get(IWorkspaceInstanceManager)
+        .get(IProjectInstanceManager)
         .get(created.body.data.workspace_id);
       if (target === undefined) throw new Error('expected the session workspace');
       const projectsPath = join(home as string, 'projects.json');

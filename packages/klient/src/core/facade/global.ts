@@ -9,7 +9,7 @@
 import type { SessionListQuery, SessionSummary } from '@moonshot-ai/agent-core-v2';
 import type { SessionMeta } from '@moonshot-ai/agent-core-v2';
 import type { Page } from '@moonshot-ai/agent-core-v2';
-import type { Workspace, WorkspaceUpdate } from '@moonshot-ai/agent-core-v2';
+import type { Project, ProjectUpdate } from '@moonshot-ai/agent-core-v2';
 import type {
   ConfigDiagnostic,
   ConfigInspectValue,
@@ -137,10 +137,10 @@ export interface GlobalSessionsFacade {
 }
 
 export interface GlobalWorkspacesFacade {
-  list(): Promise<readonly Workspace[]>;
-  get(id: string): Promise<Workspace | undefined>;
-  createOrTouch(input: { root: string; name?: string }): Promise<Workspace>;
-  update(input: { id: string; patch: WorkspaceUpdate }): Promise<Workspace | undefined>;
+  list(): Promise<readonly Project[]>;
+  get(id: string): Promise<Project | undefined>;
+  createOrTouch(input: { root: string; name?: string }): Promise<Project>;
+  update(input: { id: string; patch: ProjectUpdate }): Promise<Project | undefined>;
   delete(id: string): Promise<void>;
 }
 
@@ -405,12 +405,12 @@ export function createGlobalFacade(
     },
 
     workspaces: {
-      list: () => call('workspaceService', 'list', []) as Promise<readonly Workspace[]>,
-      get: (id) => call('workspaceService', 'get', [id]) as Promise<Workspace | undefined>,
+      list: () => call('workspaceService', 'list', []) as Promise<readonly Project[]>,
+      get: (id) => call('workspaceService', 'get', [id]) as Promise<Project | undefined>,
       createOrTouch: ({ root, name }) =>
-        call('workspaceService', 'createOrTouch', [root, name]) as Promise<Workspace>,
+        call('workspaceService', 'createOrTouch', [root, name]) as Promise<Project>,
       update: ({ id, patch }) =>
-        call('workspaceService', 'update', [id, patch]) as Promise<Workspace | undefined>,
+        call('workspaceService', 'update', [id, patch]) as Promise<Project | undefined>,
       delete: (id) => call('workspaceService', 'delete', [id]) as Promise<void>,
     },
 

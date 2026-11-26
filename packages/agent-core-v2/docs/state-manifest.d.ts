@@ -27,17 +27,11 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 8 keys · Session: 9 keys · Agent: 79 keys)
+// Index (App: 0 keys · Workspace: 2 keys · Session: 9 keys · Agent: 79 keys)
 //   App
 //   Workspace
-//     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
-//     workspaceDirs.fileDirs               src/workspace/workspaceDirs/workspaceDirsService.ts
-//     workspaceDirs.primaryByWorkspace     src/workspace/workspaceDirs/workspaceDirsService.ts
-//     workspaceDirs.registryDirs           src/workspace/workspaceDirs/workspaceDirsService.ts
-//     workspaceInstructions.current        src/workspace/workspaceInstructions/workspaceInstructionsService.ts
-//     workspaceSkillCatalog.contributions  src/features/skill/workspace/workspaceSkillCatalogService.ts
-//     workspaceSkillCatalog.merged         src/features/skill/workspace/workspaceSkillCatalogService.ts
-//     workspaceTrust.trusted               src/workspace/workspaceTrust/workspaceTrustService.ts
+//     workspaceSkillCatalog.contributions  src/features/skill/project/projectSkillCatalogService.ts
+//     workspaceSkillCatalog.merged         src/features/skill/project/projectSkillCatalogService.ts
 //   Session
 //     sessionActivity.current            src/session/sessionActivity/sessionActivityService.ts
 //     sessionActivity.folds              src/session/sessionActivity/sessionActivityService.ts
@@ -137,7 +131,7 @@ export type AppStateKey = keyof AppStateSnapshot;
 
 /** Workspace-scope keys registered into IWorkspaceStateService. */
 export interface WorkspaceStateSnapshot {
-  // src/features/skill/workspace/workspaceSkillCatalogService.ts
+  // src/features/skill/project/projectSkillCatalogService.ts
   'workspaceSkillCatalog.contributions': Map<string, {
     readonly c: /* SkillContribution — packages/agent-core-v2/src/features/skill/catalog/skillSource.ts */ {
       readonly skills: readonly /* SkillDefinition — packages/agent-core-v2/src/features/skill/catalog/types.ts */ {
@@ -501,19 +495,6 @@ export interface WorkspaceStateSnapshot {
     getKimiSkillsDescription: () => string;
     getModelSkillListing: () => string;
   };
-  // src/workspace/workspaceDirs/workspaceDirsService.ts
-  'workspaceDirs.ephemeralDirs': readonly string[];
-  'workspaceDirs.fileDirs': readonly string[];
-  'workspaceDirs.primaryByWorkspace': Readonly<Record<string, string>>;
-  'workspaceDirs.registryDirs': readonly string[];
-  // src/workspace/workspaceInstructions/workspaceInstructionsService.ts
-  'workspaceInstructions.current': /* WorkspaceInstructionsSnapshot — packages/agent-core-v2/src/workspace/workspaceInstructions/workspaceInstructions.ts */ {
-    readonly agentsMd: string | undefined;
-    readonly agentsMdWarning: string | undefined;
-    readonly agentsMdPaths: readonly string[] | undefined;
-  };
-  // src/workspace/workspaceTrust/workspaceTrustService.ts
-  'workspaceTrust.trusted': boolean;
 }
 
 export type WorkspaceStateKey = keyof WorkspaceStateSnapshot;

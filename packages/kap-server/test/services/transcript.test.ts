@@ -26,7 +26,7 @@ import {
   ISessionLifecycleService,
   ISessionManager,
   IWireService,
-  IWorkspaceInstanceManager,
+  IProjectInstanceManager,
   interactions,
   makeAgentScopeContext,
   PromptCompleted,
@@ -122,7 +122,7 @@ function coldTranscriptService(home: string, liveAgents?: unknown): TranscriptSe
       accessor: {
         get: (token: unknown) => {
           if (token === ISessionManager) return { get: () => liveSession, list: () => [] };
-          if (token === IWorkspaceInstanceManager) {
+          if (token === IProjectInstanceManager) {
             return { list: () => [], onDidChange: () => ({ dispose: () => undefined }) };
           }
           if (token === ISessionIndex) return { get: async () => ({ workspaceId: 'ws' }) };
@@ -2832,7 +2832,7 @@ describe('AgentTranscriptProjector', () => {
             if (token === ISessionManager) {
               return { get: () => undefined, list: () => [] };
             }
-            if (token === IWorkspaceInstanceManager) {
+            if (token === IProjectInstanceManager) {
               return { list: () => [], onDidChange: () => ({ dispose: () => undefined }) };
             }
             if (token === ISessionIndex) return { get: async () => ({ workspaceId: 'ws' }) };
@@ -2933,7 +2933,7 @@ describe('AgentTranscriptProjector', () => {
           accessor: {
             get: (token: unknown) => {
               if (token === ISessionManager) return { get: () => undefined, list: () => [] };
-              if (token === IWorkspaceInstanceManager) {
+              if (token === IProjectInstanceManager) {
                 return { list: () => [], onDidChange: () => ({ dispose: () => undefined }) };
               }
               if (token === ISessionIndex) return { get: async () => ({ workspaceId: 'ws' }) };
@@ -4876,7 +4876,7 @@ describe('bindSessionTranscript', () => {
           if (token === ISessionManager) {
             return { get: sessionLifecycle.get, list: () => [sessionLifecycle.get('s1')] };
           }
-          if (token === IWorkspaceInstanceManager) {
+          if (token === IProjectInstanceManager) {
             return {
               list: () => [{ program: { accessor: handler.accessor } }],
               onDidChange: () => ({ dispose: () => undefined }),

@@ -2,7 +2,7 @@ import { encodeWorkDirKey, isWorkDirKey, workspaceRootKey } from '#/_base/utils/
 import type { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import type { Workspace } from './project';
+import type { Project } from './project';
 
 export const SESSION_INDEX_SCOPE = '';
 export const SESSION_INDEX_KEY = 'session_index.jsonl';
@@ -141,7 +141,7 @@ export async function compactSessionIndexIfStale(
 }
 
 export function collectAliasIds(
-  workspaces: readonly Workspace[],
+  workspaces: readonly Project[],
   sessionIndexEntries: readonly SessionIndexLine[],
   root: string,
 ): string[] {
@@ -162,9 +162,9 @@ export function collectAliasIds(
   return ids;
 }
 
-export function dedupeByRoot(byId: ReadonlyMap<string, Workspace>): Workspace[] {
-  const byRoot = new Map<string, Workspace>();
-  const rest: Workspace[] = [];
+export function dedupeByRoot(byId: ReadonlyMap<string, Project>): Project[] {
+  const byRoot = new Map<string, Project>();
+  const rest: Project[] = [];
   for (const ws of byId.values()) {
     if (!isWorkDirKey(ws.id)) {
       rest.push(ws);

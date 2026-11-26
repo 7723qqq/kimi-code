@@ -147,11 +147,11 @@ import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connect
 import { ITowerRateLimitService } from '@moonshot-ai/agent-core-v2';
 import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2/features/tower/tools/status/statusReader';
 import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
-import { fsSuggestRequestSchema, type IWorkspaceFsService } from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fs';
+import { fsSuggestRequestSchema, type IProjectFsService } from '@moonshot-ai/agent-core-v2/project/projectFs/fs';
 import { ILogService } from '@moonshot-ai/agent-core-v2';
 import { IAppendLogStore } from '@moonshot-ai/agent-core-v2/persistence/interface/appendLogStore';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
-import { bootstrap, DEFAULT_AGENT_PROFILE_NAME, drainLogCloses, drainQueryStoreDisposals, drainSessionIndexMirror, ensureKimiHome, ensureMainAgent, getOrRestoreAgent, reloadOnStale, agentContextOf, IAgentChangeNotifierService, IAgentContextMemoryService, IAgentConversationUndoService, IAgentCronService, IAgentFullCompactionService, IAgentGoalService, IAgentPluginService, IAgentLifecycleService, IAgentEnvironmentBindingService, IAgentEnvironmentService, IAgentLoopService, IAgentPermissionModeService, IAgentPermissionRulesService, IAgentPluginCommandService, IAgentProfileService, IAgentSkillService, IAgentSwarmService, IAgentHelloWorldService, IAgentTaskService, ISessionTokenCountingService, IAgentToolPolicyService, IAgentToolRegistryService, type HostUiCapability, type PluginNodeRunner, IAgentTowerService, IBootstrapService, IConfigService, IEventService, IFeedbackService, IFlagService, IHostEnvironment, IHostFileSystem, IMcpManagementService, IMcpOAuthService, IModelService, IProviderService, ISessionBtwService, ISessionContext, ISessionWorkdir, ISessionExportService, ISessionIndex, ISessionIndexMirror, ISessionInitService, ISessionManager, ISessionMcpHandle, ISessionMetadata, ISessionSkillCatalog, IAgentTodoService, ISessionWorkspaceContext, ITelemetryService, IWorkspaceAliases, ISessionActivityView, IWorkspaceInstanceManager, IEnvironmentService, IEnvironmentDeclarationService, closeSessionById, followSessionLifecycles, getLiveSessionById, isError2, programForSession, environmentEntryInfo, snapshotAgentEnvironmentBinding, resumeSessionById, sessionDirOf, workspacePersistenceScope, logSeed, MAIN_AGENT_ID, prepareSystemPromptContext, PRINT_MAX_TURNS_DEFAULT, PRINT_WAIT_CEILING_S_DEFAULT, ProfileError, ProfileErrors, Error2, resolveAgentTaskConfig, resolveConfigPath, resolveKimiHome, resolveLoggingConfig, resolvePrintBackgroundMode, summarizeSkill, towerEnterFailureMessage, type IAgentScopeHandle, type IDisposable, type ISessionScopeHandle, type McpManagedServer, Scope, type ServicesAccessor, WorkspaceInstance, type SessionSummary as CoreSessionSummary, type ScopeSeed, IAgentModeMutexService, IAgentSpecService, ISessionPromptOptimizerService, SPEC_REQUIRED_FILES } from '@moonshot-ai/agent-core-v2';
+import { bootstrap, DEFAULT_AGENT_PROFILE_NAME, drainLogCloses, drainQueryStoreDisposals, drainSessionIndexMirror, ensureKimiHome, ensureMainAgent, getOrRestoreAgent, reloadOnStale, agentContextOf, IAgentChangeNotifierService, IAgentContextMemoryService, IAgentConversationUndoService, IAgentCronService, IAgentFullCompactionService, IAgentGoalService, IAgentPluginService, IAgentLifecycleService, IAgentEnvironmentBindingService, IAgentEnvironmentService, IAgentLoopService, IAgentPermissionModeService, IAgentPermissionRulesService, IAgentPluginCommandService, IAgentProfileService, IAgentSkillService, IAgentSwarmService, IAgentHelloWorldService, IAgentTaskService, ISessionTokenCountingService, IAgentToolPolicyService, IAgentToolRegistryService, type HostUiCapability, type PluginNodeRunner, IAgentTowerService, IBootstrapService, IConfigService, IEventService, IFeedbackService, IFlagService, IHostEnvironment, IHostFileSystem, IMcpManagementService, IMcpOAuthService, IModelService, IProviderService, ISessionBtwService, ISessionContext, ISessionWorkdir, ISessionExportService, ISessionIndex, ISessionIndexMirror, ISessionInitService, ISessionManager, ISessionMcpHandle, ISessionMetadata, ISessionSkillCatalog, IAgentTodoService, ISessionWorkspaceContext, ITelemetryService, IProjectAliases, ISessionActivityView, IProjectInstanceManager, IEnvironmentService, IEnvironmentDeclarationService, closeSessionById, followSessionLifecycles, getLiveSessionById, isError2, programForSession, environmentEntryInfo, snapshotAgentEnvironmentBinding, resumeSessionById, sessionDirOf, workspacePersistenceScope, logSeed, MAIN_AGENT_ID, prepareSystemPromptContext, PRINT_MAX_TURNS_DEFAULT, PRINT_WAIT_CEILING_S_DEFAULT, ProfileError, ProfileErrors, Error2, resolveAgentTaskConfig, resolveConfigPath, resolveKimiHome, resolveLoggingConfig, resolvePrintBackgroundMode, summarizeSkill, towerEnterFailureMessage, type IAgentScopeHandle, type IDisposable, type ISessionScopeHandle, type McpManagedServer, Scope, type ServicesAccessor, ProjectInstance, type SessionSummary as CoreSessionSummary, type ScopeSeed, IAgentModeMutexService, IAgentSpecService, ISessionPromptOptimizerService, SPEC_REQUIRED_FILES } from '@moonshot-ai/agent-core-v2';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 import type { FeedbackSubmitInput } from '@moonshot-ai/agent-core-v2/app/auth/feedback';
 import {
@@ -682,11 +682,11 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   private async withWorkspaceInstance<T>(
     operation: string,
     workDir: string,
-    use: (instance: WorkspaceInstance) => Promise<T>,
+    use: (instance: ProjectInstance) => Promise<T>,
   ): Promise<T> {
     const root = normalizeRequiredWorkDir(operation, workDir);
     await assertUsableWorkDir(this.engineAccessor.get(IHostFileSystem), root);
-    const lease = await this.engineAccessor.get(IWorkspaceInstanceManager).acquire({ root });
+    const lease = await this.engineAccessor.get(IProjectInstanceManager).acquire({ root });
     try {
       return await use(lease.instance);
     } finally {
@@ -761,7 +761,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     workDir: string,
     input: GitQueryInput,
   ): Promise<GitStatusSummary | null> {
-    const read = (fs: Pick<IWorkspaceFsService, 'gitStatus'>) =>
+    const read = (fs: Pick<IProjectFsService, 'gitStatus'>) =>
       nullWhenGitUnavailable(fs.gitStatus({ include_pull_request: false }));
     const status =
       input.sessionId !== undefined
@@ -784,7 +784,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     workDir: string,
     input: GitQueryInput,
   ): Promise<GitPullRequest | null> {
-    const read = (fs: Pick<IWorkspaceFsService, 'pullRequest'>) =>
+    const read = (fs: Pick<IProjectFsService, 'pullRequest'>) =>
       nullWhenGitUnavailable(fs.pullRequest({}));
     const found =
       input.sessionId !== undefined
@@ -829,7 +829,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
 
   override async getWorkspaceAdditionalDirs(workDir: string): Promise<readonly string[]> {
     const lease = await this.engineAccessor
-      .get(IWorkspaceInstanceManager)
+      .get(IProjectInstanceManager)
       .acquire({ root: workDir });
     try {
       const dirs = lease.instance.program.dirs;
@@ -1387,7 +1387,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     for (const workspace of workspaces) {
       if (normalizeWorkDir(workspace.root) === workDir) {
         ids.push(
-          ...(await this.engineAccessor.get(IWorkspaceAliases).resolveAliasIds(workspace.id)),
+          ...(await this.engineAccessor.get(IProjectAliases).resolveAliasIds(workspace.id)),
         );
         continue;
       }
@@ -1830,13 +1830,13 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
 
   private async reloadWorkspaceCatalogs(workspaceId: string | undefined): Promise<void> {
     if (workspaceId === undefined) return;
-    const target = this.engineAccessor.get(IWorkspaceInstanceManager).get(workspaceId);
+    const target = this.engineAccessor.get(IProjectInstanceManager).get(workspaceId);
     if (target === undefined) return;
     await target.program.reload();
   }
 
   private async refreshPluginSessionStarts(excludedSessionId?: string): Promise<void> {
-    const workspaces = this.engineAccessor.get(IWorkspaceInstanceManager);
+    const workspaces = this.engineAccessor.get(IProjectInstanceManager);
     await Promise.all(
       workspaces.list().map(async (handler) => {
         const sessions = this.engineAccessor
@@ -1880,7 +1880,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async addAdditionalDir(input: AddAdditionalDirInput): Promise<AddAdditionalDirResult> {
     const handle = this.requireLiveSession(input.id);
     const workspaceId = handle.accessor.get(ISessionContext).workspaceId;
-    const lease = await this.engineAccessor.get(IWorkspaceInstanceManager).acquire({ workspaceId });
+    const lease = await this.engineAccessor.get(IProjectInstanceManager).acquire({ workspaceId });
     try {
       return await lease.instance.program.dirs.addDir({ path: input.path, persist: input.persist });
     } finally {

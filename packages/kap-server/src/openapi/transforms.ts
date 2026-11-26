@@ -21,7 +21,7 @@ import {
   fsStatManyResponseSchema,
   fsStatRequestSchema,
   fsStatResponseSchema,
-} from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fs';
+} from '@moonshot-ai/agent-core-v2/project/projectFs/fs';
 import { z } from 'zod';
 
 import { t } from '../i18n';

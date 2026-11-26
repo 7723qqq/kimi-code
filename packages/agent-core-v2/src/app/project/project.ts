@@ -1,25 +1,25 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-export type WorkspaceKind = 'managed' | 'implicit';
+export type ProjectKind = 'managed' | 'implicit';
 
-export interface Workspace {
+export interface Project {
   readonly id: string;
   readonly root: string;
   readonly name: string;
-  readonly kind: WorkspaceKind;
+  readonly kind: ProjectKind;
   readonly additionalDirs: readonly string[];
   readonly createdAt: number;
   readonly lastOpenedAt: number;
 }
 
-export interface WorkspaceCreate {
+export interface ProjectCreate {
   readonly root: string;
   readonly name?: string;
   readonly additionalDirs?: readonly string[];
   readonly idempotencyKey?: string;
 }
 
-export interface WorkspaceUpdate {
+export interface ProjectUpdate {
   readonly name?: string;
   readonly additionalDirs?: readonly string[];
 }
@@ -27,13 +27,13 @@ export interface WorkspaceUpdate {
 export interface IProjectService {
   readonly _serviceBrand: undefined;
 
-  list(): Promise<readonly Workspace[]>;
-  get(id: string): Promise<Workspace | undefined>;
-  create(input: WorkspaceCreate): Promise<Workspace>;
-  createOrTouch(root: string, name?: string): Promise<Workspace>;
-  touch(id: string): Promise<Workspace | undefined>;
-  update(id: string, patch: WorkspaceUpdate): Promise<Workspace | undefined>;
-  setPrimary(id: string, path: string): Promise<Workspace | undefined>;
+  list(): Promise<readonly Project[]>;
+  get(id: string): Promise<Project | undefined>;
+  create(input: ProjectCreate): Promise<Project>;
+  createOrTouch(root: string, name?: string): Promise<Project>;
+  touch(id: string): Promise<Project | undefined>;
+  update(id: string, patch: ProjectUpdate): Promise<Project | undefined>;
+  setPrimary(id: string, path: string): Promise<Project | undefined>;
   readProjectConfigDirs(root: string): Promise<readonly string[]>;
   delete(id: string): Promise<void>;
 }

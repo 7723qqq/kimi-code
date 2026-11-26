@@ -86,7 +86,7 @@ function isFeaturesFile(file: string): boolean {
 
 const FEATURES_RECEIVER_SCOPE: Readonly<Record<string, ScopeDir>> = {
   IAppStateService: 'app',
-  IWorkspaceStateService: 'workspace',
+  IProjectStateService: 'workspace',
   ISessionStateService: 'session',
   IAgentStateService: 'agent',
 };
@@ -109,7 +109,7 @@ function featuresRegisterScope(
     throw new Error(
       `[gen-state-manifest] cannot resolve the state-service scope of '${expression.getText()}' ` +
         `in ${srcRelative(sf.getFilePath())} — register through an ` +
-        'I{App,Workspace,Session,Agent}StateService-typed member.',
+        'I{App,Project,Session,Agent}StateService-typed member.',
     );
   }
   return scope;

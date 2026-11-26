@@ -6,7 +6,7 @@ import type { agentEventSchema, HostSnapshot } from '../../../protocol/events-zo
 import type { MessageContent } from '../../../protocol/message';
 import type { ConfigResponse } from '../../../protocol/rest-config';
 import type { Session, SessionPendingInteraction } from '../../../protocol/session';
-import type { Workspace } from '../../../protocol/workspace';
+import type { Project } from '../../../protocol/workspace';
 
 export interface AgentStatusUpdatedEvent {
   readonly type: 'agent.status.updated';
@@ -61,12 +61,12 @@ export interface SessionDeletedEvent {
 
 export interface WorkspaceCreatedEvent {
   readonly type: 'event.workspace.created';
-  readonly workspace: Workspace;
+  readonly workspace: Project;
 }
 
 export interface WorkspaceUpdatedEvent {
   readonly type: 'event.workspace.updated';
-  readonly workspace: Workspace;
+  readonly workspace: Project;
 }
 
 export interface WorkspaceDeletedEvent {

@@ -20,7 +20,7 @@ import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { FileProjectPersistence } from '#/app/project/fileProjectPersistence';
 import { WorkspaceService } from '#/app/project/projectService';
-import type { Workspace } from '#/app/project/project';
+import type { Project } from '#/app/project/project';
 import { WorkspaceStateService } from '#/project/state/projectStateService';
 import type { IProjectContext } from '#/project/projectContext/projectContext';
 import { WorkspaceDirsService } from '#/project/projectDirs/projectDirsService';
@@ -118,8 +118,8 @@ describe('WorkspaceDirsService (registry source)', () => {
     spyOn(persistence, 'onDidChange').mockImplementation(changes.event);
     const dirs = createDirs(dirA, project.id, 'managed');
     await dirs.ready;
-    let release!: (workspaces: readonly Workspace[]) => void;
-    const held = new Promise<readonly Workspace[]>((resolve) => {
+    let release!: (workspaces: readonly Project[]) => void;
+    const held = new Promise<readonly Project[]>((resolve) => {
       release = resolve;
     });
     const list = spyOn(workspaces, 'list').mockImplementationOnce(() => held);

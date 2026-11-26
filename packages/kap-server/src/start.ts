@@ -26,7 +26,7 @@ import {
   ICapabilityService,
   IPluginService,
   IEnvironmentService,
-  IWorkspaceService,
+  IProjectService,
   NOTIFY_USER_UI_CAPABILITY,
   PluginChanged,
   logSeed,
@@ -320,7 +320,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   );
 
   try {
-    await core.accessor.get(IWorkspaceService).list();
+    await core.accessor.get(IProjectService).list();
   } catch (error) {
     logger.warn(
       { err: error instanceof Error ? error.message : String(error) },

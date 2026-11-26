@@ -55,9 +55,9 @@ import type {
   SessionCreate,
 } from '@moonshot-ai/kap-server/protocol/session';
 import type {
-  Workspace,
-  WorkspaceCreate,
-  WorkspaceUpdate,
+  Project,
+  ProjectCreate,
+  ProjectUpdate,
 } from '@moonshot-ai/kap-server/protocol/workspace';
 import { ulid } from 'ulid';
 import { WebSocket as WsWebSocket } from 'ws';
@@ -223,13 +223,13 @@ export class DaemonClient {
   }
 
   // ── Workspaces + folder picker ──────────────────────────────────────────
-  listWorkspaces(): Promise<{ items: Workspace[] }> {
+  listWorkspaces(): Promise<{ items: Project[] }> {
     return this.http.listWorkspaces();
   }
-  createWorkspace(body: WorkspaceCreate): Promise<Workspace> {
+  createWorkspace(body: ProjectCreate): Promise<Project> {
     return this.http.createWorkspace(body);
   }
-  updateWorkspace(workspaceId: string, body: WorkspaceUpdate): Promise<Workspace> {
+  updateWorkspace(workspaceId: string, body: ProjectUpdate): Promise<Project> {
     return this.http.updateWorkspace(workspaceId, body);
   }
   deleteWorkspace(workspaceId: string): Promise<{ deleted: true }> {

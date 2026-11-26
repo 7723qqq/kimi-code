@@ -1,7 +1,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
 
-import type { Workspace } from './project';
+import type { Project } from './project';
 
 export interface PersistedProjectEntry {
   readonly root: string;
@@ -35,7 +35,7 @@ export interface PersistedProjectsFile {
 }
 
 export interface WorkspaceCatalog {
-  readonly workspaces: readonly Workspace[];
+  readonly workspaces: readonly Project[];
   readonly deletedIds: readonly string[];
   readonly idempotencyKeys?: Readonly<Record<string, string>>;
 }

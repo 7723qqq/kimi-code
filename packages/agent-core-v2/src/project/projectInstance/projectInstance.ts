@@ -1,4 +1,4 @@
-import type { Workspace } from '#/app/project/project';
+import type { Project } from '#/app/project/project';
 import { Program, type ProgramSnapshot } from '#/program/program';
 import type { ProgramDependencies } from '#/program/programDependencies';
 import type { IEnvironmentService } from '#/app/environment/environment';
@@ -7,18 +7,18 @@ import type { IProjectContext } from '#/project/projectContext/projectContext';
 export type WorkspaceInstanceLifecycle = 'materializing' | 'active' | 'closing' | 'disposed';
 
 export interface WorkspaceInstanceSnapshot {
-  readonly metadata: Workspace;
+  readonly metadata: Project;
   readonly lifecycle: WorkspaceInstanceLifecycle;
   readonly program: ProgramSnapshot;
 }
 
-export class WorkspaceInstance {
+export class ProjectInstance {
   readonly program: Program;
   private lifecycle: WorkspaceInstanceLifecycle = 'materializing';
-  private metadataValue: Workspace;
+  private metadataValue: Project;
 
   constructor(
-    metadata: Workspace,
+    metadata: Project,
     environments: IEnvironmentService,
     context: IProjectContext,
     dependencies: ProgramDependencies,
@@ -29,11 +29,11 @@ export class WorkspaceInstance {
     this.program = new Program(metadata.id, environments, liveContext, dependencies);
   }
 
-  get metadata(): Workspace {
+  get metadata(): Project {
     return this.metadataValue;
   }
 
-  update(metadata: Workspace): void {
+  update(metadata: Project): void {
     this.metadataValue = metadata;
   }
 
