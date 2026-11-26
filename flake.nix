@@ -166,6 +166,7 @@
       workspacePaths = [
         ./packages/acp-server
         ./packages/agent-core-v2
+        ./packages/core
         ./packages/i18n
         ./packages/i18n-shared
         ./packages/kap-server
@@ -181,6 +182,7 @@
         ./packages/runtime-shared
         ./packages/session-import
         ./packages/telemetry
+        ./packages/testkit
         ./packages/transcript
         ./packages/tree-sitter-bash
         ./apps/kimi-code
