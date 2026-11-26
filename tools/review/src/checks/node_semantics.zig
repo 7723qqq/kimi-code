@@ -140,6 +140,14 @@ const NOT_PAIRED = [_][]const u8{
 /// are the Node variant of a package that also ships a runtime-agnostic
 /// `common/` half, and `packages/product/test/entry-points.test.ts` typechecks
 /// them with the `node` types alone — a `Bun.*` call there fails that test.
+///
+/// The desktop app mixes runtimes. Its main, preload and renderer processes
+/// run in Electron and Chromium, and several of its scripts are launched with
+/// `node` by `package.json` (`dev`, `postinstall`, and the root `sync:web`),
+/// even though sibling scripts in the same directory run under Bun. The
+/// testkit fixtures are also imported by Playwright's Node runner, so a
+/// top-level `Bun.*` global there fails before a test starts. These paths get
+/// no native pairing: the suggested call would not resolve in that process.
 const NON_BUN_PATHS = [_][]const u8{
     "packages/pi-tui",
     "packages/transcript",
@@ -147,9 +155,20 @@ const NON_BUN_PATHS = [_][]const u8{
     "packages/product/src/client-configs/node",
     "packages/product/src/session-rating/node",
     "packages/product/src/shared/node",
+    "packages/testkit/src/fixtures",
     "apps/vscode",
     "apps/kimi-inspect",
     "apps/vis/web",
+    "apps/desktop/src/main",
+    "apps/desktop/src/preload",
+    "apps/desktop/src/renderer",
+    "apps/desktop/scripts/browser-aot-plugin.mjs",
+    "apps/desktop/scripts/check-screenshot-editor.mjs",
+    "apps/desktop/scripts/check-screenshot-pin.mjs",
+    "apps/desktop/scripts/dev.mjs",
+    "apps/desktop/scripts/kimi-core-version.mjs",
+    "apps/desktop/scripts/rebuild-native.mjs",
+    "apps/kimi-code/scripts/sync-web-dist.mjs",
 };
 
 pub fn runNative(ctx: *check.Context) !void {
@@ -908,6 +927,24 @@ test "isBunHosted excludes the Node-only and browser-safe packages" {
     try testing.expect(!isBunHosted("packages/i18n-shared/src/x.ts"));
     try testing.expect(!isBunHosted("apps/vscode/src/x.ts"));
     try testing.expect(!isBunHosted("apps/vis/web/src/x.tsx"));
+}
+
+test "isBunHosted excludes Electron processes and node-launched scripts" {
+    try testing.expect(!isBunHosted("apps/desktop/src/main/x.ts"));
+    try testing.expect(!isBunHosted("apps/desktop/src/preload/x.ts"));
+    try testing.expect(!isBunHosted("apps/desktop/src/renderer/x.ts"));
+    try testing.expect(!isBunHosted("apps/desktop/scripts/dev.mjs"));
+    try testing.expect(!isBunHosted("apps/desktop/scripts/rebuild-native.mjs"));
+    try testing.expect(!isBunHosted("apps/desktop/scripts/browser-aot-plugin.mjs"));
+    try testing.expect(!isBunHosted("apps/desktop/scripts/kimi-core-version.mjs"));
+    try testing.expect(!isBunHosted("apps/desktop/scripts/check-screenshot-editor.mjs"));
+    try testing.expect(!isBunHosted("apps/desktop/scripts/check-screenshot-pin.mjs"));
+    try testing.expect(!isBunHosted("apps/kimi-code/scripts/sync-web-dist.mjs"));
+    try testing.expect(!isBunHosted("packages/testkit/src/fixtures/repo.ts"));
+
+    // A Bun-run sibling in the same tree must stay in scope.
+    try testing.expect(isBunHosted("apps/desktop/scripts/test.mjs"));
+    try testing.expect(isBunHosted("packages/testkit/src/model/index.ts"));
 }
 
 test "a Node call with a Bun lookalike that disagrees stays unpaired" {
