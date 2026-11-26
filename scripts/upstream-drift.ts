@@ -70,6 +70,7 @@ export interface AnalysisOptions {
   readonly pathsPath?: string;
   readonly ledgerPath?: string;
   readonly fast?: boolean;
+  readonly onlySha?: string;
 }
 
 interface GitResult {
@@ -456,7 +457,9 @@ export function analyzeUpstream(options: AnalysisOptions): {
     const tree = forkTree(cwd);
     const blobs = blobSet(tree);
     const subjects = subjectIndex(cwd, base);
-    const commits = listCommits(cwd, `${base}..${upstream}`);
+    const commits = listCommits(cwd, `${base}..${upstream}`).filter((commit) =>
+      options.onlySha === undefined ? true : commit.sha.startsWith(options.onlySha),
+    );
     const patchPath = join(tempDir, 'change.patch');
     const analyses = commits.map((commit) =>
       analyzeCommit(options, commit, { indexPath, patchPath, tree, blobs, subjects, config, ledger }),
@@ -684,6 +687,7 @@ function main(): void {
     pathsPath: args.pathsPath,
     ledgerPath: args.ledgerPath,
     fast: args.fast,
+    onlySha: args.command === '--explain' ? args.explain : undefined,
   });
   if (args.command === '--explain') {
     const analysis = result.analyses.find((candidate) => candidate.sha.startsWith(args.explain ?? ''));

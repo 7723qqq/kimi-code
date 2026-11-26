@@ -102,6 +102,16 @@ describe('upstream-drift', () => {
       expect(fastBySha.get(testSha)?.status).toBe('test-missing');
       expect(fastBySha.get(platformSha)?.status).toBe('platform-missing');
       expect(fastBySha.get(renameSha)?.status).toBe('missing');
+
+      const only = analyzeUpstream({
+        cwd: root,
+        upstream: 'upstream',
+        base,
+        pathsPath: '.upstream/drift-paths.json',
+        onlySha: missingSha,
+      });
+      expect(only.analyses).toHaveLength(1);
+      expect(only.analyses[0]?.status).toBe('missing');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
