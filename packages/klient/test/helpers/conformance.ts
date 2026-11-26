@@ -71,13 +71,13 @@ export function defineKlientConformance(
       expect(env.clientVersion.length).toBeGreaterThan(0);
     });
 
-    it('workspaces round-trip through create/get/update/list/delete', async () => {
+    it('workspaces round-trip through resolve/get/update/list/delete', async () => {
       const workspaces = target.klient.global.workspaces;
-      const created = await workspaces.createOrTouch({ root: process.cwd(), name: 'conformance' });
+      const created = await workspaces.resolveImplicit(process.cwd());
       expect(created.id.length).toBeGreaterThan(0);
 
       const fetched = await workspaces.get(created.id);
-      expect(fetched?.name).toBe('conformance');
+      expect(fetched?.id).toBe(created.id);
 
       const updated = await workspaces.update({ id: created.id, patch: { name: 'conformance-2' } });
       expect(updated?.name).toBe('conformance-2');

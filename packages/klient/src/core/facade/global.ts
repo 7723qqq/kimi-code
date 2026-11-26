@@ -139,7 +139,7 @@ export interface GlobalSessionsFacade {
 export interface GlobalWorkspacesFacade {
   list(): Promise<readonly Project[]>;
   get(id: string): Promise<Project | undefined>;
-  createOrTouch(input: { root: string; name?: string }): Promise<Project>;
+  resolveImplicit(dir: string): Promise<Project>;
   update(input: { id: string; patch: ProjectUpdate }): Promise<Project | undefined>;
   delete(id: string): Promise<void>;
 }
@@ -407,8 +407,8 @@ export function createGlobalFacade(
     workspaces: {
       list: () => call('workspaceService', 'list', []) as Promise<readonly Project[]>,
       get: (id) => call('workspaceService', 'get', [id]) as Promise<Project | undefined>,
-      createOrTouch: ({ root, name }) =>
-        call('workspaceService', 'createOrTouch', [root, name]) as Promise<Project>,
+      resolveImplicit: (dir) =>
+        call('workspaceService', 'resolveImplicit', [dir]) as Promise<Project>,
       update: ({ id, patch }) =>
         call('workspaceService', 'update', [id, patch]) as Promise<Project | undefined>,
       delete: (id) => call('workspaceService', 'delete', [id]) as Promise<void>,

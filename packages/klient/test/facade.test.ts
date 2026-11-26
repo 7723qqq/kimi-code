@@ -84,11 +84,11 @@ describe('facade routing', () => {
       createdAt: 1,
       lastOpenedAt: 2,
     };
-    await klient.global.workspaces.createOrTouch({ root: '/x', name: 'n' });
+    await klient.global.workspaces.resolveImplicit('/x');
     expect(channel.calls[0]).toMatchObject({
       service: 'workspaceService',
-      method: 'createOrTouch',
-      args: ['/x', 'n'],
+      method: 'resolveImplicit',
+      args: ['/x'],
     });
 
     channel.result = undefined; // void output
