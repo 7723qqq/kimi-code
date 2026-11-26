@@ -104,7 +104,7 @@
 | 上游 #4965 删除 KAP 的预测提示、会话子代理、goal 编辑与 session abort 等“废弃”接口，并把 prompts abort 收窄为 abort-only；fork 的 klient/SDK 与桌面/TUI 仍在调用这些接口 | 照搬删除会让 `predictNextPrompt`、goal 编辑、子代理列表与会话 abort 立即失效；fork 的 `cancel` 动作已用自有 `cancelSessionRequestSchema` 提供等价能力 | 有意偏离：保留这些 KAP 接口与 schema，abort→cancel 以 fork 的 `cancel` 动作为准；本行随台账 #4965 记为 not-applicable，删除需先移除对应客户端能力 |
 
 | 上游 #5337 用 `loopLifecycleEvents` 能力标志把 `turn.ended.loopEnd`（drained/idle）接到 TUI：phase 置 waiting、`finalizeLoopEnd` 出队并写通知；fork 从未载入该能力标志，也没有 `finalizeLoopEnd`/`resumeLoopEnd` | 照搬会让 TUI 在 loop 排水时提前把 phase 变成 waiting，与 fork 的 queuedMessageDispatchPending/turnScoped notify 语义冲突 | 有意偏离：引擎侧保留 loopEnd 计算与 wire 字段（core loop-actor 的 postTurnLoopEnd/settleLoopEnd + closeUnfinished(followedByWork) 已落地，record 测试覆盖 idle），TUI 继续按既有 turn 语义收尾、忽略 loopEnd；要接 UI 需先设计 fork 自己的能力标志与 queued 出队时序 |
-| 上游 2.8 的 Workspace → Project 重命名（#5206） | fork 的 `Workspace` 是引擎内的目录命名空间，不是生命周期层级；`AGENTS.md`/`DEVELOP.md` 明确保留该术语，320 文件改名会与 fork 的 workspace 服务、KAP 投影和文档冲突 | 有意偏离：不执行 #5206 的改名；后续依赖 project 命名的提交（#5204/#5292）按 workspace 语义适配，#5206 记 equivalent |
+| 上游 2.8 的 Workspace → Project 重命名（#5206） | 2026-11-26 起跟随上游：文件和符号统一用 Project，避免后续同步时同一概念两套名字；fork 独有功能保留 | 执行 #5206 的机械改名（106 文件移动、443 处 import、104 个顶层声明），按上游的“保留项”清单保留 DI/state/event/配置/持久化字符串与 workspaceId 等成员名；fork 功能在改名后重新接回 |
 
 ## 每条的落地顺序
 
