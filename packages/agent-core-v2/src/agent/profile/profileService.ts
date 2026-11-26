@@ -45,7 +45,13 @@ import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notif
 import { EXIT_PLAN_MODE_TOOL_NAME } from '#/features/plan/tools/exit-plan-mode/exit-plan-mode';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { TODO_LIST_TOOL_NAME } from '#/features/todo/todoItem';
-import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm-adapter/contract/capability';
+import {
+  fromLlmModelSpec,
+  toLlmCapability,
+  UNKNOWN_CAPABILITY,
+  type ModelCapability,
+} from '#/provider-catalog/capability';
+import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { type ModelRequestParams, type SamplingOptions } from '#/llm-adapter/model/model-requester';
 import { type ModelOverrides } from '#/llm-adapter/model/model.types';
@@ -556,7 +562,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     const model = this.tryResolveRawModel();
     return {
       modelAlias: this.modelAlias,
-      modelCapabilities: model?.capabilities ?? UNKNOWN_CAPABILITY,
+      modelCapabilities: capabilityOf(model),
       profileName: this.profileName,
       thinkingLevel: this.thinkingLevel,
       systemPrompt: this.systemPrompt,
@@ -580,7 +586,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     const loopControl = this.config.get<LoopControl>('loopControl');
     return {
       modelAlias,
-      modelCapabilities: model.capabilities,
+      model: toLlmModelSpec(model),
       maxOutputSize: model.maxOutputSize,
       alwaysThinking: model.alwaysThinking || undefined,
       thinkingLevel: this.resolveThinkingState(model).effective,
@@ -613,7 +619,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   }
 
   getModelCapabilities(): ModelCapability {
-    return this.tryResolveRawModel()?.capabilities ?? UNKNOWN_CAPABILITY;
+    return capabilityOf(this.tryResolveRawModel());
   }
 
   getModelProviderType(alias?: string): string | undefined {
@@ -1197,6 +1203,30 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return normalizeRequestedThinkingEffort(level) ?? level;
   }
 
+}
+
+function capabilityOf(model: Model | undefined): ModelCapability {
+  if (model === undefined) return UNKNOWN_CAPABILITY;
+  const capability = fromLlmModelSpec(toLlmModelSpec(model));
+  return model.capabilities.pdf_in === undefined
+    ? capability
+    : { ...capability, pdf_in: model.capabilities.pdf_in };
+}
+
+function toLlmModelSpec(model: Model): LlmModelSpec {
+  return {
+    provider: model.providerType ?? '',
+    name: model.name,
+    capability: toLlmCapability(model.capabilities),
+    thinking: {
+      supportEfforts: model.supportEfforts,
+      defaultEffort: model.defaultEffort,
+      alwaysThinking: model.alwaysThinking,
+      adaptiveThinking: model.adaptiveThinking,
+    },
+    maxContextSize: model.capabilities.max_context_tokens,
+    maxInputSize: model.capabilities.max_input_tokens,
+  };
 }
 
 registerScopedService(

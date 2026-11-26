@@ -56,6 +56,7 @@ import {
   type ModelRequestTiming,
 } from '#/llm-adapter/model/model-requester';
 import type { ModelOverrides } from '#/llm-adapter/model/model.types';
+import { fromLlmModelSpec } from '#/provider-catalog/capability';
 import { IModelService } from '#/llm-adapter/model/model';
 import { streamWithCredentialRecovery } from '#/llm-adapter/model/credential-recovery';
 import { completionBudgetParams, resolveCompletionBudget } from '#/llm-adapter/model/completion-budget';
@@ -950,7 +951,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         maxOutputSize: overrides.maxOutputSize ?? resolved.maxOutputSize,
         maxCompletionTokensCap,
       }),
-      capability: resolved.modelCapabilities,
+      capability: fromLlmModelSpec(resolved.model),
       usedContextTokens,
     });
     const optedOut = maxCompletionTokensCap !== undefined && maxCompletionTokensCap <= 0;

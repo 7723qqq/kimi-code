@@ -317,7 +317,13 @@ function createService(
     hasProvider: () => true,
     resolveModelContext: () => ({
       modelAlias: options.modelAlias?.() ?? 'm',
-      modelCapabilities: capabilities,
+      model: {
+        provider: 'test',
+        name: options.modelAlias?.() ?? 'm',
+        capability: capabilities,
+        maxContextSize: capabilities.max_context_tokens,
+        maxInputSize: capabilities.max_input_tokens,
+      },
       maxOutputSize: undefined,
       alwaysThinking: undefined,
       thinkingLevel,

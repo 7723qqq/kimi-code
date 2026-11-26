@@ -69,7 +69,7 @@ import { IProviderCatalogService } from '#/provider-catalog/providerCatalogServi
 import { resolveMaxOutputTokens } from '#/provider-catalog/model/completion-budget';
 import type { ModelOverrides } from '#/provider-catalog/model/model.types';
 import type { LlmRequestModel, ThinkingEffort } from '@moonshot-ai/core/llm/request';
-import type { ModelCapability } from '#/llm-adapter/contract/capability';
+import type { ModelCapability } from '#/provider-catalog/capability';
 import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
 import { toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import { isRetryableGenerateError, llmMessageFromError } from '#/llm-adapter/contract/errors';

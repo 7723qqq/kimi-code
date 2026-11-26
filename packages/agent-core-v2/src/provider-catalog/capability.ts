@@ -1,3 +1,4 @@
+import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';
 import type { ModelCapability as LlmModelCapability } from '#human/llm/capability';
 
 export interface ModelCapability {
@@ -61,5 +62,19 @@ export function toLlmCapability(capability: ModelCapability): LlmModelCapability
     tool_use: capability.tool_use,
     pdf_in: capability.pdf_in,
     dynamically_loaded_tools: capability.dynamically_loaded_tools,
+  };
+}
+
+export function fromLlmModelSpec(spec: LlmModelSpec | undefined): ModelCapability {
+  if (spec === undefined || spec.capability === undefined) return UNKNOWN_CAPABILITY;
+  return {
+    image_in: spec.capability.image_in ?? false,
+    video_in: spec.capability.video_in ?? false,
+    audio_in: spec.capability.audio_in ?? false,
+    thinking: spec.capability.thinking ?? false,
+    tool_use: spec.capability.tool_use ?? false,
+    max_context_tokens: spec.maxContextSize ?? 0,
+    max_input_tokens: spec.maxInputSize,
+    dynamically_loaded_tools: spec.capability.dynamically_loaded_tools ?? false,
   };
 }

@@ -6,9 +6,10 @@ import type {
   EnvironmentDisclosureSnapshot,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { ErrorCode } from '#/errors';
-import type { ModelCapability } from '#/llm-adapter/contract/capability';
+import type { ModelCapability } from '#/provider-catalog/capability';
 import type { ProfileUpdatePlan } from './profileOps';
 import type { ModelRequestParams } from '#/llm-adapter/model/model-requester';
+import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';
 import type { ThinkingEffort } from '#human/llm/thinking';
 
 import type { ProfileErrors } from './errors';
@@ -89,7 +90,7 @@ export interface ApplyProfileOptions {
 
 export interface ProfileModelContext {
   readonly modelAlias: string;
-  readonly modelCapabilities: ModelCapability;
+  readonly model: LlmModelSpec;
   readonly maxOutputSize: number | undefined;
   readonly alwaysThinking: boolean | undefined;
   readonly thinkingLevel: ThinkingEffort;
