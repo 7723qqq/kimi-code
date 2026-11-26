@@ -238,7 +238,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     const sessionId = opts.sessionId ?? createSessionId();
     const environment = sessionEnvironment(opts.environmentId, opts.environmentCwd);
     const workDir = this.sessionWorkDir(opts.workDir, environment);
-    const effective = { ...opts, workDir };
+    const effective = { ...opts, workDir: opts.workDir };
     const workdir = await this.openWorkdir(environment, workDir);
     await workdir.skills
       .reloadSources(SESSION_CREATE_RELOAD_SKILL_SOURCES)
