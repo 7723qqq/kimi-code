@@ -426,6 +426,5 @@ export class WaitForTool implements IWaitForTool {
 registerAgentToolService(IWaitForTool, WaitForTool, {
   name: 'WaitFor',
   domain: 'agentTask',
-  userConfigurable: true,
   when: (accessor) => accessor.get(IFlagService).enabled(WAIT_FOR_FLAG_ID),
 });

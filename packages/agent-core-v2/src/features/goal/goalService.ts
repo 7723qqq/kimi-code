@@ -301,7 +301,8 @@ function isObjectiveEditedSinceTurnStart(context: GoalOperationContext, turnId: 
 }
 
 function assertGoalDriverAvailable(context: GoalOperationContext): void {
-  if (context.runtime.get(IAgentToolPolicyService).isToolActive('UpdateGoal')) return;
+  const policy = context.runtime.get(IAgentToolPolicyService);
+  if (policy.isToolActive('UpdateGoal') || policy.isToolActiveForDisclosure('UpdateGoal')) return;
   throw new Error2(
     ErrorCodes.VALIDATION_FAILED,
     'Goal mode requires the UpdateGoal tool; enable it before creating or resuming a goal',

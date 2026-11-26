@@ -26,6 +26,7 @@ import {
 } from '../protocol/rest-tool';
 import type { ToolDescriptor } from '../protocol/tool';
 import { ensureMainAgent } from '../transport/mainAgent';
+import { USER_CONFIGURABLE_BUILTIN_TOOL_NAMES } from './toolCatalog';
 
 const MCP_NAME_PREFIX = 'mcp__';
 const MCP_NAME_SEPARATOR = '__';
@@ -63,7 +64,9 @@ export function registerToolsRoutes(app: ToolsRouteHost, core: Scope): void {
         : [];
       const entries = core.instantiation
         .createInstance<ToolCatalog>(new SyncDescriptor(ToolCatalog))
-        .contributions.items.filter((contribution) => contribution.options.userConfigurable === true)
+        .contributions.items.filter((contribution) =>
+          USER_CONFIGURABLE_BUILTIN_TOOL_NAMES.has(contribution.options.name),
+        )
         .map((contribution) => ({
           name: contribution.options.name,
           source: contribution.options.source ?? 'builtin',

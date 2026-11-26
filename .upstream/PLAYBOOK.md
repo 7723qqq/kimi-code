@@ -106,6 +106,8 @@
 | 上游 #5337 用 `loopLifecycleEvents` 能力标志把 `turn.ended.loopEnd`（drained/idle）接到 TUI：phase 置 waiting、`finalizeLoopEnd` 出队并写通知；fork 从未载入该能力标志，也没有 `finalizeLoopEnd`/`resumeLoopEnd` | 照搬会让 TUI 在 loop 排水时提前把 phase 变成 waiting，与 fork 的 queuedMessageDispatchPending/turnScoped notify 语义冲突 | 有意偏离：引擎侧保留 loopEnd 计算与 wire 字段（core loop-actor 的 postTurnLoopEnd/settleLoopEnd + closeUnfinished(followedByWork) 已落地，record 测试覆盖 idle），TUI 继续按既有 turn 语义收尾、忽略 loopEnd；要接 UI 需先设计 fork 自己的能力标志与 queued 出队时序 |
 | 上游 2.8 的 Workspace → Project 重命名（#5206） | 2026-11-26 起跟随上游：文件和符号统一用 Project，避免后续同步时同一概念两套名字；fork 独有功能保留 | 执行 #5206 的机械改名（106 文件移动、443 处 import、104 个顶层声明），按上游的“保留项”清单保留 DI/state/event/配置/持久化字符串与 workspaceId 等成员名；fork 功能在改名后重新接回 |
 
+| 上游 #5489 回退了 #5351（内置工具设置与模式可用性） | fork 保留该功能；照搬回退会删掉桌面/Web 设置页、`GET /tools/catalog`、四个模式守卫和 22 个工具文件的配置入口 | 有意偏离（用户决定两边都保留）：只采纳回退的引擎侧收敛，把 22 个工具文件里的 `userConfigurable` 收进 `packages/kap-server/src/routes/toolCatalog.ts` 的中心清单；KAP catalog/config/agent-state、模式守卫、桌面/Web UI 全部保留。`#5351` 行随之成为 fork-only；catalog 由 `packages/kap-server/test/tools.test.ts` 的 39 项全量断言钉住（26 核心 + 13 Tower）。上游以后动工具定义文件不再冲突 |
+
 ## 每条的落地顺序
 
 1. `git show <sha>` 读上游改动

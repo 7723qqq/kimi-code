@@ -307,7 +307,6 @@ export class BashTool implements IBashTool {
 registerAgentToolService(IBashTool, BashTool, {
   name: 'Bash',
   domain: 'os/backends',
-  userConfigurable: true,
   requiredEnvironmentCapabilities: ['process'],
 });
 

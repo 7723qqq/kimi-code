@@ -157,15 +157,49 @@ describe('server /api/v1 tools', () => {
       expect(tools.map((tool) => tool.name)).toEqual(
         tools.map((tool) => tool.name).toSorted((left, right) => left.localeCompare(right)),
       );
-      expect(tools).toContainEqual({ name: 'Bash', source: 'builtin' });
-      expect(tools).toContainEqual({ name: 'Read', source: 'builtin' });
-      expect(tools).toContainEqual({ name: 'Skill', source: 'builtin' });
-      expect(tools).toContainEqual({ name: 'TodoList', source: 'builtin' });
-      expect(tools).toContainEqual({ name: 'TowerInit', source: 'builtin' });
-      expect(tools).toContainEqual({ name: 'TowerSpawn', source: 'builtin' });
-      expect(tools).toContainEqual({ name: 'TowerTeardown', source: 'builtin' });
-      expect(tools).toContainEqual({ name: 'TowerSend', source: 'builtin' });
-      expect(tools).toContainEqual({ name: 'TowerComplete', source: 'builtin' });
+      expect(tools).toEqual(
+        [
+          'Agent',
+          'AgentSwarm',
+          'AskUserQuestion',
+          'Bash',
+          'CreateGoal',
+          'CronCreate',
+          'CronDelete',
+          'CronList',
+          'Edit',
+          'ExitPlanMode',
+          'FetchURL',
+          'GetGoal',
+          'Glob',
+          'Grep',
+          'NotifyUser',
+          'Read',
+          'SetGoalBudget',
+          'Skill',
+          'TaskList',
+          'TaskOutput',
+          'TaskStop',
+          'TodoList',
+          'TowerComplete',
+          'TowerFinding',
+          'TowerInbox',
+          'TowerInit',
+          'TowerMerge',
+          'TowerMission',
+          'TowerPlan',
+          'TowerRebase',
+          'TowerReview',
+          'TowerSend',
+          'TowerSpawn',
+          'TowerStatus',
+          'TowerTeardown',
+          'UpdateGoal',
+          'WaitFor',
+          'WebSearch',
+          'Write',
+        ].map((name) => ({ name, source: 'builtin' })),
+      );
       expect(new Set(tools.map((tool) => tool.name)).size).toBe(tools.length);
       expect(tools.some((tool) => tool.name === 'select_tools')).toBe(false);
     });

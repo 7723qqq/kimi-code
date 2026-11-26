@@ -108,5 +108,4 @@ function describeErrorCause(error: unknown): string {
 registerAgentToolService(IFetchURLTool, FetchURLTool, {
   name: 'FetchURL',
   domain: 'web',
-  userConfigurable: true,
 });

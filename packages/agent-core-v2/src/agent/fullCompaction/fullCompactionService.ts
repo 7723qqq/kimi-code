@@ -34,7 +34,7 @@ import { IAgentTaskService } from '#/agent/task/task';
 import { IAssociativeMemoryService } from '#/features/associativeMemory/service';
 import { OrderedHookSlot } from '#/hooks';
 import { APIContextOverflowError } from '#/llm-adapter/contract/errors';
-import { createUserMessage, toLlmMessage, type Message } from '#/llm-adapter/contract/message';
+import { toLlmMessage, type Message } from '#/llm-adapter/contract/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
@@ -61,8 +61,6 @@ import {
   assistantUsageTotal,
   buildHistoryTokenProfile,
   findAPIStatusError,
-  takeRecentMessagesWithinTokenBudget,
-  type HistoryTokenProfile,
 } from './compactionUtils';
 import {
   IAgentFullCompactionService,
@@ -301,6 +299,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     estimatedRequestTokens = this.currentRequestTokens(),
   ): boolean {
     if (isCodedError(error) && error.code === ErrorCodes.CONTEXT_OVERFLOW) return true;
+    if (isContextOverflowPayload(error)) return true;
     const statusError = findAPIStatusError(error);
     if (statusError instanceof APIContextOverflowError) return true;
     if (statusError === undefined || statusError.statusCode !== 413) return false;
@@ -647,7 +646,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       const compactionMaxOutputSize = resolvedModel.maxOutputSize ?? defaultCompactionCap;
 
       const instruction = renderCompactionInstruction({ customInstruction: data.instruction });
-      const instructionMessage = createUserMessage(instruction);
       const tokenProfile = buildHistoryTokenProfile(
         originalHistory,
         this.requestTokens([]),
@@ -668,8 +666,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         tools: this.defaultTools().filter((tool) => tool.deferred !== true),
         getEffectiveMaxContextTokens: () => this.getEffectiveMaxContextTokens(),
         llmRequester: this.llmRequester,
-        preShrinkHistory: (history, maxOutputSize) =>
-          this.preShrinkHistoryToWindowBudget(history, instructionMessage, maxOutputSize, tokenProfile),
         shouldRecoverFromContextOverflow: (error, estimatedTokens) =>
           this.shouldRecoverFromContextOverflow(error, estimatedTokens),
         observeContextOverflow: (estimatedTokens) => this.observeContextOverflow(estimatedTokens),
@@ -755,33 +751,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     }
   }
 
-  private preShrinkHistoryToWindowBudget(
-    history: readonly ContextMessage[],
-    instructionMessage: Message,
-    compactionMaxOutputSize: number | undefined,
-    tokenProfile: HistoryTokenProfile,
-  ): readonly ContextMessage[] {
-    const effectiveMaxTokens = this.getEffectiveMaxContextTokens();
-    if (effectiveMaxTokens <= 0) return history;
-    const outputReserve =
-      compactionMaxOutputSize === undefined
-        ? Math.floor(effectiveMaxTokens / 8)
-        : Math.min(compactionMaxOutputSize, Math.floor(effectiveMaxTokens / 8));
-    const inputLimit = effectiveMaxTokens - outputReserve;
-    const totalInputTokens =
-      this.historyRequestTokens(history) + this.tokenCounting.estimateMessage(instructionMessage);
-    if (totalInputTokens <= inputLimit) return history;
-    const messageBudget =
-      Math.floor(inputLimit * OVERFLOW_CONTEXT_SAFETY_RATIO) - tokenProfile.overheadTokens;
-    if (messageBudget <= 0) return history;
-    const preShrunk = takeRecentMessagesWithinTokenBudget(
-      history,
-      messageBudget,
-      tokenProfile.estimateMessage,
-    );
-    return preShrunk.length === 0 ? history : preShrunk;
-  }
-
   private inFlightTurnOf(history: readonly ContextMessage[]): ContextMessage[] {
     if (this.loopService.snapshot().state !== 'running') return [];
     let lastUserIndex = -1;
@@ -800,6 +769,14 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     const usageAnchored = this.usageAnchoredRequestTokens(this.context.get());
     return usageAnchored === undefined ? counted : Math.max(counted, usageAnchored);
   }
+}
+
+function isContextOverflowPayload(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { kind?: unknown }).kind === 'context_overflow'
+  );
 }
 
 function usageTelemetry(usage: TokenUsage | null): CompactionTelemetryProperties {

@@ -5,7 +5,6 @@ import {
 } from '#/llm-adapter/contract/errors';
 import { createUserMessage, type Message, type ToolDescription } from '#/llm-adapter/contract/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import { runWithCredentialRecovery } from '#/llm-adapter/model/credential-recovery';
 import type { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { unwrapErrorCause } from '#/errors';
 
@@ -13,7 +12,6 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
   collectSummary,
   CompactionTruncatedError,
-  dropOldestMessageAndLeadingToolResults,
   shrinkCompactionHistoryAfterOverflow,
   snipLargeToolResults,
   type CompactionAttemptResult,
@@ -39,10 +37,6 @@ export interface CompactionGenerationDeps {
   readonly tools?: readonly ToolDescription[];
   readonly getEffectiveMaxContextTokens: () => number;
   readonly llmRequester: IAgentLLMRequesterService;
-  readonly preShrinkHistory: (
-    history: readonly ContextMessage[],
-    maxOutputSize: number | undefined,
-  ) => readonly ContextMessage[];
   readonly shouldRecoverFromContextOverflow: (error: unknown, estimatedTokens: number) => boolean;
   readonly observeContextOverflow: (estimatedTokens: number) => void;
   readonly setTrace: (trace: LLMRequestTrace) => void;
@@ -68,7 +62,6 @@ export async function generateCompactionSummary(
     tools,
     getEffectiveMaxContextTokens,
     llmRequester,
-    preShrinkHistory,
     shouldRecoverFromContextOverflow,
     observeContextOverflow,
     setTrace,
@@ -79,9 +72,6 @@ export async function generateCompactionSummary(
   let overflowShrinkCount = 0;
   let requestAttempts = 0;
   let cacheProbePending = true;
-  const preShrunkHistory = preShrinkHistory(historyForModel, compactionMaxOutputSize);
-  droppedCount += historyForModel.length - preShrunkHistory.length;
-  historyForModel = preShrunkHistory;
   while (true) {
     const messagesToCompact = historyForModel;
     const snipped = snipLargeToolResults(messagesToCompact);
@@ -93,6 +83,11 @@ export async function generateCompactionSummary(
         ? estimatedCompactionRequestTokens +
           Math.ceil(effectiveMaxTokens * COMPLETION_BUDGET_ESTIMATE_MARGIN_RATIO)
         : undefined;
+    const outputSqueezedByWindow =
+      effectiveMaxTokens > 0 &&
+      usedContextTokens !== undefined &&
+      compactionMaxOutputSize !== undefined &&
+      effectiveMaxTokens - usedContextTokens < compactionMaxOutputSize;
     requestAttempts += 1;
 
     try {
@@ -117,11 +112,7 @@ export async function generateCompactionSummary(
         setTrace(request.trace);
         return request.result;
       };
-      const result = await runWithCredentialRecovery(
-        llmRequester.currentCredentialProvider(),
-        runRequest,
-        signal,
-      );
+      const result = await runRequest();
       cacheProbePending = false;
       attempt = collectSummary(result);
       break;
@@ -130,8 +121,10 @@ export async function generateCompactionSummary(
         error,
         estimatedCompactionRequestTokens,
       );
-      if (isContextOverflow) {
-        observeContextOverflow(estimatedCompactionRequestTokens);
+      const truncatedForLackOfRoom =
+        error instanceof CompactionTruncatedError && outputSqueezedByWindow;
+      if (isContextOverflow || truncatedForLackOfRoom) {
+        if (isContextOverflow) observeContextOverflow(estimatedCompactionRequestTokens);
         overflowShrinkCount += 1;
         if (
           overflowShrinkCount > MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS ||
@@ -152,21 +145,6 @@ export async function generateCompactionSummary(
         continue;
       }
       const unwrappedError = unwrapErrorCause(error);
-      if (
-        (error instanceof CompactionTruncatedError ||
-          (unwrappedError instanceof APIEmptyResponseError &&
-            unwrappedError.finishReason !== 'filtered')) &&
-        messagesToCompact.length > 1
-      ) {
-        if (requestAttempts >= maxAttempts) {
-          throw error;
-        }
-        const reduced = dropOldestMessageAndLeadingToolResults(messagesToCompact);
-        droppedCount += messagesToCompact.length - reduced.length;
-        historyForModel = reduced;
-        state.retryCount = 0;
-        continue;
-      }
       if (!isRetryableGenerateError(unwrappedError)) {
         throw error;
       }

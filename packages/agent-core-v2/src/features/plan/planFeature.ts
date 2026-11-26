@@ -16,7 +16,6 @@ export class PlanFeature extends Feature {
     this.contributeTool(IExitPlanModeTool, ExitPlanModeTool, {
       name: EXIT_PLAN_MODE_TOOL_NAME,
       domain: 'plan',
-      userConfigurable: true,
     });
   }
 }

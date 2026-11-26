@@ -10,7 +10,6 @@ import { grandTotal } from '#human/llm/usage';
 export const COMPACTION_OVERFLOW_SHRINK_RATIOS = [0.7, 0.5, 0.35] as const;
 
 export interface HistoryTokenProfile {
-  readonly overheadTokens: number;
   readonly estimateMessage: (message: Message) => number;
   readonly estimateRequest: (messages: readonly Message[]) => number;
 }
@@ -38,7 +37,6 @@ export function buildHistoryTokenProfile(
   }
   if (anchors.length === 0) {
     return {
-      overheadTokens: baseOverheadTokens,
       estimateMessage: estimateBase,
       estimateRequest: (messages) => {
         let total = baseOverheadTokens;
@@ -83,7 +81,6 @@ export function buildHistoryTokenProfile(
   const estimateMessage = (message: Message): number =>
     byMessage.get(message) ?? estimateBase(message);
   return {
-    overheadTokens: baseOverheadTokens,
     estimateMessage,
     estimateRequest: (messages) => {
       let total = baseOverheadTokens;
@@ -209,13 +206,6 @@ export function takeRecentMessagesWithinTokenBudget<T extends Message>(
   }
   if (start === 0) start = 1;
   return dropLeadingToolResults(messages.slice(start));
-}
-
-export function dropOldestMessageAndLeadingToolResults<T extends { readonly role: string }>(
-  messages: readonly T[],
-): T[] {
-  if (messages.length <= 1) return messages.slice();
-  return dropLeadingToolResults(messages.slice(1));
 }
 
 export function dropLeadingToolResults<T extends { readonly role: string }>(

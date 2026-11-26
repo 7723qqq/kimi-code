@@ -96,7 +96,6 @@ export class TowerFeature extends Feature {
         this.contributeTool(tool.id, tool.ctor, {
           name: tool.name,
           domain: 'tower',
-          userConfigurable: true,
         });
         continue;
       }
@@ -111,7 +110,6 @@ export class TowerFeature extends Feature {
           name: tool.name,
           domain: 'tower',
           when: isTowerWorkerProfile,
-          userConfigurable: true,
         },
       });
     }

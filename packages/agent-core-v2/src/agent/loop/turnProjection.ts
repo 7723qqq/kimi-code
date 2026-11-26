@@ -924,19 +924,23 @@ export class AgentTurnProjection {
     }
     if (turn.maxStepsError !== undefined || (outcome.type !== 'failed' && outcome.cause?.reason === MAX_STEPS_REASON)) {
       const error = turn.maxStepsError ?? createMaxStepsExceededError(this.options.maxSteps() ?? 0);
-      this.failStep(turn.id, turn.interruptStep ?? turn.steps, error);
       await this.endTurn(turn, { type: 'failed', steps: turn.steps, error }, undefined, continuation);
       return;
     }
     if (outcome.type === 'failed' || turn.failedStep !== undefined) {
       const error = turn.failedStep?.error ?? (outcome.type === 'failed' ? outcome.error : undefined) ?? new Error('Turn failed');
-      this.failStep(turn.id, turn.interruptStep ?? turn.steps, error);
+      const failedStep = turn.interruptStep ?? turn.failedStep?.number;
+      if (failedStep !== undefined && !isMaxStepsExceededError(error)) {
+        this.failStep(turn.id, failedStep, error);
+      }
       await this.endTurn(turn, { type: 'failed', steps: turn.steps, error }, undefined, continuation);
       return;
     }
     if (outcome.type === 'blocked') {
       const error = new Error2(ErrorCodes.INTERNAL, outcome.cause.message ?? outcome.cause.reason);
-      this.failStep(turn.id, turn.interruptStep ?? turn.steps, error);
+      if (turn.interruptStep !== undefined && !isMaxStepsExceededError(error)) {
+        this.failStep(turn.id, turn.interruptStep, error);
+      }
       await this.endTurn(turn, { type: 'failed', steps: turn.steps, error }, undefined, continuation);
       return;
     }
