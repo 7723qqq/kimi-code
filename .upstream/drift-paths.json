@@ -35,10 +35,14 @@
   ],
   "tests": [
     "**/test/**",
+    "**/tests/**",
+    "**/e2e/**",
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/*.test.mjs",
     "**/*.e2e.test.ts",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
     "tests/**",
     "**/testkit/**",
     "**/fixtures/**"

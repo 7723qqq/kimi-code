@@ -1,21 +1,20 @@
 {
   "version": 1,
-  "createdAt": "2026-11-26T23:25:18.906Z",
+  "createdAt": "2026-11-26T23:33:27.215Z",
   "upstream": "upstream/main",
   "base": "743f140978bddaf8b6aa524765fcd578f7c22fc9",
-  "fork": "6dc395fd6c",
+  "fork": "fb97c8360e",
   "mode": "fast",
   "counts": {
     "equivalent": 197,
     "platform-present": 29,
-    "test-present": 9,
-    "adapted": 139,
-    "partial": 14,
+    "test-present": 10,
+    "adapted": 138,
+    "partial": 12,
     "platform-missing": 4,
-    "platform-adapted": 37,
+    "platform-adapted": 40,
     "present": 9,
-    "test-adapted": 31,
-    "missing": 1
+    "test-adapted": 31
   },
   "commits": {
     "1011d8b63fcc150998a4710641563cd0f73369c9": {
@@ -1779,14 +1778,14 @@
       "subject": "feat(desktop): add transcript stability probe and perf scenarios (#5112)",
       "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=4 missing=0 adapted=5 test present=0 missing=0 adapted=1",
+      "evidence": "fast blob present=2 missing=0 adapted=2 test present=2 missing=0 adapted=4",
       "ledger": "ported"
     },
     "e86127f8b7a14264a2a3ce7c309e7e195baeda24": {
       "subject": "feat(desktop): rebuild conversation scrolling around a single scroll controller (#5113)",
       "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=35 missing=0 adapted=10 platform present=0 missing=2 adapted=1 test present=22 missing=0 adapted=4",
+      "evidence": "fast blob present=29 missing=0 adapted=10 platform present=0 missing=2 adapted=1 test present=28 missing=0 adapted=4",
       "ledger": "ported"
     },
     "ca71dc29525184b5fe81e1ac52911c8dd228b20b": {
@@ -1828,14 +1827,14 @@
       "subject": "chore: sync CLI 2.7.1 / Desktop 1.4.1 back to main (#5188)",
       "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=0 missing=15 adapted=33 platform present=2 missing=3 adapted=16 test present=0 missing=3 adapted=16",
+      "evidence": "fast blob present=0 missing=14 adapted=33 platform present=2 missing=3 adapted=16 test present=0 missing=4 adapted=16",
       "ledger": "not-applicable"
     },
     "09ddf45bbec6559451309d70444c021212c204d4": {
       "subject": "feat(sidebar): add pinned display mode switcher and collapsible section headers (#5143)",
       "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=6 missing=0 adapted=4 platform present=0 missing=2 adapted=0 test present=2 missing=0 adapted=1",
+      "evidence": "fast blob present=5 missing=0 adapted=4 platform present=0 missing=2 adapted=0 test present=3 missing=0 adapted=1",
       "ledger": "ported"
     },
     "4f5c01048540908acee3bdd9e8fa982b66067a0f": {
@@ -1870,14 +1869,14 @@
       "subject": "feat(session): add POST /sessions/{id}:continue and desktop/web continue UI (#5048)",
       "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=0 missing=1 adapted=28 platform present=0 missing=2 adapted=0 test present=0 missing=0 adapted=10",
+      "evidence": "fast blob present=0 missing=0 adapted=28 platform present=0 missing=2 adapted=0 test present=0 missing=1 adapted=10",
       "ledger": "ported"
     },
     "3f514458d21e650c802ffcbdabc6ed07fe1f471e": {
       "subject": "test: add layered QA gates for smoke, protocol recovery and history (#5138)",
       "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=0 missing=14 adapted=10 platform present=0 missing=20 adapted=21 test present=18 missing=14 adapted=49",
+      "evidence": "fast blob present=0 missing=3 adapted=5 platform present=0 missing=20 adapted=21 test present=18 missing=25 adapted=54",
       "ledger": "not-applicable"
     },
     "2e37a32081861654acaa06ad5f0d709b3cbe5915": {
@@ -1891,7 +1890,7 @@
       "subject": "fix(desktop): keep overlay menus closed when a late refresh arrives (#5199)",
       "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=0 missing=0 adapted=4 platform present=0 missing=1 adapted=0 test present=0 missing=0 adapted=5",
+      "evidence": "fast blob present=0 missing=0 adapted=3 platform present=0 missing=1 adapted=0 test present=0 missing=0 adapted=6",
       "ledger": "ported"
     },
     "83e4dde93453dd22e89da03d2c96d84999e7d0c2": {
@@ -2078,9 +2077,9 @@
     },
     "c0afa488185f456cb9f41bef3fc1194799572933": {
       "subject": "test(desktop): follow the new / and model menus in composer journeys (#5274)",
-      "status": "present",
-      "kind": "source",
-      "evidence": "fast blob present=3 missing=0 adapted=0",
+      "status": "test-present",
+      "kind": "test",
+      "evidence": "fast blob present=3 missing=0 adapted=0 test present=3 missing=0 adapted=0",
       "ledger": "ported"
     },
     "a3de86aa53dcbf1a911d19932caf525bf0d4d0bc": {
@@ -2129,14 +2128,14 @@
       "subject": "fix(agent-core-v2): return approved plan exits as successful tool results (#5295)",
       "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=0 missing=1 adapted=3 platform present=0 missing=4 adapted=0 test present=0 missing=0 adapted=4",
+      "evidence": "fast blob present=0 missing=0 adapted=3 platform present=0 missing=4 adapted=0 test present=0 missing=1 adapted=4",
       "ledger": "ported"
     },
     "83a4dfc24eac2b1b95d6a3481a2630f6c1657b9b": {
       "subject": "feat(app): refine context compaction queuing, status feedback, and summary panel (#5263)",
       "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=12 missing=0 adapted=19 platform present=0 missing=2 adapted=0 test present=3 missing=0 adapted=2",
+      "evidence": "fast blob present=12 missing=0 adapted=18 platform present=0 missing=2 adapted=0 test present=3 missing=0 adapted=3",
       "ledger": "ported"
     },
     "9dadda17606cf2c44b5e9e6f0b2d2425edd4be4d": {
@@ -2150,7 +2149,7 @@
       "subject": "feat(desktop): add opt-in feedback for conversations and replies (#5150)",
       "status": "partial",
       "kind": "source",
-      "evidence": "fast blob present=28 missing=12 adapted=52 platform present=0 missing=5 adapted=2 test present=1 missing=2 adapted=26",
+      "evidence": "fast blob present=28 missing=11 adapted=52 platform present=0 missing=5 adapted=2 test present=1 missing=3 adapted=26",
       "ledger": "equivalent"
     },
     "c0e9faf0bda52462e034d938f41a3aa48a2e6426": {
@@ -2199,7 +2198,7 @@
       "subject": "chore: sync release 2.7.3 and desktop 1.4.3 back to main (#5310)",
       "status": "partial",
       "kind": "source",
-      "evidence": "fast blob present=4 missing=5 adapted=28 platform present=8 missing=0 adapted=12 test present=2 missing=4 adapted=6",
+      "evidence": "fast blob present=4 missing=5 adapted=27 platform present=8 missing=0 adapted=12 test present=2 missing=4 adapted=7",
       "ledger": "ported"
     },
     "e0a50e870eb71f3af2bde72a20afa6dfdfce7e99": {
@@ -2311,7 +2310,7 @@
       "subject": "refactor(ui): consolidate duplicated UI components, tokens and styles (#5314)",
       "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=0 missing=94 adapted=23 platform present=0 missing=0 adapted=1 test present=0 missing=4 adapted=5",
+      "evidence": "fast blob present=0 missing=92 adapted=23 platform present=0 missing=0 adapted=1 test present=0 missing=6 adapted=5",
       "ledger": "equivalent"
     },
     "cafb392f8341d578afd3b725a8df8b1a87a9fcb0": {
@@ -2351,9 +2350,9 @@
     },
     "6536e55ead889e8bf7de6daf417801771b8b6852": {
       "subject": "feat(prediction): refine next-prompt interactions (#5180)",
-      "status": "partial",
+      "status": "adapted",
       "kind": "source",
-      "evidence": "fast blob present=5 missing=1 adapted=20 platform present=0 missing=3 adapted=3 test present=2 missing=0 adapted=11",
+      "evidence": "fast blob present=5 missing=0 adapted=20 platform present=0 missing=3 adapted=3 test present=2 missing=1 adapted=11",
       "ledger": "ported"
     },
     "1acd13b6206e23ffcaa3e3ec1f3f912dd2ae9e5a": {
@@ -2393,9 +2392,9 @@
     },
     "3ce987582728548b3634b19595166e813f2b3e1a": {
       "subject": "test(e2e): cover restart, approvals, queued messages, failures and questions (#5373)",
-      "status": "adapted",
-      "kind": "source",
-      "evidence": "fast blob present=0 missing=0 adapted=1 platform present=0 missing=0 adapted=1 test present=0 missing=31 adapted=17",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=0 adapted=1 platform present=0 missing=0 adapted=1 test present=0 missing=31 adapted=18",
       "ledger": "not-applicable"
     },
     "4f4dde7b8f008efa0483bde2ab3fb8111ddb1852": {
@@ -2535,7 +2534,7 @@
       "subject": "feat: group implicit projects by git repository (#5204)",
       "status": "partial",
       "kind": "source",
-      "evidence": "fast blob present=13 missing=8 adapted=77 platform present=8 missing=0 adapted=10 test present=10 missing=6 adapted=57",
+      "evidence": "fast blob present=12 missing=8 adapted=77 platform present=8 missing=0 adapted=10 test present=11 missing=6 adapted=57",
       "ledger": "ported"
     },
     "ed2c7241fa368b0597402d49a8251340ffc75273": {
@@ -2661,7 +2660,7 @@
       "subject": "chore: back-sync release/2026-11-25 to main (#5432)",
       "status": "partial",
       "kind": "source",
-      "evidence": "fast blob present=1 missing=12 adapted=27 platform present=105 missing=2 adapted=11 test present=0 missing=11 adapted=10",
+      "evidence": "fast blob present=1 missing=12 adapted=26 platform present=105 missing=2 adapted=11 test present=0 missing=11 adapted=11",
       "ledger": "ported"
     },
     "1c684ee2b34c316cc6f67080ceca46d804da934c": {
@@ -3254,17 +3253,17 @@
     },
     "ad921f3e8d09430c1bee07c430523d025186882c": {
       "subject": "test: remove legacy E2E cases that will not be migrated (#5569)",
-      "status": "partial",
-      "kind": "source",
-      "evidence": "fast blob present=1 missing=20 adapted=8 platform present=0 missing=0 adapted=4 test present=1 missing=6 adapted=5",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=0 adapted=4 platform present=0 missing=0 adapted=4 test present=2 missing=26 adapted=13",
       "ledger": "pending"
     },
     "f94b9a2f3879f9e706310840b64f7dcd91177be1": {
       "subject": "test: let e2e scenarios move the local date through a test clock file (#5570)",
-      "status": "missing",
+      "status": "present",
       "kind": "source",
-      "evidence": "fast blob present=0 missing=1 adapted=0 platform present=0 missing=0 adapted=1 test present=0 missing=2 adapted=5",
-      "ledger": "pending"
+      "evidence": "fast blob present=1 missing=0 adapted=0 platform present=0 missing=0 adapted=1 test present=0 missing=2 adapted=5",
+      "ledger": "ported"
     },
     "361fbcd9eb1725ee3019fa30742375e5ce8be9f3": {
       "subject": "test(kap-server): wait for the first logout instead of a fixed 50ms (#5574)",
@@ -3275,9 +3274,9 @@
     },
     "488dbc119d4c3e24c0e1f05bc3e62b3161ae34c7": {
       "subject": "ci: remove the paused L0, smoke and quarantine gates (#5572)",
-      "status": "adapted",
-      "kind": "source",
-      "evidence": "fast blob present=3 missing=0 adapted=6 platform present=7 missing=0 adapted=10 test present=3 missing=1 adapted=10",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=7 missing=0 adapted=10 platform present=7 missing=0 adapted=10 test present=6 missing=1 adapted=16",
       "ledger": "pending"
     },
     "4124e656405eb8d1dc5df67b82efb9ee929acec0": {
