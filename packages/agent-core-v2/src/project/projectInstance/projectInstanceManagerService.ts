@@ -155,7 +155,7 @@ export class ProjectInstanceManager implements IProjectInstanceManager {
     let workspace: Project | undefined;
     if ('workspaceId' in ref) {
       workspace = await this.workspaces.get(ref.workspaceId);
-      if (workspace === undefined && ref.root !== undefined) workspace = await this.workspaces.createOrTouch(ref.root);
+      if (workspace === undefined && ref.root !== undefined) workspace = await this.workspaces.resolveImplicit(ref.root);
     } else {
       workspace = await this.workspaces.resolveImplicit(ref.root);
     }
