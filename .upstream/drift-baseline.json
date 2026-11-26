@@ -1,0 +1,3312 @@
+{
+  "version": 1,
+  "createdAt": "2026-11-26T23:13:17.094Z",
+  "upstream": "upstream/main",
+  "base": "743f140978bddaf8b6aa524765fcd578f7c22fc9",
+  "fork": "72a7f789fc",
+  "mode": "fast",
+  "counts": {
+    "equivalent": 203,
+    "platform-present": 23,
+    "test-present": 9,
+    "adapted": 134,
+    "partial": 50,
+    "platform-missing": 4,
+    "platform-adapted": 11,
+    "test-adapted": 31,
+    "present": 4,
+    "missing": 1
+  },
+  "commits": {
+    "1011d8b63fcc150998a4710641563cd0f73369c9": {
+      "subject": "chore: sync release/2026-10-25 (2.3.2) back to main (#4387)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 1c1ff26e0912078406979239750476a3cd6455f6",
+      "ledger": "not-applicable"
+    },
+    "4a24ae12389f1bc5db33c1aed39a092bfeb2fc13": {
+      "subject": "feat: import Claude Code and Codex sessions (#4342)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 458f9abe244ad51be8035979996f915995703b9d",
+      "ledger": "equivalent"
+    },
+    "eb1205c4023a5ed719bf62f2257c67cbe56a0aba": {
+      "subject": "fix(agent-core-v2): truncate tool results on code point boundaries (#4365)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id d80a72b1199ffa27fe03bb87c2aa135f698db4c3",
+      "ledger": "ported"
+    },
+    "a9dc3a9af466a769a6dc93776c61ed89a0e653df": {
+      "subject": "fix(agent-core-v2): stop stripping dynamic tool context from compaction requests (#4410)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 36059e405fe06c42832cf671f0a00763156ccc96",
+      "ledger": "ported"
+    },
+    "8df234a618f5ba1f5261cc1696b0cf4340989f8e": {
+      "subject": "feat(tui): refine fullscreen docks and transcript cards (#4310)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id dee152b13551db4a8cac9a916cfd486d712bc436",
+      "ledger": "not-applicable"
+    },
+    "f70c3652945a99e87c06d3ccf60275665eb410ab": {
+      "subject": "fix(tui): show compacting activity with working tips (#4346)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 48ca2b024862ba10e2a41a10f4727d0b42507646",
+      "ledger": "ported"
+    },
+    "f7d28cd26863d7b1422b24eb1d341a1cac555dc2": {
+      "subject": "fix(agent-core-v2): drop empty OpenAI tool declaration messages (#4421)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 512cfc934fa7da72c5b402857cf3aa21137d3bc2",
+      "ledger": "ported"
+    },
+    "98c1cfbfbd397d2ebf7b4cf154296ed324e6e7cf": {
+      "subject": "fix(agent-core-v2): close idle MCP OAuth callback connections (#4431)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 9949fd060416923c4e86d197186b3502ee0e1616",
+      "ledger": "ported"
+    },
+    "f47400a4187c8296d3cc879172d97c8f1e8cfe24": {
+      "subject": "fix(server): allow data and blob media fetches in CSP (#4434)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 20a2e5f20449a1672a21da619ac9b16db65d3f44",
+      "ledger": "ported"
+    },
+    "70a661c873bfc30f0f0de954e0d13ad0a0ed3855": {
+      "subject": "fix(server): allow Shiki WASM in CSP (#4435)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 6d7946a0652692fceeb2d4387e83bcbddd44e8d0",
+      "ledger": "ported"
+    },
+    "2e539f2f68c872d79a747655cb1962d5f0b596bd": {
+      "subject": "fix(workspace): reclaim instances when last owner releases (#4422)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id a55d3b566b210c4586e1355e121753cf980d7e49",
+      "ledger": "equivalent"
+    },
+    "b3c6e0a75a3b1716a360a75eed7194be9b97c176": {
+      "subject": "feat(tui): support OSC 7501 program status (#4347)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 3325cbee3f039959a1b6b2c148b7a84f50be4e82",
+      "ledger": "ported"
+    },
+    "4ba65932026395efac8de533e38899439e6a9229": {
+      "subject": "docs(changelog): sync 2.3.3 from apps/kimi-code/CHANGELOG.md (#4445)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id 17c7aaf733fcdcbe903a42baf3041f6653bb98ed",
+      "ledger": "ported"
+    },
+    "93137cad204eed4a6a66196e85cafbaf722a1d65": {
+      "subject": "fix(agent-core-v2): return a stopped subagent's partial output to the parent agent (#4430)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 51787bfa8c087d228f067c57acf0fbdef51fb330",
+      "ledger": "ported"
+    },
+    "8dabf4a10eaec7302344ba3060b7b3c69a5a76dc": {
+      "subject": "fix(agent-core-v2): keep media recovery across turns and compaction (#4413)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 712dd33f558daa98671bcebb6933a1b4d8547e32",
+      "ledger": "ported"
+    },
+    "4be3f0b741e13677f441c84eee40795ccc1df1db": {
+      "subject": "fix(agent-core-v2): reconnect MCP servers automatically after transient failures (#4283)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 039c90c56d4941f1c45a90d53b5439e92a01be14",
+      "ledger": "ported"
+    },
+    "d18a7bcd319dcc166df031b9c7e32113a58a70b5": {
+      "subject": "chore: sync release/2026-10-26 (2.3.3) back to main (#4453)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 94027c7afd08c707e0294c850e056f0f61c0b913",
+      "ledger": "not-applicable"
+    },
+    "461c6e92d53cd4ff473fbe63fd1d238df819ef3f": {
+      "subject": "feat(kap-server): push approvals and questions as interaction frames (#4428)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 8fff71e0c54ce9cc1f46623052535c030bfc2dcf",
+      "ledger": "ported"
+    },
+    "979304401c70b2a0ea3fe18d86fc6be2d7eaf565": {
+      "subject": "feat: add independent dev release channel (#4425)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 3599cb5c3397698aae40f6877e5e775cf97053b8",
+      "ledger": "ported"
+    },
+    "3154ec41f008d22f22379fa08686693470334a70": {
+      "subject": "fix(agent-core-v2): scope verification to the change and stop repeating passed checks (#4451)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 5804b740570707f8c02e1b479ed79ff5789b55f4",
+      "ledger": "ported"
+    },
+    "39d149eb64e2126e7873f00758abc07c20b88c1e": {
+      "subject": "fix(agent-core-v2): answer questions without edits and clean up test leftovers (#4450)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 68da3d2e195a4d2af7b789717888ed9755c59220",
+      "ledger": "ported"
+    },
+    "78b72fe456ac730a1970ded9bb0d28f8b584ab95": {
+      "subject": "fix(kap-server): apply swarm mode from prompt submissions (#4460)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 70d70ed0640c0b54eea22b2fb02f5b0114f1f4da",
+      "ledger": "ported"
+    },
+    "e2ad1dcf214337ecfb5ca160fa36d5ef73560ab6": {
+      "subject": "feat: support symlinked directories in file tree (#4457)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 5ef2012e3ea0e94a2eddffbfdbc01b13d7c646f6",
+      "ledger": "ported"
+    },
+    "68a283894163204e93b072cef20db164015a5cad": {
+      "subject": "fix(agent-core-v2): keep the prompt cache through auto compaction (#4456)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 6b7701eadb9a743e35d9fc96d39355d769e1307a",
+      "ledger": "ported"
+    },
+    "8535bd79b8d7a42f1c30221a4dc0fa1933e2e340": {
+      "subject": "refactor(kap-server): merge WebSocket session subscriptions into subscribe_v2 (#4470)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id da52cd1b6e500d507888d687ff55f6e40fc622f3",
+      "ledger": "ported"
+    },
+    "b9fa2b15c4969c53d809bb9515d059046fbc0bc3": {
+      "subject": "fix(dev): avoid CI run response buffer overflow (#4469)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id d40acbe0b0c1612b28aa21855cfe954af2cfaf2d",
+      "ledger": "ported"
+    },
+    "e3efbb9d3b2241412edfe9b704fc33b09a4c2054": {
+      "subject": "feat(agent-core-v2): limit subagents to the configured model pool (#4418)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id b0795506aec903ebd9270de480aa60d1ec0d3b8b",
+      "ledger": "ported"
+    },
+    "093e8f46c4a44ff22f02fa5b8d7a4df4a7f47737": {
+      "subject": "feat: multi-root workspace registry and source-folder management (#4336)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 9a4b4b2d8d308d1fdf55b4c1191968198f9e0af1",
+      "ledger": "ported"
+    },
+    "b12d13e53cf63ee37bc367793acaf6631312d4c3": {
+      "subject": "refactor(agent-core-v2): port the agent-core llm core into human/llm (#4352)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id c7c71920f99a1f3ae25ddbf6f7439166486de793",
+      "ledger": "equivalent"
+    },
+    "180b7f81e7b8ec0e5913d639d4df76c3b7f373fe": {
+      "subject": "fix(agent-core-v2): recover append log writes after disk-full failures (#4486)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 22f57cf59830cc97511d7020de60851287309e93",
+      "ledger": "ported"
+    },
+    "88c3becefc56d3093009892bae6d7b7eab0d237b": {
+      "subject": "fix(agent-core-v2): preserve llm reasoning and usage compatibility (#4485)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id c20b917cd40f0d421b867c39e6785e058ec58bbc",
+      "ledger": "ported"
+    },
+    "62399b32a79d49e8c0bf481b14475ed181a4cec8": {
+      "subject": "chore: sync web dist from code-app (#4488)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id fc4579ceb4133d13e3a38b4c40d7fa71237843a5",
+      "ledger": "not-applicable"
+    },
+    "84a392e9c1da30cc8dad9ed5fa0366b4a12f7d2c": {
+      "subject": "feat: rename the dev release channel to canary (#4490)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 8995a9d22a6245dd2dc141bb83bc6fc52ca8a038",
+      "ledger": "ported"
+    },
+    "18bea3d3c05059aaac9af84fb619d05ef2619e6a": {
+      "subject": "docs(changelog): sync 2.4.0 from apps/kimi-code/CHANGELOG.md (#4496)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id 9a9affd75d3442bba96a3d1c1cf825b42607c275",
+      "ledger": "ported"
+    },
+    "0c63065fbd7386132b3b8c914de37adfff4c8daf": {
+      "subject": "chore: sync release/2026-10-28 (2.4.0) back to main (#4497)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id f8bd03c3a1e8921bf699d9b6aa17b55acf7af3e1",
+      "ledger": "not-applicable"
+    },
+    "ebe14e111f064c632f1efe07f27bf005fb50f5e7": {
+      "subject": "ci: derive canary base from changesets (#4504)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 4bb3ad276b5ca7c956595d04d5b42d361ca18bfc",
+      "ledger": "ported"
+    },
+    "89e07b81df8500b135e40b74b4f5a59748448e33": {
+      "subject": "fix(agent-core-v2): show task notifications in live transcript (#4465)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 96a7d55bb33a6d27f0b72bb23711f38ecda19d24",
+      "ledger": "ported"
+    },
+    "bfdfde1e20674c184547fd1c9c8bc24396db8079": {
+      "subject": "fix(kap-server): search all workspace source folders (#4511)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 43de14d7c6f00f94981ff45744fd901f72d36fd6",
+      "ledger": "ported"
+    },
+    "f695b1f9970cfa5f335dde7c5922c46809c7bb3b": {
+      "subject": "ci: publish canary versions to npm by default (#4512)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id f0285ef3fd39283614f6799632788fbc473b9c4d",
+      "ledger": "ported"
+    },
+    "1ada329b113f14419d701e54322c946ee65e7bde": {
+      "subject": "chore: remove kimi-inspect (#4514)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id d5031d782e0b1da121c0a10585715b1563a96bd9",
+      "ledger": "ported"
+    },
+    "67045e5ec536e4aa70e39ab32658bd6ce755b72d": {
+      "subject": "fix: handle duplicate workspace source folders and fs roots (#4513)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 18c3848d1a1e52b99dd29e7a67dd9645cae868a5",
+      "ledger": "ported"
+    },
+    "be89803bc6db08ff8335c1dc12ade79e3bbed56e": {
+      "subject": "fix(kap-server): turn the global search index off by default (#4516)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id fb6f13c2e0820dfc3eefaad1c9aa1b20b4e0abcd",
+      "ledger": "ported"
+    },
+    "df7efe99a351eb211a334e0fb4f51519c498a2b9": {
+      "subject": "fix(kimi-code): load workspace directories before session (#4515)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id f2b6f55d144d4cfe4970d38543fe551932775c73",
+      "ledger": "ported"
+    },
+    "7d72ae396586ad82f48ca4335956235d3c38f0d8": {
+      "subject": "feat(agent-core-v2): make workspace trust configurable (#4517)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id ccb80613520b2bc5f6d625ddb34d35eaf5cba461",
+      "ledger": "ported"
+    },
+    "47a518ed4e1912c0682596f882b1b6c5431b7ccb": {
+      "subject": "fix(agent-core-v2): remind the agent to update its todo list less often (#4524)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id d48a9c7e1c3e514f6e34f8e05fd22179ed317a02",
+      "ledger": "ported"
+    },
+    "da4e2f57a3d37d93e0dec13513e9764beaab746e": {
+      "subject": "fix(oauth): restore global telemetry endpoint (#4523)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 3903d0ca29e265f85c2a33d842e3faea3d245682",
+      "ledger": "ported"
+    },
+    "8a5a4307cbc49da3355ed54240ae4dd6982481c3": {
+      "subject": "fix(core): refresh tool catalog within the current turn (#4526)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 5c836c1b839de7ee88222a961efef693758f58b0",
+      "ledger": "ported"
+    },
+    "5f3ab5fac81e050fc2fa10787dd560655f377d16": {
+      "subject": "feat: remote environments for SSH and Docker execution targets (phase 1: creation-time binding) (#4062)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 90bb14fd88788c7e5b30b4ae608fb5f33a82e8a7",
+      "ledger": "ported"
+    },
+    "990580dfe828e49f820e5d78e10fbdec4038c372": {
+      "subject": "fix(oauth): record max_output_size from custom-registry model limits (#3733)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id b4305009507c243131d88798002f4ba450524819",
+      "ledger": "ported"
+    },
+    "59632096d26ed581940ac2c3ea91db3d3f9f527b": {
+      "subject": "docs: make PR descriptions easier to understand in the write-pr skill (#4530)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id aabb824cf1d2ce23b1bacea34fe4a39f639a290c",
+      "ledger": "ported"
+    },
+    "5fc3de897e20828e15c75defd3cb92a6c2ff8c18": {
+      "subject": "perf(tui): keep only the subagent preview tail (#4507)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 8f176b970d59babe1efb3f89f8890fb8d9f0b6f6",
+      "ledger": "ported"
+    },
+    "7cd571afbe39e641ffc11565918d55d8d69e76f4": {
+      "subject": "fix(oauth): ignore field order when detecting refreshed model changes (#4532)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 599aad325d04c361c15010acee78e8c0a7d74fbf",
+      "ledger": "ported"
+    },
+    "bd0d4de3f895446680bb7d46dcd7f0f299889735": {
+      "subject": "chore: sync web dist from code-app (#4542)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 40cea2bc2a7cc585356f116ff9d4894eef4a9fb9",
+      "ledger": "not-applicable"
+    },
+    "3a0b86ea06e7983d0c6313b969be7e5c91a5288e": {
+      "subject": "fix: queue ACP requests until startup completes (#4541)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 4677cad5fa1dba05539bb7c4f98029c3289e101c",
+      "ledger": "ported"
+    },
+    "3ed0e68f3bbfb3d9ef5bfad0e7b0de2c497e3d00": {
+      "subject": "feat: merge skills across workspace directories (#4520)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id f2d62e99a6b31218f82f478038910e924cf23b61",
+      "ledger": "ported"
+    },
+    "4b58a0cda232a638a2ae9290990511ae7a95b2fe": {
+      "subject": "fix(agent-core-v2): keep archived sessions out of session lists before the index flush (#4540)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id ad597d5ad69de79d181dc4c6d0e7e3701e5ae9de",
+      "ledger": "ported"
+    },
+    "1853dae4ff54b36da878a08c86a7088bde0114a8": {
+      "subject": "feat: support folder-scoped git status (#4527)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 5fd4a6d47f8acc2804ff5be99d0a7d0c0f2f26d4",
+      "ledger": "ported"
+    },
+    "d37f9ccc256fc594aac4bc513916cd73e68e4199": {
+      "subject": "refactor(agent-core-v2): decouple tool disclosure from execution (#4538)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 9b092c0a2cd2e3172be3c62985f2d835eedcf26e",
+      "ledger": "ported"
+    },
+    "175f39a50cb48d4fa4db55e7fac86aebd50cfe00": {
+      "subject": "docs(changelog): sync 2.4.1 from apps/kimi-code/CHANGELOG.md (#4556)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id b8cbc565569a53cb9de367f04e3bde32351f33fa",
+      "ledger": "ported"
+    },
+    "cca9bae3d7a4c0eba95aec76e1b7aef912238973": {
+      "subject": "chore: sync release 2026-10-30 back to main (#4557)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 9cae3c09320e8a8a20aa4b2876f49612d34bb680",
+      "ledger": "ported"
+    },
+    "a2afdbc7d1fa0737d45d5780cc6c2bd38e477b55": {
+      "subject": "test: adjust compaction budgets for slimmer prompts (#4558)",
+      "status": "test-present",
+      "kind": "test",
+      "evidence": "patch-id cf4e87fffaf7657d0a77155d83b83cd95ec59922",
+      "ledger": "ported"
+    },
+    "40590f6cc81d5d4f7ec585562560bcc1eecf0eba": {
+      "subject": "chore: sync web dist from code-app (#4595)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 9467e216719f1611c51c16a6820d31bbd1112d72",
+      "ledger": "not-applicable"
+    },
+    "ebc2a9f9607414b1ddfc66a75d8725ea5fe47049": {
+      "subject": "feat: sync running tasks over WebSocket and drop the REST task API (#4535)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id e376c07cd0a5bd6e165c07b4d2d307e8484e00a6",
+      "ledger": "ported"
+    },
+    "e24e1e1919d729edaa8fe0d60b820cd8f4fdd2b5": {
+      "subject": "feat(agent-core-v2): support running session forks by turn (#4544)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id c7d3a27c4d469a8e1a53d5511b50ce3d5abf4e7a",
+      "ledger": "ported"
+    },
+    "aca85b92fc435087b84f6a90bbce9dc71178c90f": {
+      "subject": "feat(agent-core-v2): link cache breaks to baseline requests (#4489)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id bdecb08f516dce0e8d234bb5d1c1b2c020a28ff3",
+      "ledger": "equivalent"
+    },
+    "b4da92150986c3e9ae39ece36412da9286e8f890": {
+      "subject": "feat(agent-core-v2): replace hidden media tool results with omission notices (#4601)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 8fce8254befef043406ea99ad16b38a8099599af",
+      "ledger": "ported"
+    },
+    "aeeaba847f086959384af7e9dc9334b04cd307eb": {
+      "subject": "fix(tui): surface invalid additional directory errors (#4554)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id f4547e730c0a6a9539755b632f5e624c4fd206a6",
+      "ledger": "ported"
+    },
+    "2c52fc1e2d0a3ef4c43d80d945dc5f403157295e": {
+      "subject": "refactor: remove standalone kosong package (#4599)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 93d53174fe55cdb667988894872cc2e93a9422b8",
+      "ledger": "not-applicable"
+    },
+    "1401bddd05f6e8f09e1748d973891a3fcec31465": {
+      "subject": "fix(kap-server): restore legacy ACP session file tools (#4600)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 658aa024621b95d1f0a7fac7300292c266826d0d",
+      "ledger": "ported"
+    },
+    "9ce252a377a32738c9addd27876264d5a73c65f1": {
+      "subject": "test(remote-control): add reconnect failure diagnostics to tunnel scenario (#4605)",
+      "status": "test-present",
+      "kind": "test",
+      "evidence": "patch-id ea142ac068c38d88680bb72d4e393aae7697fb00",
+      "ledger": "ported"
+    },
+    "2d674cfa38d047e57a396124533ef0567c1ad434": {
+      "subject": "perf: reduce remote file operation round trips (#4543)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 2d85b8ed22b4f1416be1d5cd7f97ac2959b4806e",
+      "ledger": "ported"
+    },
+    "fc3b521b8b68468268bb4cfe7f45008ce08b2b99": {
+      "subject": "chore(agent-core-v2): remove mandatory Edit and Bash sed restrictions (#4609)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id ba2a2b77e0d919f6c59e74727c3f2e232f43f17d",
+      "ledger": "ported"
+    },
+    "9f0e9d7c6b9f57f75b7d0843bb500959183f6e79": {
+      "subject": "feat: support Windows remote environments (#4610)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 5439fb744bee6563e6252e18b479814c8837e69c",
+      "ledger": "ported"
+    },
+    "1b13934ff83112ff7bb85f9afcfd1ab90fb0464a": {
+      "subject": "feat(tui): allow /model and /effort while the agent is busy (#4621)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id ce2d5bfa292f191af43ac70e02779ed51e18fbee",
+      "ledger": "ported"
+    },
+    "02d2e8f3fc79b2ebf160d5aa132dac304608d34a": {
+      "subject": "fix: preserve model error message and status source (#4477)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 57c98f23d262388563e0c97c10f861edc10ed277",
+      "ledger": "equivalent"
+    },
+    "011b1d4163e2846e66bc2d88868a66ae9aab39ee": {
+      "subject": "feat(kap-server): push agent, usage, goal and todo state over WebSocket (#4606)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 09a831187077ef1ff09ffc7fa143eac1cab5979c",
+      "ledger": "ported"
+    },
+    "cc6b98ec0eb19236c9498b55ccb68dc07d7c5b4e": {
+      "subject": "feat(vscode): auto-refresh model catalog (#4611)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id a42f05144b58b2e423cd85281451e4bc36890097",
+      "ledger": "ported"
+    },
+    "077239666a11e8b2f7b2a9fd8588cc063d38343b": {
+      "subject": "feat(goal): edit the current goal objective in place (#4568)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 0eb88cf9160ee1c2f2afab183a0e3b9d0ba61ff8",
+      "ledger": "ported"
+    },
+    "80193374ebb47973a97d21d0b4ce4c27128eee82": {
+      "subject": "feat: add plugin marketplace and native mcp oauth (#4525)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id fcec72448d430b815da07e32b7cb4cddcc0580aa",
+      "ledger": "ported"
+    },
+    "a5724dd32ec5d5f228f21c66597d55fb02c81fa7": {
+      "subject": "fix(tui): track steer read state across turns (#4627)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id d7caa6e3d8d764c7637518a582e0da4156729880",
+      "ledger": "ported"
+    },
+    "42cb675304e7c08f14acae59efef90e960f5cc73": {
+      "subject": "fix(mcp): isolate OAuth authorization cancellation per waiter (#4643)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 31c43502bddb5a8a4289edd99fe2842d555f8538",
+      "ledger": "ported"
+    },
+    "244819a526026f8b26177b9780a64889c18fa18c": {
+      "subject": "docs: update workspace lifecycle guidance (#4637)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 24f1333801deb630db479b72dba6b31b0639a956",
+      "ledger": "ported"
+    },
+    "8985b71d7aa1afe5723af115f3459c0881186295": {
+      "subject": "fix: preserve UTF-8 BOM when editing files (#4644)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 473ff407defb625f60bcd8de6de25115a8c1a17f",
+      "ledger": "ported"
+    },
+    "444c609e8e6629d43fb7fd571a8db48ce5a41570": {
+      "subject": "feat(agent-core-v2): allow private addresses in local FetchURL (#4650)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 50fa6cac983203a22da014622350cbcca8d3120c",
+      "ledger": "ported"
+    },
+    "f72dc7e1ca894e68893070ee207fbc933cf8409a": {
+      "subject": "feat(agent-core-v2): enforce minimum wire reader version (#4638)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 515baab6732387de54cedca4e03793dd584bd03f",
+      "ledger": "ported"
+    },
+    "d065fd011dd43c6d718e6b9f703cfd98540f4c78": {
+      "subject": "chore: sync web dist from code-app (#4661)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id f9ea708d5987ee7d25c7f4926a87be295999359f",
+      "ledger": "not-applicable"
+    },
+    "8fc5e22f966187ca93ec1027153e7f6028d3661e": {
+      "subject": "fix: clarify wire version upgrade guidance (#4662)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id e16be22dcaf950aef88d26afaae22a2c65bb5d21",
+      "ledger": "ported"
+    },
+    "6974ac880d405d5565a2189925f3bef6daea6892": {
+      "subject": "fix(tui): keep wrapped Grep and Glob glance lines indented (#4617)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 875202ee2130663cff5688c08bcc563ff39e750d",
+      "ledger": "ported"
+    },
+    "8b6a0032704b4ac090ba04dec737eb79f70029e1": {
+      "subject": "docs(changelog): sync 2.5.0 from apps/kimi-code/CHANGELOG.md (#4673)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id 046097843fedb56f38727d1903226f49a38c9e1e",
+      "ledger": "equivalent"
+    },
+    "f8e15c7a9be44fe4e0361a4ce57eaf690e05476a": {
+      "subject": "chore: sync release/2026-11-04 back to main (#4674)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 194ba41182c9a15b301fdba091c311625e925aca",
+      "ledger": "not-applicable"
+    },
+    "e6ae8ed4bdd0a99a3f5d4c4dc1b19b0b2f9a4a9c": {
+      "subject": "feat(tui): fold tool calls and thinking into transcript groups in fullscreen (#4618)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 4ab5a1d660671af8736d90218b0f13a3fa981d47",
+      "ledger": "ported"
+    },
+    "8d1af37d5d9cdff06c17f726a83ba69ae4e02080": {
+      "subject": "perf(tui): reuse unchanged tool output lines across renders (#4665)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 35b2ebf1f7b8f2cb22e9d9621e7e2d6729af21bd",
+      "ledger": "ported"
+    },
+    "a78f55e94b8ff6ff22f71c0b59d739367eb23c10": {
+      "subject": "docs: rewrite remote environment guide for users (#4693)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id 4469bd73be69070bae3623ae9a35f7737c981adb",
+      "ledger": "ported"
+    },
+    "836a82b5ace3f554b1a854d7f3a545be2a7a300f": {
+      "subject": "chore: sync web dist from code-app (#4685)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 7226c03ab862f7d2541da5d6e31ea03f0ec7940e",
+      "ledger": "not-applicable"
+    },
+    "2a6d1cf570d15174d6d5add04eaa8d9d6d45348b": {
+      "subject": "feat: add session title generation telemetry (#4699)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 328e8046ad1caae0c7cdd4316ea7ba98689dac32",
+      "ledger": "ported"
+    },
+    "2b8afafea4238aeb553ab946cf0a1c641f8712ca": {
+      "subject": "refactor: require explicit retryability for requester errors (#4703)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id f7e4e7f4d84e75174857ea7ae49df95ab53c2f2a",
+      "ledger": "ported"
+    },
+    "805f4beb1b88731b922e3e19d287b39e032719cf": {
+      "subject": "refactor(agent-core-v2): remove unwired human directories (#4706)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 70a2c20a0335c6cf4b11323342014cb1d4777915",
+      "ledger": "ported"
+    },
+    "2be062e8ea887193db9106013c85c81eb62f2826": {
+      "subject": "fix: route session status and git data through bound environments (#4698)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 62b0ee3379ed896f5e9ef67b9a44b7413a69ed12",
+      "ledger": "ported"
+    },
+    "d0cd33c300acdc1540f75568d77babea7b9d55c8": {
+      "subject": "chore(agent-core-v2): remove same-file Edit restriction and re-read requirement (#4708)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id fefcc2db78c1cbb1a0ce1b34d3ca866b1070cada",
+      "ledger": "equivalent"
+    },
+    "d5f130ce670e3329937e28c8b7a2bd819428bbe5": {
+      "subject": "docs(changelog): sync 2.5.1 from apps/kimi-code/CHANGELOG.md (#4707)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id ddf5e872100e29c98d69279771ffe047679208f0",
+      "ledger": "equivalent"
+    },
+    "131c21a35a0440309f3b0e965961eccd4a7f417f": {
+      "subject": "chore: sync release/2026-11-05 back to main (#4709)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 157751650bf58b89b36090c51701487c2c02fdcd",
+      "ledger": "ported"
+    },
+    "bae32119ca37229a301f8099e7812b07f205dbfe": {
+      "subject": "fix(agent-core-v2): reconcile tool definitions after updates (#4719)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 7bb110e6bb6604ddb894fb6f34978638b1b4632c",
+      "ledger": "ported"
+    },
+    "df90d90ec0714db23dcc830acd2db6232f5c7426": {
+      "subject": "fix(agent-core-v2): refresh tools without dynamic loading (#4720)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 52d054c9b38d78765c317e94046c75113fd3265f",
+      "ledger": "ported"
+    },
+    "d37c9d200041a6d036fd9d863fd60905b2d8297f": {
+      "subject": "chore: sync web dist from code-app (#4722)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 5d9aaf8b774b93ab52bccb851264604dc7f48e96",
+      "ledger": "not-applicable"
+    },
+    "1dd5578649e01dd8f5a2c0c7f924977f919c0b22": {
+      "subject": "feat(kap-server): stream agent conversations as turns and items (#4663)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 50ab15d4487b9b6ef4251120a1276b739284f5d6",
+      "ledger": "ported"
+    },
+    "ce38ebf25d19276b12eca1e1e864b0afe8cdc7d7": {
+      "subject": "fix(kap-server): end streamed items once from the recorded step (#4730)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 94a7f1fab489ad36d8375f60bb9bd5abed50079a",
+      "ledger": "ported"
+    },
+    "e2770e37bd198e5208be0e0b60b48c77789cf94b": {
+      "subject": "docs(changelog): sync 2.5.2 from apps/kimi-code/CHANGELOG.md (#4734)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id 7739269cd14f53b0c13c5837b11ee1972913a40c",
+      "ledger": "equivalent"
+    },
+    "480019652d029623fa31133cfa613adf9afa1417": {
+      "subject": "chore: sync release/2026-11-06 back to main (#4733)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 125bdb7309111fc6862e8d99ccf082d8e4ca8943",
+      "ledger": "ported"
+    },
+    "bc6fa89a759a15fa0a92a10b9ffb2180b7545655": {
+      "subject": "fix: import google-genai providers from custom registries (#4735)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id c0ba352db326a2ff5aaf5c7c45e84bd09fa230a2",
+      "ledger": "ported"
+    },
+    "eb2035f3cad57cc12d4d5082ec626f7f0ea5f651": {
+      "subject": "chore: sync web dist from code-app (#4741)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id cc0663b86c3b874be47ffa62a61c9ee0374db3b9",
+      "ledger": "not-applicable"
+    },
+    "9c1a9c32243e6ee0b60438097b29ceda5409bcef": {
+      "subject": "chore: sync web dist from code-app (#4750)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 8d5df69c8151544ec943dfaa7b2edec458f3de54",
+      "ledger": "not-applicable"
+    },
+    "725194d7e127811ed754dde0e98c4788866d779f": {
+      "subject": "refactor(kap-server): drop the WebSocket handshake and acks (#4738)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 9a6b1930a80563cd58037d1593052dec5c0f699c",
+      "ledger": "ported"
+    },
+    "cd48f5e84b74ddcd91c40e25d59470d43a05b6a0": {
+      "subject": "fix: direct skill invocation through Skill tool (#4713)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 22fd8d6fec7c939cc2774effa0f288b3a93abd87",
+      "ledger": "ported"
+    },
+    "51b47db877149a38f2f14978ff526c752569a0b0": {
+      "subject": "fix: stabilize workspace primary changes (#4689)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 9c35fa450b6838ed4f011aada2252541e316d768",
+      "ledger": "ported"
+    },
+    "27bd9baba10e9f73d3db0e0fdd6f81046b4cbac9": {
+      "subject": "feat: support same-name skills across workspace directories (#4690)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id d002828997dc9b8f91854d2b81b8231cde056cf9",
+      "ledger": "ported"
+    },
+    "1c259c8d35ff648ce8aa3f77169d9887e2a16384": {
+      "subject": "feat(tower): import artifact woker (#4427)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id a25b4f007329aeca98fcb778fe0e042c4f589d02",
+      "ledger": "ported"
+    },
+    "79ff88bb2b518fc9a15a5645c7bd961447530285": {
+      "subject": "fix(agent-core-v2): reduce workspace registry read amplification (#4747)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 2da8f4b210b85dc89931e4597b18a1776c39ba0e",
+      "ledger": "ported"
+    },
+    "b64a016b16dbd8f775d87c9f6890b4c5c7b13ee5": {
+      "subject": "feat(tui): keep fullscreen transcript groups steady and show live progress (#4751)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id e7d32bee3dfe0e3e838891ab21647699da5df545",
+      "ledger": "ported"
+    },
+    "b8b494542a9ebb76158d06ecd5ba59bea1f9e42b": {
+      "subject": "fix: request web search in links mode (#4764)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 361b32030825c3c791f6c3e3b163bf965601219a",
+      "ledger": "ported"
+    },
+    "c4f81f832ebcb038b264a64f16e5586fd7fee0f1": {
+      "subject": "fix: apply configured permission rules when an agent starts (#4757)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 30863babc85a213ea514907f555c5d4df6877687",
+      "ledger": "equivalent"
+    },
+    "322d0363f4c5cf332034ff81759653bf341f165c": {
+      "subject": "fix(kimi-code): make fullscreen copy reach the clipboard in tmux and on Linux (#4755)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 1a451701837bcebfe6e8c69f724d1cc79ffe25d8",
+      "ledger": "ported"
+    },
+    "713a20076d938240f2a116b87f71580f7f9c75a4": {
+      "subject": "chore: sync web dist from code-app (#4765)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 7f0d5c680a423ff6ac281d30ecc928c4bca8e73d",
+      "ledger": "not-applicable"
+    },
+    "0c8ccf2302078d2d501cac01104ca0fd996d06a7": {
+      "subject": "chore(release): use patch bumps for tower changes (#4768)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id 48de17d9e93e5a52d0483f773d70b0ba492793b5",
+      "ledger": "ported"
+    },
+    "adc46cc072688e4ad27c53f7a5dfba245fcb2bbd": {
+      "subject": "fix(agent-core-v2): watch explicit skill directories (#4766)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 6b3012d4d859b400f4faf9d85083e09e0a1d1973",
+      "ledger": "ported"
+    },
+    "97637e54a079cace2ba710b38ffb4ed85b232351": {
+      "subject": "fix(agent-core-v2): reuse uploaded MCP tool images (#4767)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 84a26da4f41901b568c649d1d50559091ee97de2",
+      "ledger": "ported"
+    },
+    "823c159a3825a2abaa163c1945893935c3fbab42": {
+      "subject": "fix(agent-core-v2): watch extra skill directories (#4770)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id cdb4403fbea1cd40a45a5481e08aa3ef2c24fc2e",
+      "ledger": "ported"
+    },
+    "91f79648543b5f3a58084421d91d475b73c04354": {
+      "subject": "chore: sync web dist from code-app (#4783)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 59abd2386041555be5d8d569000e8bdd49db0b16",
+      "ledger": "not-applicable"
+    },
+    "53d1caf70b2a07ed2b4d7e49716cd707a85bc2e8": {
+      "subject": "feat(agent-core-v2): persist user and project permission rules (#4550)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 9b130365aa1c6495d2d11337daf6247fd7cbdbcd",
+      "ledger": "ported"
+    },
+    "61e4047858eff4fa094edd829f6832e24cbfcf17": {
+      "subject": "feat: add minimum version upgrade prompts (#4756)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 95422e2595a5ddf8dee3d9e6c5732782eca4bcfe",
+      "ledger": "ported"
+    },
+    "c01a04a2557fa8bae5c467a9d7bf2c13a2b3881e": {
+      "subject": "feat(tui): default to fullscreen mode when experimental flag is set (#4771)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 8036efe68fd48882701c26337a3d39c1288c1ca9",
+      "ledger": "ported"
+    },
+    "0125dbb20a1b01f4db7afb377caf6a3cb5767c35": {
+      "subject": "build(nix): upgrade pnpm dependency fetcher to v5 (#4748)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id f699e1ed8b06c66f848685b98543536185f3dbf8",
+      "ledger": "not-applicable"
+    },
+    "1eb3c537eb2ae83b044e34356932edf492f83a3e": {
+      "subject": "fix(server): support Unicode download filenames (#4563)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 68aad08f281b6b7e317b3cc2f6ff50b2e26b0eee",
+      "ledger": "ported"
+    },
+    "8dd3aa3789a21778261457bba5e56a758583e8c0": {
+      "subject": "test(tui): bound queued message timer pumping (#4793)",
+      "status": "test-present",
+      "kind": "test",
+      "evidence": "patch-id af5788e9235c8fac560adc5c44b73abbba794c52",
+      "ledger": "equivalent"
+    },
+    "ba4dd7f52016e8fa9462e1113a1228b738171d94": {
+      "subject": "test(server): cover download filename edge cases (#4790)",
+      "status": "test-present",
+      "kind": "test",
+      "evidence": "patch-id db0d2eb3308fc79acc36bb86efb6ffc7e204326b",
+      "ledger": "ported"
+    },
+    "5aa81c5e22de5a446290e33ce02ddc259b0f5c36": {
+      "subject": "feat: include gitignored files in file suggestions (#4752)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 59466e97cb7c43ee9f38f2bfa34d3e2acde96e2e",
+      "ledger": "ported"
+    },
+    "11d9fda8e39598ea13aa05fa9f69c8723861f66a": {
+      "subject": "fix: keep skill catalog visible when Skill tool is disabled (#4799)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 79f94349bc1d98075b53904f740fb0c8d65700c4",
+      "ledger": "ported"
+    },
+    "4b4cf3a9dea9dfa4b30d738e2b91879ad7bc5d10": {
+      "subject": "fix(server): correct raw file download responses (#4800)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 05cc1021dcef5f642fc3b914f52bd7709b3d62a8",
+      "ledger": "ported"
+    },
+    "aa125382cb4d3040671a9c13ca626dbdd46e9f27": {
+      "subject": "fix(kap-server): end tool calls cut short by a stop as interrupted (#4772)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 30425b7ded4fdda3431210bb351cd6d45ba589f0",
+      "ledger": "ported"
+    },
+    "881e61b4076a40223c01668c458a0bfc458b2c27": {
+      "subject": "fix(kap-server): reject a manual compaction while another one is running (#4773)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id fe853dd6c917eb3311c9cede461cc65c758c6bd5",
+      "ledger": "ported"
+    },
+    "cae8a9a9939db6d087548bf773c1eb4c0ffda382": {
+      "subject": "fix(kap-server): apply the busy filter before paging the session list (#4774)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 7ec5aec7f3271ccc8045add1f39ee60dd62b106b",
+      "ledger": "equivalent"
+    },
+    "795a214da0d2944b28bc40a6d6ff73800c585288": {
+      "subject": "fix(kap-server): broadcast event.session.restored when an archived session is restored (#4775)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 44b8e01c53dc60be089af90b57e7614cd7253f13",
+      "ledger": "ported"
+    },
+    "b9c18978accb4da89adaed53d40483331cfaaa66": {
+      "subject": "fix(kap-server): map auth and Tower errors to their codes and stop sending stack traces (#4777)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id e858fa5d787ce6add5b810420e20803619948e51",
+      "ledger": "ported"
+    },
+    "961b90f9f0e23ab9e194127c7d1d49f8994b24b9": {
+      "subject": "feat(kap-server): take turn_number in the file-history queries (#4788)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 61501b8b55d3768fc23eefbc9f1cdf7a481be2e6",
+      "ledger": "ported"
+    },
+    "9c8a845014e3073c53e9ae58e224f64ccf66a50e": {
+      "subject": "fix(agent-core-v2): end a question cut short by a stop as cancelled (#4779)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id a92c3203927bb3c36ca99c9d2d09c48d4b8ce999",
+      "ledger": "ported"
+    },
+    "5420f9851b004613b69ede171d37681f6a1cd658": {
+      "subject": "fix(kap-server): keep the tool result note on tool_call items (#4776)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 13b32a7fde3db8e61a00910a05acef74fdcfb5dc",
+      "ledger": "ported"
+    },
+    "1424092ed1211854b09505c23b6b645ce867872a": {
+      "subject": "feat(kap-server): link tool_call items to the task they run as (#4789)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id f9aabe95eb88b75102bf67f47414abcb78a25eca",
+      "ledger": "ported"
+    },
+    "4d44cc6ee6c801d66c893e5424c344ab332f67f8": {
+      "subject": "fix(agent-core-v2): spawn Windows batch script commands through cmd.exe (#4791)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 6e2b621329ce06a810f6a776720044cfd981a0fe",
+      "ledger": "equivalent"
+    },
+    "c87878a72ff341da26536e87ae6bc3cd5fcfc676": {
+      "subject": "fix(kap-server): apply agent_config and custom metadata when creating a session (#4778)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 11e115bc54cb86b4badc89ebcd5de73103f5d915",
+      "ledger": "ported"
+    },
+    "905c6f207c94948c6e869be954af2bf1da5c17b9": {
+      "subject": "fix(kap-server): show only the scheduled prompt in cron-fired user messages (#4780)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 8837212db0dd03ff66257b33030b2725caa7262e",
+      "ledger": "ported"
+    },
+    "8bd67ab9e6d3d95b0e4f0395714360ee8138025e": {
+      "subject": "docs(changelog): sync 2.5.3 from apps/kimi-code/CHANGELOG.md (#4810)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id b2101a1f89cde1c679ff3283f4039ee17f5396fe",
+      "ledger": "ported"
+    },
+    "4e5378566dbd92e5c4fbdeef81a2edfd9b73ca5b": {
+      "subject": "docs(server-api): drop removed endpoints and document the ones the reference missed (#4809)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id d4280a408206da9f4a09da6d781720e513ea9ea9",
+      "ledger": "ported"
+    },
+    "7490d07d358d1f6736cf87abf7a7ae22d6ea8897": {
+      "subject": "chore: sync release/2026-11-10 back to main (#4811)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 68c2902cd562e1f410e2047bb3f0240bd9679ed1",
+      "ledger": "equivalent"
+    },
+    "b263e80ff3ca93998336b1f89e7bc85946f8f76f": {
+      "subject": "refactor(agent-core-v2): port agent loop runtime core (#4630)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 7a6856e37a8175e77ef48fd277ce2da715723a64",
+      "ledger": "ported"
+    },
+    "f2ce60f3206e1e30895219bf080542f23d04ea59": {
+      "subject": "feat(tui): use primary bullet for NotifyUser updates in fullscreen mode (#4814)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 2503bb1b40a3dc9cb844a5a63606acba32a7408b",
+      "ledger": "ported"
+    },
+    "bb5284cf42b0ddcbb670a3b0d41c3ea1c6445a30": {
+      "subject": "chore: sync web dist from code-app (#4816)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 9482b5cda24371bf64b8fda645bfc5a08a2e6978",
+      "ledger": "not-applicable"
+    },
+    "54a9e51fcb0531c4dff816e492a8e6d0a598641e": {
+      "subject": "chore: remove loop runtime working notes (#4817)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id a57d8c2a4d334abb53187f99ba4d690718b74cc8",
+      "ledger": "not-applicable"
+    },
+    "f26481d2bf20fe35fdce4ea6546953fc0552e6b4": {
+      "subject": "test: remove redundant and low-value test cases (#4746)",
+      "status": "test-present",
+      "kind": "test",
+      "evidence": "patch-id e44bb8def31c36cf56806878b93487dfd89cdb54",
+      "ledger": "not-applicable"
+    },
+    "4ac656c5028a91210d3eff135f0f2063b005332f": {
+      "subject": "fix(agent-core-v2): stop cancelling compaction when reminders arrive mid-compaction (#4822)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 16468fa80524eca1b56151adf4d9870f5511e12e",
+      "ledger": "ported"
+    },
+    "41b7acceb3cd2e51314fd2909996fcb0213f8ff8": {
+      "subject": "fix(windows): 修复长路径启动崩溃与文件搜索失败 (#4825)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id ed221cac972aa221829fd83e75fe2684f0a6cfa4",
+      "ledger": "ported"
+    },
+    "13590cdea594d3dfa86fd38f19f3ff4de22dea15": {
+      "subject": "refactor(kap-server): drop the turn_id alias from the file-history queries (#4826)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id a5c4a5917dc33f3cc0818b7c0252dd891b235e90",
+      "ledger": "ported"
+    },
+    "5518d54472315e92936cf6a1bd5d60991f9aceaf": {
+      "subject": "fix(agent-core-v2): preserve Gemini context across turns (#4827)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 6efed87f196d30129b0bab39ae878c998177fc4d",
+      "ledger": "ported"
+    },
+    "6dd56ba396a8c2ca6de73ce64d5a7728edea2430": {
+      "subject": "fix(agent-core-v2): inherit baseline tools when forking agents (#4832)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 09e267ecbc8c4692403d5c7466677fdf9b19e3dc",
+      "ledger": "equivalent"
+    },
+    "82a03889a4f28a6ad6d28479e56878d777ddc9b6": {
+      "subject": "feat(agent-core-v2): attach Kimi request metadata (#4830)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 0c7982b4d2ccad179564dfe982516245171f0fab",
+      "ledger": "ported"
+    },
+    "392505cf579dcb2cfa92de1ca0262bb2407ace30": {
+      "subject": "fix(desktop): preserve retry and background task behavior (#4831)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 7f43a2b35d8e475cfa427e0d2e202bcd216d15ea",
+      "ledger": "equivalent"
+    },
+    "aa839f05fbc639e6d2fbb02cc8b3b5884011b4b5": {
+      "subject": "feat(agent-core-v2): expose plugin agent profile refresh hooks (#4833)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 17ef9d97750184dca6651db043239eba12b44812",
+      "ledger": "ported"
+    },
+    "d64909f9721832b79d63ac1bcbd6519274cca143": {
+      "subject": "fix(agent-core-v2): preserve explicit loop profile binding semantics (#4840)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id a92cb49846c0b3277072c62c57d6db1d348c91e6",
+      "ledger": "equivalent"
+    },
+    "482936afceaec4d513aa28f7b7e6b461e35e105f": {
+      "subject": "feat(prediction): add experimental next-prompt suggestions (#4754)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id ea9e9090cf492a993ece8ad125d81ae72b1c40dd",
+      "ledger": "ported"
+    },
+    "1ec24a5f51ac6f4a5a5704d441c5f3e2435bd46c": {
+      "subject": "feat(tui): sweep running titles toward text and add KIMI_CODE_TUI_ANIMATION_FPS (#4843)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 0349e9b67c8b4247aa07ca1b76fd516b6217c996",
+      "ledger": "ported"
+    },
+    "d729f9152935255c263e20d6777c9064dd748b3e": {
+      "subject": "chore: sync web dist from code-app (#4859)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 6989e7b81e65b13275dc1ec39ac37522e992e7f4",
+      "ledger": "not-applicable"
+    },
+    "410814349d4677fc2844ad79069b0ad4a751303a": {
+      "subject": "feat(tui): keep cron and MCP authorization calls out of compact transcript groups (#4844)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 306fc71aa2ca4c5dea55f4c9fe58b2445edb5f7d",
+      "ledger": "ported"
+    },
+    "68b849c90d38f08fd1e11fdb37694e6b856eb90a": {
+      "subject": "fix(agent-core-v2): disable subagent deadline when timeoutMs is 0 (#4868)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 55c49b6324589e2b2358d952102dbe0c5e793a33",
+      "ledger": "ported"
+    },
+    "453ba6bb1dfb8fa9eeb90d13050726875b75c62c": {
+      "subject": "docs(changelog): sync 2.6.0 from apps/kimi-code/CHANGELOG.md (#4872)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id b3be5baab0e39fced4cac581fea91fe4976b0a10",
+      "ledger": "ported"
+    },
+    "f407c52e398dda930f5b2150aa75906d15149ab5": {
+      "subject": "chore: sync release/2026-11-12 back to main (#4873)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id f82ea37f390300ccf383e48d345f5f76ed6364e3",
+      "ledger": "not-applicable"
+    },
+    "aced52f218f286f25cebd82479cef1bcba87cad7": {
+      "subject": "refactor(core): extract loop, llm, and tool into a DI-free package (#4820)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 5e380e74d67cce303340f730eeebf8824b9796dd",
+      "ledger": "ported"
+    },
+    "1c1544abafccab582bf2b625a92af1fdc292537f": {
+      "subject": "fix(prediction): refine ghost text presentation (#4878)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 411d99a561bf85900fe564197ba35144c74c0175",
+      "ledger": "ported"
+    },
+    "0ea324cafb4b1754ae5b1737147a141a618d4a4e": {
+      "subject": "fix(tui): preserve transcript history across trimming, folding, and replay (#4866)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id a44b2ae17a4659ccafdec53d58c5b795788390cd",
+      "ledger": "ported"
+    },
+    "1364ab4741a07fb24a73634ffeea5e1503599068": {
+      "subject": "fix(agent-core-v2): stage opt-in mutable replay for conversation participant (#4893)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 87bca0f6685cc4d24e79d058f52246607f680130",
+      "ledger": "ported"
+    },
+    "1fc7be400100695a93ee5d12d812e626b608280d": {
+      "subject": "fix(agent-core-v2): preserve raw bytes in task output tails (#4886)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id b7fc264cfacf05b5de73a9c5e952a13a2711b118",
+      "ledger": "equivalent"
+    },
+    "638c6ffe037eb5857ca29f1ed214e0ce5ec325b4": {
+      "subject": "fix(agent-core-v2): keep token counting and compaction anchored to usage (#4883)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id f7008fa54f4e9ab845a58162bed3f3934e096cc2",
+      "ledger": "ported"
+    },
+    "29bc56daaff188b49cb2b67774c2335e93bd105e": {
+      "subject": "test: stabilize task wait and session reload checks (#4901)",
+      "status": "test-present",
+      "kind": "test",
+      "evidence": "patch-id 2929b3be9e649e44c8e72b8fed0054402c2a95e4",
+      "ledger": "ported"
+    },
+    "90d3a66c644d56f2e3a9d4ae9e55e59375fb750d": {
+      "subject": "feat(tui): add follow_up_behavior to choose whether Enter queues or steers (#4890)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 68a82f180fbfa32f92f18d45037adaf303b7540f",
+      "ledger": "ported"
+    },
+    "ff61a2607466f257353422c4e6f4182740bb8e03": {
+      "subject": "docs: restore remote environment guidance and normalize quotes (#4818)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id 9d4d1edf240e66ac7261ceb8f4f10b6b8dff3ea9",
+      "ledger": "equivalent"
+    },
+    "391d9e7f4a1f412086118ef20913d13c66c8f1cd": {
+      "subject": "chore: sync web dist from code-app (#4898)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 3ea869a5c05288e3762dea42d182070628240ad1",
+      "ledger": "not-applicable"
+    },
+    "8d7948e111ee1e9dd12e615fcbd0e21afc436c93": {
+      "subject": "test(kap-server): wait for search index readiness in route tests (#4909)",
+      "status": "test-present",
+      "kind": "test",
+      "evidence": "patch-id 3ac6677816c3f4da1b799579f0bcef661e2a7f15",
+      "ledger": "ported"
+    },
+    "61306018717cc45caa73ce591f4ef51f41981a29": {
+      "subject": "fix(sdk): allow resuming occupied sessions (#4910)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id fa466928dc78f46126a7b70fb583f86d334f610d",
+      "ledger": "ported"
+    },
+    "e122269955a160a89b22ff21e37809250f40ad5d": {
+      "subject": "test(kap-server): stabilize remote git session tests (#4911)",
+      "status": "test-present",
+      "kind": "test",
+      "evidence": "patch-id 73029ac210682510ebf793bb95fa1a56b960d23b",
+      "ledger": "ported"
+    },
+    "401b4a015f57a178adbbd098f37519647309b864": {
+      "subject": "docs(changelog): sync 2.6.1 from apps/kimi-code/CHANGELOG.md (#4912)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id f690fc5a5b208705887129651469a9bc90a070f3",
+      "ledger": "ported"
+    },
+    "88e3c20739a20a9a4003e366db7ecad9b88e10bd": {
+      "subject": "feat(core): add Amazon Bedrock provider with AWS credential chain auth (#4895)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id caabd55e4629d2d36209204bba2829e0569bc75f",
+      "ledger": "ported"
+    },
+    "8d939f7dc76adde3d68a1d489eea3e8ea57e2b9a": {
+      "subject": "chore: sync release/2026-11-13 back to main (#4913)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 01d9e6e49a2c6bf4a62fb362d5b0b70b9532c5f9",
+      "ledger": "not-applicable"
+    },
+    "f082f04a093a3e71a2263c5461d52507dc31f83a": {
+      "subject": "docs(changelog): sync 2.6.2 from apps/kimi-code/CHANGELOG.md (#4929)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id 77464eb2f2163fc8c24c96e0ff7b0d7d809a81b6",
+      "ledger": "ported"
+    },
+    "6e35efa98402b2a5a198aa929ef178e79ab26bb4": {
+      "subject": "chore: sync web dist from code-app (#4976)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 0c42b5c8f6df8d3aba3aa19295cda9e267416943",
+      "ledger": "not-applicable"
+    },
+    "334d79870ec7dcdba8dfcf295792bd66b430fe6e": {
+      "subject": "chore: sync release/2026-11-13-2 back to main (#4930)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 85ef74246f0dd6dbed87f235d561a68c60dbcf63",
+      "ledger": "equivalent"
+    },
+    "f538d534cc9f4e96f4bacfdf02e28df682a4f611": {
+      "subject": "refactor(kap-server): converge sessions and mcp APIs onto /api/v1 (#4891)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 870becb9056ce7fe72827c146357b0060c1b1605",
+      "ledger": "equivalent"
+    },
+    "6819b036cd00f8dcd779e0b70105b93a947340c8": {
+      "subject": "ci: run Nix builds for release branches (#4821)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id 008aec1ad6506f6fc0ddea84213c345407dc0634",
+      "ledger": "equivalent"
+    },
+    "fec742878d73678082b304c887e4fb1564088c54": {
+      "subject": "fix(acp): bridge client capabilities without rebinding sessions (#4979)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id c7c92dbfb724dc6d212867fac6a240aad9b6e3e7",
+      "ledger": "equivalent"
+    },
+    "135993745d0c42ce2f535b59f03197075c0cb521": {
+      "subject": "refactor(core): remove the unwired legacy tool executor chain (#4998)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 6598bbc52a8c2763e85b64d5a65079143d1c6ed7",
+      "ledger": "equivalent"
+    },
+    "2f33641b7315b4a21e71820083e5a6010359e93b": {
+      "subject": "refactor(kap-server): compact session state, global events, and snake_case contracts (#4963)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 89722e364e1e3c69c9901ac8be8d28d3b0b295ac",
+      "ledger": "ported"
+    },
+    "13d363e1800152daecffd80b67f0986d492df811": {
+      "subject": "feat: run a full server on SSH hosts (#4784)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id c1b4f55de94011df59444c1594854fc45f44245e",
+      "ledger": "ported"
+    },
+    "b957457968f49bd2e6200708f5185f4e3701999d": {
+      "subject": "refactor(kap-server): remove deprecated routes and replace session abort with cancel (#4965)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id e0874d6e094a7ddbc155fa26009980a3f34b2040",
+      "ledger": "not-applicable"
+    },
+    "a692ff9af2c68157297a324b013a8960ceae66bb": {
+      "subject": "chore(cli): hide kimi server from top-level help (#5010)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id e925c96f7aeaff224388cbc09aac212d1d6e2d2f",
+      "ledger": "equivalent"
+    },
+    "2931c7efd542a7cb2486faec0fc35bc2fde0f533": {
+      "subject": "fix(hosts): preserve grouped session list routing (#5013)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id a07627ee5b55b166d786d364fef3e6ef7ec7d83c",
+      "ledger": "equivalent"
+    },
+    "de1fdaa89d34800e6f37af88987c9adc9baab8c4": {
+      "subject": "fix(hosts): sort unpaginated sessions before projection (#5015)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 110178ed014d9a06adfbd145fb283d71689a8bcb",
+      "ledger": "equivalent"
+    },
+    "d1fe15f7f831cbe2ae579adaf1dfa77f21a73733": {
+      "subject": "chore: reject comments in JS/TS code and remove existing ones (#5019)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id d3ce59c021ce4ed3c014cbcdef58de7159b9e5b6",
+      "ledger": "equivalent"
+    },
+    "5ae973905cb3b2f80e3a781ec21f7bc5e76ee205": {
+      "subject": "fix(sdk): reload stale sessions before starting btw (#5021)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 49a3310ad792598827179ebf888dcdae68892584",
+      "ledger": "ported"
+    },
+    "7052fbbefd515d8e2aef27b60709965e59c4b687": {
+      "subject": "docs(changelog): sync 2.6.3 from apps/kimi-code/CHANGELOG.md (#5022)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id c455db24d6063e0a3ef84be7637dd2ec5683e1ac",
+      "ledger": "equivalent"
+    },
+    "1ccbe4127d52324c806913d8dc090a867784c90e": {
+      "subject": "chore: sync release 2.6.3 back to main (#5026)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 584e488720a02a524e4e5a1b34f519014c14fc56",
+      "ledger": "equivalent"
+    },
+    "ca14f88807cbf4fdfe3cc0d8a7627dcc2b31a94f": {
+      "subject": "chore: sync web dist from code-app (#5039)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 0c16529756df9a856e503f6e22b7dd14f6f006bd",
+      "ledger": "not-applicable"
+    },
+    "3a05a7ec93f30b7771c101661d21ce1f5b2f2435": {
+      "subject": "fix(remote-control): honor HTTP proxies for WebSocket connections (#5037)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id d57cb9311c01d9a4fc0367801b592b3e9d0ad752",
+      "ledger": "ported"
+    },
+    "285584e18844b0b03c5dd217d6e64f5ff5ba784c": {
+      "subject": "test(tower): deflake completion lock assertions (#5038)",
+      "status": "test-present",
+      "kind": "test",
+      "evidence": "patch-id 954e70290c57e6a774de261688f42c0cf8f50134",
+      "ledger": "not-applicable"
+    },
+    "4567ffcf5db5034ba9658e052fb28e428a33fe2d": {
+      "subject": "chore: enforce explicit lint rules as errors and freeze existing findings (#5023)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 5bb0ec251814747e3747fc3386b4c6b556f67e16",
+      "ledger": "equivalent"
+    },
+    "22d559b089a080ae1bdc2740f9f38f31a244dc17": {
+      "subject": "feat: remove the 24-hour cap on update rollout delays (#5043)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 28e1d55da678e9bbc2c05144072805dcbc962848",
+      "ledger": "ported"
+    },
+    "a656ab627a22cc5d5ba3dff15eb6a382dd1e46e9": {
+      "subject": "refactor(core): flatten tool runtime directory into tool/ (#5044)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 6ded0bcd6881748bb3dff50052c847ffaad7af3e",
+      "ledger": "equivalent"
+    },
+    "182b324c24707ca8160bb5744b2777045a5996da": {
+      "subject": "refactor(core): add injectable log and clock seams in utils (#5051)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id d86bb36358e932f70b4a0f67517c2c39eb075ec2",
+      "ledger": "equivalent"
+    },
+    "baa7b4bcfcb86f558318f220686c60eddd9ab4a4": {
+      "subject": "feat(kap-server): include host product in instance registry and /api/v1/meta (#5045)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 27492efdbb96f18aac3dbc2008f79ea4ecd30897",
+      "ledger": "equivalent"
+    },
+    "a09bf8573cdfaa611366b7ca8c7bfefb1727409b": {
+      "subject": "feat(tui): show foreground agent activity in /tasks (#5049)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 1312e2e9eefab52f9662e29a992989886efaf558",
+      "ledger": "equivalent"
+    },
+    "50ec3c3940a3f265cf1b99123d6d2ebf9c23aaa0": {
+      "subject": "feat(agent-core-v2): expose session and workspace IDs in Bash tool env (#5053)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id cac194e03750b1e08a5473c46de3f41f417ebcfb",
+      "ledger": "ported"
+    },
+    "84439d5f4ec7bcf69f3e1a5ba0e3145d8dddff08": {
+      "subject": "feat(kap): add agent-to-agent HTTP wait/interactions/kap.md, web --json, and KAP guide (#4966)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id dc4b2af2f7efc85b84635206a9f764aad55032c7",
+      "ledger": "ported"
+    },
+    "b37c9bb857d556034afcb0004beaba6e2c2bb15a": {
+      "subject": "fix(agent-core-v2): support Vertex AI ADC (#5056)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 7208dd93a2d29925ca3c7638b91cd265d23e1ce7",
+      "ledger": "equivalent"
+    },
+    "1935082ce7f58989b6d15c9d4120df46d12bd393": {
+      "subject": "refactor(core): simplify tool executor lifecycle (#5080)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 2c66f0fd0bf83111d38df3dfc39b9551314bb69e",
+      "ledger": "equivalent"
+    },
+    "5db75e0c20dd74fa92225f26c95116fcc4594cb1": {
+      "subject": "chore: merge the code-app desktop migration into main (#5079)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 8afe7c63ced352fd7e2f179eebd150bab7b3da86",
+      "ledger": "not-applicable"
+    },
+    "f48ae9151a8d4e4305ebbf6922519c0a9d645ac8": {
+      "subject": "chore: clarify contributor guidelines and validate AGENTS.md files (#5072)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id dd5069f93f1e7f391a9d36cce72380b9fbb47505",
+      "ledger": "equivalent"
+    },
+    "7e2c565e31fb81169a30bc924ff0f88a36f88c66": {
+      "subject": "feat(tui): support multiline feedback input (#5042)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 158f0f363c1bd4322d48ba2439496f7931448a2d",
+      "ledger": "equivalent"
+    },
+    "4d38c0080f936f5285da8ca675072986989e457c": {
+      "subject": "docs: rename other-agents guide title to include (Agent to Agent) (#5060)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id 0132177a9fa0276c0d303d7a2fe425fea421a9ab",
+      "ledger": "equivalent"
+    },
+    "374466c66cfa590e7b19c1ff1fda115d1cbb9e14": {
+      "subject": "fix(desktop): only guard nightly for Desktop version PRs (#5084)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id de89996795d0fa35ea874f0c57b091356b97dae6",
+      "ledger": "not-applicable"
+    },
+    "e5ae24239ba88b92953e22d0ca734f30933ccc16": {
+      "subject": "chore(agent-core-v2): fix test (#5087)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 5abe8641a89b8263e0c75cc7beb1f6435867703b",
+      "ledger": "ported"
+    },
+    "8d426de887d4304e42eba8467ce0d1e5aa82e9a5": {
+      "subject": "test: add a shared model testkit and KAP scenario suite (#5078)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id af550c9ad6b627c70ba8e9962a874acebabdc580",
+      "ledger": "equivalent"
+    },
+    "2eb3e87c66f4e749cee1c1b05490c252baf463e4": {
+      "subject": "ci: use fixed product names for release titles (#5088)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 3e6fc7eeaf51872c6e5f8ec3e16e147aa4966f77",
+      "ledger": "not-applicable"
+    },
+    "7057fa34375aa34275fd83ea95778630eac14048": {
+      "subject": "fix(hosts): preserve reconnect errors and restore removed host sessions (#5055)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 9596cd480a731ae8677a735d3490e46b8857db88",
+      "ledger": "equivalent"
+    },
+    "71db6b7d38c60307080da0c00c9e9d5865312e1a": {
+      "subject": "feat: align Desktop Canary versions with CLI (#5089)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 140a1957ccf29280d287ad7bf399717a8c74ca44",
+      "ledger": "equivalent"
+    },
+    "08997afe2b49b67f790cecb7c2c6a8fab86c40af": {
+      "subject": "fix(plugins): show WebBridge updates in partial state (#5090)",
+      "status": "equivalent",
+      "kind": "source",
+      "evidence": "patch-id 1c317ca5cf99f3a5feb26291737a840a799cc982",
+      "ledger": "equivalent"
+    },
+    "08c5413f76b8596763817f90d3ba5a6c75c8e82c": {
+      "subject": "ci: fix desktop release workflow permissions (#5092)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "patch-id e4d1f1b6fb762e357a3ce83837a569a5ad827b50",
+      "ledger": "not-applicable"
+    },
+    "4a8a2f3d4e9a30027c4e5854a1d880d6a444ee65": {
+      "subject": "feat(hosts): explain SSH connection failures and next steps (#5085)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=19 missing=0 adapted=10",
+      "ledger": "equivalent"
+    },
+    "9d92dc007c789ef092b878bb5e80d7ad5097e0bb": {
+      "subject": "fix(core): preserve Kimi tool media and restore LLM coverage (#5097)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=12",
+      "ledger": "equivalent"
+    },
+    "ccc476ddd2ee5bdcf89f27cc6cdda14e96cc102b": {
+      "subject": "fix(tower): reviewer model follows tower (#5018)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=13 adapted=21",
+      "ledger": "ported"
+    },
+    "31d776c469b4b98a6d01a29f5c0d17b6825882e3": {
+      "subject": "feat: mention other sessions from the @ menu (#5068)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=7 missing=16 adapted=31",
+      "ledger": "ported"
+    },
+    "98a97453273c9209aaf3fe224e28d1b2050dee9c": {
+      "subject": "chore: add release notes for kimi-code-desktop@1.4.0 (#5131)",
+      "status": "platform-missing",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=2 adapted=0",
+      "ledger": "equivalent"
+    },
+    "aa8d2f0fad6619fa361d963346dfd4e7fa177fa5": {
+      "subject": "docs(changelog): sync 2.7.0 from apps/kimi-code/CHANGELOG.md (#5121)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "equivalent"
+    },
+    "7895ce4cd499070a475abc7b47141cbca1a79f1c": {
+      "subject": "refactor(core): unify llm event stream and harden behavior tests (#5130)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=26 adapted=57",
+      "ledger": "ported"
+    },
+    "638fd94b6c22589253570b9b90dbe5359849ddc2": {
+      "subject": "feat: add the context usage view and session context inspection routes (#5058)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=5 missing=8 adapted=45",
+      "ledger": "equivalent"
+    },
+    "3cc88fad51f53796fa8db5db59cd283bc0de57db": {
+      "subject": "docs(changelog): remove KAP commitments from 2.7.0 and 1.4.0 (#5134)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "equivalent"
+    },
+    "5459143f6db57ff4062a0dcbfbc68ab236618da4": {
+      "subject": "fix(tui): dequeue steered prompts on engine acceptance (#5140)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=17",
+      "ledger": "ported"
+    },
+    "ecb31b8cc413deb6a63897538cfb14e470700ad7": {
+      "subject": "fix(tui): decouple compaction from turn state (#5137)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=5",
+      "ledger": "ported"
+    },
+    "dbcf39bddd1d3b68a76782fb3937d8ae3d735b84": {
+      "subject": "refactor(core): migrate JSONL storage primitives (#5132)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=6 missing=1 adapted=13",
+      "ledger": "ported"
+    },
+    "80bd35955585b85166ae99df2ffc5b4b0321076e": {
+      "subject": "chore: remove the root AGENTS.md size limit (#5144)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=0 adapted=2",
+      "ledger": "ported"
+    },
+    "094771711c4d82b42c579936bc2daa7b1ae1040c": {
+      "subject": "ci: check pull requests for new code duplication (#5148)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=4",
+      "ledger": "not-applicable"
+    },
+    "c6c7177b34303707ff8770662727a32cd3e5cb9b": {
+      "subject": "refactor(core): extract hook registries (#5157)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=11 missing=0 adapted=19",
+      "ledger": "ported"
+    },
+    "9364a3f8b07ec085ef4f96cf586270659ca7d79b": {
+      "subject": "fix(client): localize session conflict errors (#5159)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=4 missing=1 adapted=0",
+      "ledger": "ported"
+    },
+    "180bdb0953719170dac9b6cdb5b2fd8e553dc5cf": {
+      "subject": "chore: check for duplication before pushing a PR (#5160)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "not-applicable"
+    },
+    "a81958c7e5ed055f1be8ff2f4a94ae622a647217": {
+      "subject": "test: stabilize composer context ring tests (#5149)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "ported"
+    },
+    "d97e9dcee0e5061fe2dcd3790b6dc4c0b5a7dfa3": {
+      "subject": "chore: sync release 2.7.0 and desktop 1.4.0 back to main (#5172)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=49 missing=5 adapted=15",
+      "ledger": "equivalent"
+    },
+    "f9ee8bbf4dee5b12bb7ba66e5824dc5386e30c3b": {
+      "subject": "feat(btw): add agent close endpoint, side-chat stop button, and close confirmation (#5047)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=8 missing=2 adapted=37",
+      "ledger": "ported"
+    },
+    "d649f883e8398aede2406a0c653cb936a771861a": {
+      "subject": "feat(desktop): add transcript stability probe and perf scenarios (#5112)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=4 missing=0 adapted=6",
+      "ledger": "ported"
+    },
+    "e86127f8b7a14264a2a3ce7c309e7e195baeda24": {
+      "subject": "feat(desktop): rebuild conversation scrolling around a single scroll controller (#5113)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=57 missing=2 adapted=15",
+      "ledger": "ported"
+    },
+    "ca71dc29525184b5fe81e1ac52911c8dd228b20b": {
+      "subject": "feat: show context usage items by source and part (#5175)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=1 adapted=15",
+      "ledger": "equivalent"
+    },
+    "8a6d7a27094186f6ce55ef414a677a9e916e576b": {
+      "subject": "chore: add release notes for kimi-code-desktop@1.4.1 (#5178)",
+      "status": "platform-missing",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=2 adapted=0",
+      "ledger": "equivalent"
+    },
+    "c01b72b0b7da39b2366686c6e2d2bfd25dff781b": {
+      "subject": "docs(changelog): sync 2.7.1 from apps/kimi-code/CHANGELOG.md (#5179)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "equivalent"
+    },
+    "751a1d1192b84b72e0d888ee7ca98262cdecb73b": {
+      "subject": "docs: fold print guide into kimi command reference (#5183)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=3 missing=0 adapted=7",
+      "ledger": "ported"
+    },
+    "89d92177cf8a146ae53077111c4a04ae9b6624dd": {
+      "subject": "fix(kap-server): allow HTTPS images in CSP (#5185)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=2 adapted=3",
+      "ledger": "ported"
+    },
+    "dc319d72fad723983a1b906ec0c5ac773f321b1a": {
+      "subject": "chore: sync CLI 2.7.1 / Desktop 1.4.1 back to main (#5188)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=21 adapted=65",
+      "ledger": "not-applicable"
+    },
+    "09ddf45bbec6559451309d70444c021212c204d4": {
+      "subject": "feat(sidebar): add pinned display mode switcher and collapsible section headers (#5143)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=10 missing=2 adapted=3",
+      "ledger": "ported"
+    },
+    "4f5c01048540908acee3bdd9e8fa982b66067a0f": {
+      "subject": "docs(changelog): sync CLI 2.7.2 and desktop 1.4.2 release notes (#5193)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=2 adapted=2",
+      "ledger": "equivalent"
+    },
+    "992e3f16bbf06d1125e17bdccfbde84f32a87662": {
+      "subject": "fix(plugins): show localized authorization errors (#5194)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=1 adapted=3",
+      "ledger": "ported"
+    },
+    "969cededb327554f18f83f2c409c55d878a1ec06": {
+      "subject": "chore: sync CLI 2.7.2 / Desktop 1.4.2 back to main (#5196)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=6",
+      "ledger": "ported"
+    },
+    "1ef139e6c32a01c7ac51a89fea6ae279c91bc276": {
+      "subject": "refactor: deliver subagent model choices via system reminder (#5190)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=2 adapted=25",
+      "ledger": "ported"
+    },
+    "b695ed92af39e2da8a73833926604160071d8bf5": {
+      "subject": "feat(session): add POST /sessions/{id}:continue and desktop/web continue UI (#5048)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=38",
+      "ledger": "ported"
+    },
+    "3f514458d21e650c802ffcbdabc6ed07fe1f471e": {
+      "subject": "test: add layered QA gates for smoke, protocol recovery and history (#5138)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=18 missing=48 adapted=80",
+      "ledger": "not-applicable"
+    },
+    "2e37a32081861654acaa06ad5f0d709b3cbe5915": {
+      "subject": "test: move seven KAP conversation contract cases onto testkit scenarios (#5200)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "equivalent"
+    },
+    "942954fb510073832eaa397cb277c7bf2f39a021": {
+      "subject": "fix(desktop): keep overlay menus closed when a late refresh arrives (#5199)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=9",
+      "ledger": "ported"
+    },
+    "83e4dde93453dd22e89da03d2c96d84999e7d0c2": {
+      "subject": "docs: ask authors how to handle duplicate code (#5187)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "not-applicable"
+    },
+    "e12cad1a4b9b3e7befbb0703a3b8b68a5c6e9fe5": {
+      "subject": "fix: add transitions to open-in menu (#5219)",
+      "status": "present",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=0 adapted=0",
+      "ledger": "ported"
+    },
+    "9492766742351482d2a7772fc957ef54ae9fa55a": {
+      "subject": "fix(llm): retry invalid tool call arguments (#5101) (#5234)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=18",
+      "ledger": "ported"
+    },
+    "701bb5306431a7b83638f74c5da40ced1bb514a2": {
+      "subject": "refactor(agent-core-v2): remove idle reminder reconciliation (#5207) (#5235)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=11",
+      "ledger": "ported"
+    },
+    "5a807571afb1a21107a412536af36d16da643574": {
+      "subject": "test: wait for the tower lock holder instead of polling the lock file (#5245)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "ported"
+    },
+    "225868a3fa53498598f891e3a6acd7148e6c34de": {
+      "subject": "fix(desktop): restore omitted release behaviors (#5247)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=4 missing=14 adapted=31",
+      "ledger": "ported"
+    },
+    "6fd6f1de4e66180ef20c72a59eb149d207dfd37f": {
+      "subject": "chore: compare lint guard JS plugins regardless of their order (#5249)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=0 adapted=3",
+      "ledger": "ported"
+    },
+    "e9538e370478a47f3f9051779ea4d4eba0265e75": {
+      "subject": "fix: wait for the engine to finish disposing before server close resolves (#5250)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=4",
+      "ledger": "ported"
+    },
+    "c1067160d148057ffde831f9351cdf82307ca10b": {
+      "subject": "test: run layered QA subprocess tests after the in-process ones (#5251)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "not-applicable"
+    },
+    "1761319628ef63e3541218b04826007480456e54": {
+      "subject": "refactor(core): run loop turns on an independent state machine (#5211) (#5236)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=6 adapted=26",
+      "ledger": "equivalent"
+    },
+    "253212d23e9d45eacd71047698b99267a5de0813": {
+      "subject": "refactor(llm): legalize deferred tools in the resolver (#5142) (#5237)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=7 missing=0 adapted=39",
+      "ledger": "ported"
+    },
+    "57200d54e5ad95c704e166166023ed1fe4ca4e6a": {
+      "subject": "fix(core): recover compaction from empty text history (#5238)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=6",
+      "ledger": "equivalent"
+    },
+    "b53e7a8b5bb0a485ec4a67e65f0ce92d1fa919f2": {
+      "subject": "fix(agent-core-v2): truncate foreground output in bash detach acknowledgement (#5239)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=2",
+      "ledger": "ported"
+    },
+    "6bdb7ead8cb5c5b5982ebd59c912ae36010bdfa3": {
+      "subject": "fix(agent-core-v2): pin the initial tool baseline after startup MCP discovery (#5217) (#5240)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=9",
+      "ledger": "ported"
+    },
+    "0ab516efa7c920c04e62419a010fd56e627a746e": {
+      "subject": "fix(desktop): prioritize Kimi subscription in model picker (#5260)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=1 adapted=0",
+      "ledger": "ported"
+    },
+    "634db7a7a9d656cf72289a012b59bca6edb963c2": {
+      "subject": "test: move four more KAP conversation contract cases onto testkit scenarios (#5202)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=3",
+      "ledger": "equivalent"
+    },
+    "6d4a79c68c4cb694ca9820f85f28716179773940": {
+      "subject": "docs: put screenshots and recordings first in PR descriptions (#5252)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "ported"
+    },
+    "5bc1f3e7b2903646e3519892a1eb1c937274e570": {
+      "subject": "feat(desktop): improve the composer / and @ menus (#5093)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=9 missing=5 adapted=17",
+      "ledger": "ported"
+    },
+    "ec6f58c43baee56f392dd6b87ac68a31490cd51c": {
+      "subject": "feat(desktop): continue running sessions after an update restart (#5221)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=20 missing=1 adapted=18",
+      "ledger": "ported"
+    },
+    "7746b162166534ace0e781bf3e4577e4c6a335fa": {
+      "subject": "feat(desktop): remove the continue button from the empty composer (#5259)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=9",
+      "ledger": "equivalent"
+    },
+    "972e750948b757e1efe26a40a2613f5163b42d91": {
+      "subject": "fix(sidebar): preserve the list view when opening a session from search (#5258)",
+      "status": "missing",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=0",
+      "ledger": "equivalent"
+    },
+    "c4661d1b2aa4bb22dee7ee35f3589ca35f0e97f6": {
+      "subject": "fix(kap-server): release startup resources when the server fails to start (#5248)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=4",
+      "ledger": "ported"
+    },
+    "2601b49c3518f9c2fc8638d1a11392e5ab4dd475": {
+      "subject": "ci: stop reporting cancelled desktop e2e runs as failures (#5264)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=5",
+      "ledger": "not-applicable"
+    },
+    "314a6bd96baa697b41bc4b26dbcc74419af7ebde": {
+      "subject": "feat: remove experimental subagent context forking (#5254)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=4 missing=6 adapted=23",
+      "ledger": "ported"
+    },
+    "d9b6c1d3c87777b051d6525eabf2d832db0af558": {
+      "subject": "test: move the last KAP conversation contract cases onto testkit scenarios (#5272)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=5",
+      "ledger": "equivalent"
+    },
+    "b0741c9d853c50c785ff1ff331b3d68103deea20": {
+      "subject": "fix(cli): bundle required npm dependencies (#5275)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=1 missing=0 adapted=5",
+      "ledger": "ported"
+    },
+    "c0afa488185f456cb9f41bef3fc1194799572933": {
+      "subject": "test(desktop): follow the new / and model menus in composer journeys (#5274)",
+      "status": "present",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=0 adapted=0",
+      "ledger": "ported"
+    },
+    "a3de86aa53dcbf1a911d19932caf525bf0d4d0bc": {
+      "subject": "refactor(agent-core-v2): converge operation request tools and history views with turns (#5257)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=8",
+      "ledger": "equivalent"
+    },
+    "3a43c683de31440e496b9b926a03db93c2baa16f": {
+      "subject": "fix(agent-core-v2): preserve raw tool call argument bytes across resume (#5268)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=9",
+      "ledger": "ported"
+    },
+    "3d7f4c10e7967ebac6832b9cf17ebb3024d477f5": {
+      "subject": "fix(agent-core-v2): start a project's MCP servers only while something uses them (#5203)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=5 adapted=23",
+      "ledger": "ported"
+    },
+    "8423d6bc83e61b9553239d7a4104765055043b34": {
+      "subject": "test(cli): mark dependency test registrations as intentional (#5286)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "fast blob present=1 missing=0 adapted=0",
+      "ledger": "ported"
+    },
+    "16550990aa7ae3b526abcb2fb045868bebf5c418": {
+      "subject": "fix(agent-core-v2): record measured tool durations in tool message attributes (#5266)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=10",
+      "ledger": "equivalent"
+    },
+    "e42d4a53b8b1fe73bbe5fde3ca142bfe4af3a5cf": {
+      "subject": "fix(agent-core-v2): reclaim session locks across hostnames (#5289)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=5",
+      "ledger": "ported"
+    },
+    "92ea0c6dc3bf718c5a237e28db2d7e2c83978419": {
+      "subject": "fix(agent-core-v2): return approved plan exits as successful tool results (#5295)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=5 adapted=7",
+      "ledger": "ported"
+    },
+    "83a4dfc24eac2b1b95d6a3481a2630f6c1657b9b": {
+      "subject": "feat(app): refine context compaction queuing, status feedback, and summary panel (#5263)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=15 missing=2 adapted=21",
+      "ledger": "ported"
+    },
+    "9dadda17606cf2c44b5e9e6f0b2d2425edd4be4d": {
+      "subject": "fix(agent-core-v2): label user media with local session paths and materialize steered media (#5261)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=17",
+      "ledger": "ported"
+    },
+    "6343b994b05138f82a56e5b24700f31117178376": {
+      "subject": "feat(desktop): add opt-in feedback for conversations and replies (#5150)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=29 missing=19 adapted=80",
+      "ledger": "equivalent"
+    },
+    "c0e9faf0bda52462e034d938f41a3aa48a2e6426": {
+      "subject": "feat(agent-core-v2): approve statically read-only Bash commands (#5253)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=1 adapted=10",
+      "ledger": "ported"
+    },
+    "de5d47d509c035d39c772df5a967f38af12f6122": {
+      "subject": "chore: add release notes for kimi-code-desktop@1.4.3 (#5305)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "fast blob present=2 missing=0 adapted=0",
+      "ledger": "ported"
+    },
+    "8d22a9ba3ab3a2613fca6584fbb002121d3e6399": {
+      "subject": "test: add a cross-surface end-to-end suite and run its first scenario on the TUI (#5304)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=22 adapted=15",
+      "ledger": "not-applicable"
+    },
+    "d9070b99e1728ab15d758de746f3ed99335535a0": {
+      "subject": "docs(changelog): sync 2.7.3 from apps/kimi-code/CHANGELOG.md (#5308)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "ported"
+    },
+    "367ceb3fc39c2a5a91fff3db6185ec8bff0b3b7f": {
+      "subject": "ci: temporarily pause previous e2e gates (#5309)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=5",
+      "ledger": "not-applicable"
+    },
+    "2fd22d54617f691b71c5a29f14aa4a030f6e69e4": {
+      "subject": "test(e2e): run the end-to-end scenarios over ACP (#5311)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=10",
+      "ledger": "not-applicable"
+    },
+    "9a82686b0e91c532f4d49da0bc088a0eac9bdede": {
+      "subject": "chore: sync release 2.7.3 and desktop 1.4.3 back to main (#5310)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=14 missing=9 adapted=46",
+      "ledger": "ported"
+    },
+    "e0a50e870eb71f3af2bde72a20afa6dfdfce7e99": {
+      "subject": "test(e2e): run the end-to-end scenarios on Desktop (#5320)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=11",
+      "ledger": "not-applicable"
+    },
+    "d22ffe88f1dc21b6db99e2642cad405ce002d3c1": {
+      "subject": "test(e2e): run the end-to-end scenarios on the Web interface (#5323)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=6",
+      "ledger": "not-applicable"
+    },
+    "c3c52fc967b543d592ea5e25da3714c0816a3852": {
+      "subject": "ci(release): avoid duplicate pnpm cache writes in joint releases (#5277)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=4 adapted=8",
+      "ledger": "not-applicable"
+    },
+    "9f0440376150f9f2a94419c1ad8984991f7099db": {
+      "subject": "fix(agent-core-v2): reload updated dynamic tool schemas (#5302)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=17",
+      "ledger": "ported"
+    },
+    "b1b9e13cfac8c85d066fe48c596fa2278b8239af": {
+      "subject": "test(e2e): add the approval, shell and stop scenarios (#5327)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=4 adapted=3",
+      "ledger": "not-applicable"
+    },
+    "258379a2c67ead8f17f80a38be8343d971712d2a": {
+      "subject": "fix(desktop): slide the session info sidebar with the right panel (#5329)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=1 adapted=2",
+      "ledger": "ported"
+    },
+    "13b09d994985d7747572730400be6ef89e722ab6": {
+      "subject": "feat(kap-server): name the session project root and agent location (#5290)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=3 adapted=15",
+      "ledger": "ported"
+    },
+    "9ff76d8e1982e08c95dfea60a25e5fb077ddf402": {
+      "subject": "fix(app-ui): repair undefined CSS token references and remove dead tokens and primitives (#5313)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=8 missing=0 adapted=3",
+      "ledger": "ported"
+    },
+    "fb790ad64a0cf67bad7dae14537e99c7337a9217": {
+      "subject": "fix(app): keep jump-to-latest working after touch scrolls (#5330)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=1 adapted=0",
+      "ledger": "ported"
+    },
+    "4b2f4bfd57b630a093aadce5a3088db4859c4f47": {
+      "subject": "fix(migration-legacy): drop legacy experimental section during config migration (#5312)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=4",
+      "ledger": "ported"
+    },
+    "f56a260feec03b5037c1999d24bd8d930b1300e2": {
+      "subject": "fix(core): include Gemini thinking tokens in output usage (#5334)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=1 adapted=2",
+      "ledger": "ported"
+    },
+    "afa8ef65ee0f24092c243dca671d17b62ffae0b2": {
+      "subject": "fix(agent-core-v2): recover failed uploaded media references (#5301)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=12",
+      "ledger": "ported"
+    },
+    "dee503c506c8a0eee7bfc1e98344be21c29337b7": {
+      "subject": "fix(app-core): return session media URLs synchronously for unknown sessions (#5336)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=2",
+      "ledger": "ported"
+    },
+    "80bfb08457bdcec09f10435167dd7ee07f14a5db": {
+      "subject": "fix(tui): keep long plugin catalogs within the viewport (#5341)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=5",
+      "ledger": "ported"
+    },
+    "142617544d8b36501671fe2deefe7303beb14aab": {
+      "subject": "feat: edit global AGENTS.md from settings (#5262)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=2 adapted=27",
+      "ledger": "ported"
+    },
+    "19fed66d25e4f26798721a54ebe3fa13f987a7b2": {
+      "subject": "refactor(ui): consolidate duplicated UI components, tokens and styles (#5314)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=96 adapted=31",
+      "ledger": "equivalent"
+    },
+    "cafb392f8341d578afd3b725a8df8b1a87a9fcb0": {
+      "subject": "fix(kap-server): report the pending interaction when a session frame is sent (#5347)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=2",
+      "ledger": "not-applicable"
+    },
+    "c7d3576d85184eb15b7c6f8f1428986003f0280e": {
+      "subject": "fix(kap-server): append new content blocks without rescanning the turn (#5344)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=2",
+      "ledger": "ported"
+    },
+    "de1a3b68137cc00e9ef05153067e852e800832c7": {
+      "subject": "fix(agent-core-v2): initialize loop after profile and mode selection (#5141)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=2 adapted=23",
+      "ledger": "ported"
+    },
+    "52fff33416120190da78b6742acf1126575b99d5": {
+      "subject": "refactor(core): replace loop.drained/loop.idle with loop end info on turn.ended (#5337)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=1 adapted=24",
+      "ledger": "ported"
+    },
+    "29953c86bb7f9b221ceb05eaaf03c032de2fa151": {
+      "subject": "fix(llm): validate deferred tool arguments against the visible tool view (#5231)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=1 adapted=10",
+      "ledger": "ported"
+    },
+    "6536e55ead889e8bf7de6daf417801771b8b6852": {
+      "subject": "feat(prediction): refine next-prompt interactions (#5180)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=7 missing=4 adapted=34",
+      "ledger": "ported"
+    },
+    "1acd13b6206e23ffcaa3e3ec1f3f912dd2ae9e5a": {
+      "subject": "fix(desktop): mention the optional port suffix in the SSH address hint (#5358)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=0 adapted=2",
+      "ledger": "ported"
+    },
+    "111aae25b0b692dc3953d9e621019cd6366a98e0": {
+      "subject": "fix(acp-server): report a failed turn to the editor as an error (#5357)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=0 adapted=6",
+      "ledger": "ported"
+    },
+    "b5da9bcb1c160c27f4c99bce111f0b7e1750ddea": {
+      "subject": "test(e2e): check what a running or stopped command printed (#5365)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=1 adapted=8",
+      "ledger": "not-applicable"
+    },
+    "48cdb62bed2f2464d2234607b179132f8aad363d": {
+      "subject": "test(e2e): name each step in Chinese and keep what the product showed after it (#5371)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=8",
+      "ledger": "not-applicable"
+    },
+    "859b5f019c2f257821cad01377d687af84f3719c": {
+      "subject": "fix(agent-core-v2): preserve default-valued env overrides in print mode (#5182)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=0 adapted=5",
+      "ledger": "ported"
+    },
+    "3ce987582728548b3634b19595166e813f2b3e1a": {
+      "subject": "test(e2e): cover restart, approvals, queued messages, failures and questions (#5373)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=31 adapted=19",
+      "ledger": "not-applicable"
+    },
+    "4f4dde7b8f008efa0483bde2ab3fb8111ddb1852": {
+      "subject": "fix(agent-core-v2): refresh MCP tools after list changes (#5342)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=0 adapted=8",
+      "ledger": "ported"
+    },
+    "bdae10305c9b167e2598373589baa9af358e8c75": {
+      "subject": "refactor(core): replace turn.ended loopEnd with continuation (#5359)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=1 adapted=23",
+      "ledger": "ported"
+    },
+    "87011ba460b95b8382c57e7a0a6ee8cf6cbc75ae": {
+      "subject": "fix(core): abort Google GenAI requests and forward streamed usage (#5377)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=1 adapted=2",
+      "ledger": "ported"
+    },
+    "14958e050fd38d691b28fe199ca13087962224d4": {
+      "subject": "fix(ui): normalize focus outlines and suppress container focus rings (#5372)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=11 missing=1 adapted=6",
+      "ledger": "equivalent"
+    },
+    "9e8fc48b073d3f63a5cf8b2996c2ee0d93f563aa": {
+      "subject": "docs: remove 2,000-line PR split rule from agent guide (#5384)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "not-applicable"
+    },
+    "233b17facfd10b76d9ca8baac72a5dd6be46c203": {
+      "subject": "feat: add built-in tool settings and mode availability (#5351)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=15 missing=2 adapted=85",
+      "ledger": "ported"
+    },
+    "2679368ca26823c77b1e960cdba086843ea69611": {
+      "subject": "docs: route new end-to-end tests to the active suite (#5386)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=3",
+      "ledger": "not-applicable"
+    },
+    "3b908c944f6cfbbbb1e9eb5181bd3db5a34893a7": {
+      "subject": "docs: store PR media in the unified pr-assets branch (#5382)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "ported"
+    },
+    "2d745f1d1dbaeedee647037b6f42a1fdc97f2afd": {
+      "subject": "feat(desktop): open sessions from kimi-code:// session links (#5388)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=18 missing=0 adapted=10",
+      "ledger": "ported"
+    },
+    "743fe5ceb2c431ed4c8674b3ac7a50baf83c3d6d": {
+      "subject": "fix: truncate long URLs in FetchURL tool rows (#5222)",
+      "status": "present",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=0 adapted=0",
+      "ledger": "ported"
+    },
+    "f53edb98c229f1cd1db132d2adaffca96965ae96": {
+      "subject": "fix(desktop): inherit app fonts in feedback UI (#5338)",
+      "status": "present",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=0 adapted=0",
+      "ledger": "ported"
+    },
+    "9c9b354fd6d05fc156763960a352c5a0c8090806": {
+      "subject": "test: freeze the paused E2E dirs and the engine harness model helpers (#5385)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=14",
+      "ledger": "ported"
+    },
+    "2da1daf53512f291ac9ce73e577be04a6eef40ab": {
+      "subject": "test(e2e): cover the TUI workspace trust prompt (#5389)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=2 adapted=4",
+      "ledger": "not-applicable"
+    },
+    "59312fdedb836ad03337594e0a4f447a65522dec": {
+      "subject": "build: keep server declarations out of engine sources (#5400)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=2 missing=0 adapted=1",
+      "ledger": "ported"
+    },
+    "7238d6d411eed29993d3c83f0e9e77f8e69db6de": {
+      "subject": "test: let testkit scripts set the reply's response id (#5392)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=6",
+      "ledger": "ported"
+    },
+    "3aa25882a5ec5673f3d725224af6ce527e176c85": {
+      "subject": "fix(kap-server): document missing session actions and add snake_case :undo error fields (#5332)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=0 adapted=10",
+      "ledger": "ported"
+    },
+    "9101127e7d813528bff127495d85b4c48b3e49a8": {
+      "subject": "fix(desktop): hide skill prefix in slash menu (#5396)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=0 adapted=2",
+      "ledger": "ported"
+    },
+    "f85f504b8faa9e03545dde894801a42e695b4202": {
+      "subject": "fix(acp): show complete tool approval details (#5403)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=1 adapted=5",
+      "ledger": "ported"
+    },
+    "9abb45cc93b859ea32d9144548ae7ec3ab96806d": {
+      "subject": "fix(acp): synchronize plan mode and handle missing plan files (#5404)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=0 adapted=11",
+      "ledger": "ported"
+    },
+    "e6b16c44d53d8573c8c624d4e67d0bf02f74d75d": {
+      "subject": "feat: group implicit projects by git repository (#5204)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=31 missing=14 adapted=144",
+      "ledger": "ported"
+    },
+    "ed2c7241fa368b0597402d49a8251340ffc75273": {
+      "subject": "ci: run E2E on demand and cut per-push runner load (#5410)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=5",
+      "ledger": "not-applicable"
+    },
+    "c6dec96ae1713925ba8d02b09f1ecdb21c9d2cab": {
+      "subject": "refactor: rename the Workspace concept to Project (#5206)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=32 missing=0 adapted=189",
+      "ledger": "ported"
+    },
+    "43fc6cc45bc02ba8f19cc14dd53cca735a858c43": {
+      "subject": "test(tui): use an existing flag in the experiments telemetry test (#5415)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "ported"
+    },
+    "fdd8d245aca7ec04ee65b53419e415804c6ba648": {
+      "subject": "fix(agent-core-v2): keep deleted sessions out of the session index (#5413)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=4 missing=0 adapted=6",
+      "ledger": "ported"
+    },
+    "029555ac695f432bde7db3b810b376b22d048ef0": {
+      "subject": "test(e2e): run the TUI in node-pty, resize windows, and use the user's default config (#5380)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=3 adapted=19",
+      "ledger": "equivalent"
+    },
+    "c1c835d74c8e9094117ef6baf21a9129c1d1db38": {
+      "subject": "test(e2e): run on Windows, add session verbs and terminal and editor profiles, and migrate the first P0 journeys (#5423)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=11 adapted=21",
+      "ledger": "not-applicable"
+    },
+    "dd0f06c37417b81b8c5b1792dbf6e31f97024b48": {
+      "subject": "docs(changelog): sync 2.8.0 from apps/kimi-code/CHANGELOG.md (#5420)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "fast blob present=2 missing=0 adapted=0",
+      "ledger": "ported"
+    },
+    "354905b7a5603563d5c67bbfedd85122f465fb13": {
+      "subject": "chore: add release notes for kimi-code-desktop@1.5.0 (#5421)",
+      "status": "platform-present",
+      "kind": "platform",
+      "evidence": "fast blob present=2 missing=0 adapted=0",
+      "ledger": "ported"
+    },
+    "e105ef0d25feb346bfda0bd4ad4246805fc2009f": {
+      "subject": "fix(vscode): bundle uuid in extension package (#5425)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=0 adapted=2",
+      "ledger": "ported"
+    },
+    "4d833dbe5d75f6ab208d4fb904280051ba6f8696": {
+      "subject": "fix(loop): cancel prompts while their turn is starting (#5394)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=0 adapted=7",
+      "ledger": "ported"
+    },
+    "932e6fe4ffa954d0d9d27b1d10c37a39a836e153": {
+      "subject": "fix(agent-core-v2): inject truncated Bash result for local shell commands (#5416)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=0 adapted=2",
+      "ledger": "ported"
+    },
+    "e242f104f1b1ccc74d6e07be32e0d766480442cf": {
+      "subject": "test: move every fake model onto testkit with strict checks (#5422)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=4 missing=2 adapted=50",
+      "ledger": "equivalent"
+    },
+    "909637ef59a49afa937b54d8159cb58db21d88f5": {
+      "subject": "test(e2e): keep the TUI busy until queued messages reach the transcript (#5431)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "not-applicable"
+    },
+    "fab15d5bdaea84fe16a6aee10abb9a003447bdf4": {
+      "subject": "ci: run only the vitest packages a pull request reaches (#5430)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=2",
+      "ledger": "not-applicable"
+    },
+    "e3b19047a742b495c4495d49aef3573ff4b26bb1": {
+      "subject": "fix(cli): report foreground web shutdown failures (#5434)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=0 adapted=4",
+      "ledger": "equivalent"
+    },
+    "b0235b31411f83177192f6e9242782d563072a99": {
+      "subject": "fix(desktop): deliver launch actions after the renderer mounts (#5436)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=4 missing=0 adapted=2",
+      "ledger": "ported"
+    },
+    "8286e8f626bf56d5d56adec1e76f8a1cfb698b73": {
+      "subject": "feat(agent-core-v2): add Git worktree service, session presence, and SDK APIs (#5292)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=15 missing=0 adapted=26",
+      "ledger": "ported"
+    },
+    "4d21e4d4d148c673864c23176a5b5cf544336fc9": {
+      "subject": "chore: back-sync release/2026-11-25 to main (#5432)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=107 missing=24 adapted=48",
+      "ledger": "ported"
+    },
+    "1c684ee2b34c316cc6f67080ceca46d804da934c": {
+      "subject": "test(agent-core-v2): wait for fixture metadata writes during teardown (#5439)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "equivalent"
+    },
+    "df97f8e904a0b3d9128ed3810baf7c38eb498d60": {
+      "subject": "test: answer Responses requests in testkit, share test env isolation, and freeze fixed waits (#5437)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=6 missing=4 adapted=9",
+      "ledger": "equivalent"
+    },
+    "d983b22fff7456fc1874d10e46dbf9b96ec0deae": {
+      "subject": "ci: restore the built CLI reconnect regression (#5441)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "ported"
+    },
+    "3d58fad4eafd06c95fc80856ff386349efe8aa6b": {
+      "subject": "test(agent-core-v2): synchronize resume regression with agent disposal (#5442)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "equivalent"
+    },
+    "11a865dc183f0d42c64c4a60445bfdfd659f611e": {
+      "subject": "test: add fake Kimi services to testkit and migrate title and feedback tests (#5445)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=4 missing=0 adapted=16",
+      "ledger": "equivalent"
+    },
+    "0d50327f71cf5413c1726a6eb4d5f4a9507ef484": {
+      "subject": "fix(app): match assistant reply timestamp size with user messages (#5429)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=1",
+      "ledger": "pending"
+    },
+    "dd2fd11c7da94a35fb31b952b03375d1819b83c8": {
+      "subject": "fix(cli): let kimi acp exit on its own after the server closes (#5446)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=2",
+      "ledger": "pending"
+    },
+    "715700143f299dc1de5211865a4c9ca48448b3e4": {
+      "subject": "fix(composer): show pending project trust before sending (#5443)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=10 adapted=12",
+      "ledger": "pending"
+    },
+    "9c57872e91b33a5c0b01bb1458df7a6a675e64d5": {
+      "subject": "fix(acp): stream background task turns to editors (#5447)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=5 adapted=15",
+      "ledger": "pending"
+    },
+    "6d369f17f97cdd3a1dcef94d3fd7e8510fc186d3": {
+      "subject": "test(agent-core-v2): keep Glob spill tests offline without host ripgrep (#5374)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "pending"
+    },
+    "90c3ca6b01d2cd837b1f461eca4e6ecf4f316fe3": {
+      "subject": "fix(agent-core-v2): honor .gitignore in fd file suggestions outside git (#5452)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=4 adapted=3",
+      "ledger": "pending"
+    },
+    "9640d22e881a38cde7b0b23fcbf07c36de49b28b": {
+      "subject": "fix(desktop): match inline code font size in Markdown headings (#5427)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=1",
+      "ledger": "pending"
+    },
+    "cb8a623c22aff737082f9fbfc74eafa9cd4b6701": {
+      "subject": "fix(desktop): align SSH host card padding (#5463)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "pending"
+    },
+    "562f4bea012b413fb2a7a06e3e275d4e8d75e813": {
+      "subject": "fix(acp): attach a terminal that arrives before its tool call (#5455)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=3",
+      "ledger": "pending"
+    },
+    "f17683250e9cdd85b3ba9c125811d63f9e97beef": {
+      "subject": "test(agent-core-v2): fix macOS-only subagent timeouts and a racy notification test (#5458)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=2 adapted=2",
+      "ledger": "pending"
+    },
+    "5e9a84d2d1cbbb1c791b77f69e4c36137ed796e7": {
+      "subject": "test: keep engine, server and SDK tests offline with the testkit network guard (#5473)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=9",
+      "ledger": "pending"
+    },
+    "5b4fa96cb8a2ac3bd9398e4d5ffba93b7e631d47": {
+      "subject": "fix(agent-core-v2): wait for in-flight auto compaction before the next step (#5454)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=4 adapted=2",
+      "ledger": "pending"
+    },
+    "523bc8f74725dc68181df4ddef2fd6f91c0c4543": {
+      "subject": "fix(agent-core-v2): unload only previously declared dynamic tools (#5438)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=3",
+      "ledger": "pending"
+    },
+    "a2d62dad415f1f8cfe8816acdd0065d2017b3a78": {
+      "subject": "ci(e2e): run the Windows E2E jobs on pull requests (#5451)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "pending"
+    },
+    "af85e728bb322adedeb3f2ca35413b4b6af3b25b": {
+      "subject": "test(agent-core-v2): keep the process-group and HEIC cases inside the timeout under load (#5476)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "pending"
+    },
+    "b30a7f48f522993ea3caae0419c5fe2426153cca": {
+      "subject": "fix(desktop): route browser tools by task and availability (#5340)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=3",
+      "ledger": "pending"
+    },
+    "59dda4ada5a5f0b621d156e580fa9b9032b611bf": {
+      "subject": "fix(agent-core-v2): check the Tower lock holder before taking the git reaper guard (#5479)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=2",
+      "ledger": "pending"
+    },
+    "14affd12d5147b7dc13ed1f0437a149d773e4f9a": {
+      "subject": "feat(agent-core-v2): add experimental auto review (#4655)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=27 adapted=86",
+      "ledger": "pending"
+    },
+    "3719e2e22a37a27548cf14396988e646ce998aed": {
+      "subject": "ci: make release workflow manually rerunnable (#5435)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=12",
+      "ledger": "pending"
+    },
+    "f924efa48b65fc6e18486e68f90c6f32b7b4f36f": {
+      "subject": "chore: clarify desktop and web changeset rules (#5484)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "pending"
+    },
+    "08cf9ced5b727dc3fa726480aad903f73592fa21": {
+      "subject": "fix(desktop): apply compact-and-switch model change to original session (#5483)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=4",
+      "ledger": "pending"
+    },
+    "bb7a855dce9cb8bf42dcc01e4793fcaa9f8fb69e": {
+      "subject": "ci(e2e): run Desktop on one worker outside macOS (#5482)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=3",
+      "ledger": "pending"
+    },
+    "f89a339b6d033fb5625b5ab5d7429dc89368a96c": {
+      "subject": "feat(kap-server): add profile_revision and missing_model to agent state (#5449)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=13",
+      "ledger": "pending"
+    },
+    "48d7cab2e9c97a22cd9bb985ef17798b7749b578": {
+      "subject": "fix(agent-core-v2): start btw agents in the main agent's permission mode (#5450)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=3",
+      "ledger": "pending"
+    },
+    "b8f4b356dd6b000ec61f1f8c44348ced59bef0c9": {
+      "subject": "fix(agent-core-v2): rescan once after a macOS native file watch starts (#5487)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=2",
+      "ledger": "pending"
+    },
+    "69e7ee30fd1361e8c38bf26db6fd99ac29b33def": {
+      "subject": "test(agent-core-v2): build test paths the way a Windows host does (#5488)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=7",
+      "ledger": "pending"
+    },
+    "79dc02a98f66ca8c4ddc2fedb63f103e26d04401": {
+      "subject": "feat(pi-tui): sync upstream pi-tui to v1.6.1 (#5462)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=11 adapted=50",
+      "ledger": "pending"
+    },
+    "c80bb2df14d1d61b9d7d3c05df6bec17c77b245d": {
+      "subject": "test(agent-core-v2): take wall-clock races out of the SSH probe, MCP crash and compaction failure cases (#5486)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=1 adapted=4",
+      "ledger": "pending"
+    },
+    "a9787719237f39d605a4a4d1853f319ab3e30c70": {
+      "subject": "feat(kimi-code): add experimental Git worktrees, 3-tab /sessions, and same-project resume (#5293)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=28 adapted=58",
+      "ledger": "pending"
+    },
+    "51a0ea4f9f581c1d6fbded5c7da6f49d5608d2ca": {
+      "subject": "test: check the prompt cache prefix across the test suites (#5474)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=13 adapted=29",
+      "ledger": "pending"
+    },
+    "c33c8b297a1ecc4b37980c55b52d7c1ab7c7f716": {
+      "subject": "revert: remove built-in tool settings and mode availability (#5489)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=14 adapted=79",
+      "ledger": "not-applicable"
+    },
+    "e30834aab1403b0c0ae687621a870fc48b7c7370": {
+      "subject": "fix(agent-core-v2): drain the metadata document a session writes while loading (#5494)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=2",
+      "ledger": "pending"
+    },
+    "c4159abe83a08dca0663e79dd6ed2a9370f744e0": {
+      "subject": "test(agent-core-v2): wait for the watched agent profile itself, not the first workspace refresh (#5493)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "pending"
+    },
+    "fef5a9b8248eafeacd552ed29ea07274eca99973": {
+      "subject": "feat(kimi-code): show live spinner and shutdown step in TUI footer (#5456)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=6",
+      "ledger": "pending"
+    },
+    "176a8973bdfa55d5e836d8145e8fc79c0957a8be": {
+      "subject": "fix(testkit): accept Google user parts placed before their function responses (#5491)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=5",
+      "ledger": "pending"
+    },
+    "1e1ceb608ce2ff2e10f4ff09b3894e4c73e56c01": {
+      "subject": "test: serve every fake MCP server from the testkit (#5477)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=7 adapted=35",
+      "ledger": "pending"
+    },
+    "31c8df287ca8eadfdc99bf753c11ddf7c17fa4ab": {
+      "subject": "test(agent-core-v2): fix the last full-run failure and a lost-event chokidar race (#5500)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "pending"
+    },
+    "cdd9d422239828f457434fc0bb2cf4956678e84d": {
+      "subject": "test(e2e): keep the web restart port out of the range the OS hands out (#5498)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=2 adapted=3",
+      "ledger": "pending"
+    },
+    "1fa6471936cdf8f26bac2ae7798e276d022f77c9": {
+      "subject": "test(e2e): count conversation text from text content on Desktop and Web (#5499)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "pending"
+    },
+    "7900abe6eebc40ff00973b8ef40e2f17f41a83b1": {
+      "subject": "fix(composer): show loading overlay while checking project trust (#5464)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=7",
+      "ledger": "pending"
+    },
+    "25c5e56745158f39deb72f2b2467f4ae8b4df2c6": {
+      "subject": "test(agent-core-v2): compare canonical paths in the program MCP sets test (#5503)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "pending"
+    },
+    "8f794b0094af8fb431881dcaefcf4a8b8fe3570b": {
+      "subject": "feat(kimi-code): add fullscreen wheel scroll speed setting (#5465)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=17",
+      "ledger": "pending"
+    },
+    "9c1c1451b25ce74e0762e9070c5682a889ea2d03": {
+      "subject": "feat(desktop): redesign model selection menu (#5497)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=29 adapted=29",
+      "ledger": "pending"
+    },
+    "1186f8bd78834c3d6bcb83bc772a0a23397ed4f5": {
+      "subject": "fix(desktop): point Canary build commit link to MoonshotAI/kimi-code (#5428)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=1",
+      "ledger": "pending"
+    },
+    "23d230fe155c48f1dc96dd9440db21c1038549f4": {
+      "subject": "fix(desktop): unify inline entity pills and hyperlink styling (#5406)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=5 adapted=5",
+      "ledger": "pending"
+    },
+    "7331cdc6aa96da6ca4e57f1bec18fcbed9dbfd17": {
+      "subject": "fix(desktop): scope select-all to active panel content and preserve blank lines on code copy (#5457)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=8 adapted=9",
+      "ledger": "pending"
+    },
+    "32b0ddcab27ca98506baf87bcb8451e6ba44c25e": {
+      "subject": "fix(desktop): hide plugin enable switch and more actions while installing (#5426)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=2",
+      "ledger": "pending"
+    },
+    "16f00f88402acc33d7484144fe33d7ab1a97792a": {
+      "subject": "test(agent-core-v2): stop two test files from waiting out real timers (#5517)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "pending"
+    },
+    "84b83da2c0d9813a8dfc6d3120db9bb82f9b4966": {
+      "subject": "test(e2e): quit while a turn runs and reopen the conversation (#5512)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=2 adapted=9",
+      "ledger": "pending"
+    },
+    "3e636829d5b34ab39ac6598d4e28cd0b943da54e": {
+      "subject": "fix(acp-server): replay only what the user typed and where file tools pointed (#5510)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=7",
+      "ledger": "pending"
+    },
+    "5a6d97c1dc24ed3b40d8913cba3209a7fa0f0025": {
+      "subject": "test(e2e): attach driver diagnostics when the product fails to start (#5504)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=7",
+      "ledger": "pending"
+    },
+    "e74f14284ea59978506fa0bc7f704bc23c79c618": {
+      "subject": "fix: show a failed context compaction in the conversation (#5478)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=5 adapted=24",
+      "ledger": "pending"
+    },
+    "9343aa754938caa3863cedc5c115591bad91e52f": {
+      "subject": "chore: add Desktop and app-* boundary ratchet check (#5513)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=3 adapted=2",
+      "ledger": "pending"
+    },
+    "cc879bda2eda4b1d78024a8673c27f21c2e12f4c": {
+      "subject": "fix(desktop): preserve trailing EOL on code copy and mark remaining panel content (#5511)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=4",
+      "ledger": "pending"
+    },
+    "7f71717094b8ee1c8ee0b9a3eeffe6f9ba1746d7": {
+      "subject": "refactor(agent-core-v2): run both ripgrep paths of the fs service through one process runner (#5527)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "pending"
+    },
+    "0235ca0c06d0f80ea8324c3cb557c4fe99ce1403": {
+      "subject": "fix(agent-core-v2): release the environment lease when a git, gh or rg command fails to start (#5532)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=5",
+      "ledger": "pending"
+    },
+    "d9f23b5c56bedfada27388086506bb788da5514a": {
+      "subject": "fix(acp-server): show a running command's output to editors without terminals (#5525)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=4 adapted=9",
+      "ledger": "pending"
+    },
+    "b6326df68c74e48498e311d96d7efc06ea24e03c": {
+      "subject": "test: add the e2e prompt cache topic (#5526)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=9 adapted=12",
+      "ledger": "pending"
+    },
+    "437e5f39b0b39a7dcc5be67f7975c7bb9f8c301f": {
+      "subject": "docs(changelog): sync 2.8.1 from apps/kimi-code/CHANGELOG.md (#5533)",
+      "status": "platform-missing",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=2 adapted=0",
+      "ledger": "pending"
+    },
+    "e7649c5985045bff0a76bb795177a5f1e686eb0c": {
+      "subject": "chore: add release notes for kimi-code-desktop@1.5.1 (#5534)",
+      "status": "platform-missing",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=2 adapted=0",
+      "ledger": "pending"
+    },
+    "df012634965362680ac6169afa315b071d1f4d21": {
+      "subject": "feat(agent-core-v2): add context injection and tool I/O rewriting to external hooks (#5509)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=6 adapted=16",
+      "ledger": "pending"
+    },
+    "6954ab684e0e0e44082608004c460fd316fbc856": {
+      "subject": "build: unify web asset directory naming (#5535)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=21",
+      "ledger": "pending"
+    },
+    "7e728f1cb80136aa6e87319365f08f892cb9388f": {
+      "subject": "fix(desktop): keep plan revision editor visible (#5537)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=1 adapted=1",
+      "ledger": "pending"
+    },
+    "2def6b449c0cdf0192c13ec5b544ee04ec9e0efb": {
+      "subject": "fix(agent-core-v2): send the whole history to compaction and drop its head-trimming retries (#5538)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=3 missing=0 adapted=3",
+      "ledger": "ported"
+    },
+    "c2a2ea756e61efa8073d8090ef2c9359df4a9027": {
+      "subject": "test(kap-server): assert the search index runs in the worker instead of timing the main thread (#5540)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "pending"
+    },
+    "48ee2f2668d490af83f722e97a28384418932bd1": {
+      "subject": "refactor(worktree): remove worktree-setup.sh support and align print-mode trust (#5528)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=1 missing=2 adapted=17",
+      "ledger": "pending"
+    },
+    "c64fa0bbb15792bbd2e618744d764c33a25cb5f5": {
+      "subject": "chore: back-sync release/2026-11-26 to main (#5542)",
+      "status": "partial",
+      "kind": "platform",
+      "evidence": "fast blob present=3 missing=5 adapted=5",
+      "ledger": "pending"
+    },
+    "132b91e4141c711b694f50bab67e0a6efbb0035a": {
+      "subject": "test(e2e): read the message input, undo a message and recall earlier prompts (#5530)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=6 adapted=8",
+      "ledger": "pending"
+    },
+    "71b385b4473233b0d636b10e6cf50d21497f6821": {
+      "subject": "fix(agent-core-v2): place undo records correctly when the journal is written meanwhile (#5544)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=2",
+      "ledger": "pending"
+    },
+    "2bb9a98f48566416bf0f6e68549b1e34c94b8bee": {
+      "subject": "feat(tui): use Ctrl+F for fullscreen search and add /find command (#5466)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=30",
+      "ledger": "pending"
+    },
+    "88553c7d2ccc126ccafccac710d62f09f23455ff": {
+      "subject": "refactor(app-components): extract shared tool card and task list setup hooks (#5543)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=14 adapted=4",
+      "ledger": "pending"
+    },
+    "d98f858e15d2a0d45bc5142d1dc79b39feaa2a3d": {
+      "subject": "fix: detect reused pids when checking lock holders (#5505)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=9 adapted=8",
+      "ledger": "pending"
+    },
+    "c9ab8947206a48d3710b7edab03a5a180c617c9b": {
+      "subject": "refactor(agent-core-v2): converge loop llm requester and unify provider catalog (#5541)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=14 missing=9 adapted=205",
+      "ledger": "pending"
+    },
+    "217120ee95021927b7f5e180cf6f272a4e90ca0c": {
+      "subject": "ci: drop the VS Code rerun on the removed legacy engine (#5556)",
+      "status": "platform-adapted",
+      "kind": "platform",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "pending"
+    },
+    "94b0604f7bd442bfbcc59a968535bf1b7655fb8e": {
+      "subject": "fix(acp-server): ask the editor only after showing the tool call (#5547)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=4",
+      "ledger": "pending"
+    },
+    "790822dc37a73e01506b929c17d0d405e407d29b": {
+      "subject": "test: cover MCP reconnects and editor MCP servers in the e2e cache topic (#5545)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=2 adapted=8",
+      "ledger": "pending"
+    },
+    "cf953f403db947aa30403f6c8c397af06e093a4e": {
+      "subject": "feat(desktop): add mobile model selection bottom sheet and refine menu scrolling (#5524)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=12 adapted=13",
+      "ledger": "pending"
+    },
+    "d5263af02b3baf4e9b35cb27a5bbcde96b413e60": {
+      "subject": "test(core): fail tests that pass only on retry and keep core logs quiet (#5560)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=0 adapted=1",
+      "ledger": "pending"
+    },
+    "75323e0c1ab36c09f786214f31274e28b19f9fbd": {
+      "subject": "test: check that a subagent's next step extends its previous request (#5553)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=1 adapted=7",
+      "ledger": "pending"
+    },
+    "ad921f3e8d09430c1bee07c430523d025186882c": {
+      "subject": "test: remove legacy E2E cases that will not be migrated (#5569)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=2 missing=26 adapted=17",
+      "ledger": "pending"
+    },
+    "f94b9a2f3879f9e706310840b64f7dcd91177be1": {
+      "subject": "test: let e2e scenarios move the local date through a test clock file (#5570)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=3 adapted=6",
+      "ledger": "pending"
+    },
+    "361fbcd9eb1725ee3019fa30742375e5ce8be9f3": {
+      "subject": "test(kap-server): wait for the first logout instead of a fixed 50ms (#5574)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=0 adapted=2",
+      "ledger": "pending"
+    },
+    "488dbc119d4c3e24c0e1f05bc3e62b3161ae34c7": {
+      "subject": "ci: remove the paused L0, smoke and quarantine gates (#5572)",
+      "status": "partial",
+      "kind": "source",
+      "evidence": "fast blob present=13 missing=1 adapted=26",
+      "ledger": "pending"
+    },
+    "4124e656405eb8d1dc5df67b82efb9ee929acec0": {
+      "subject": "ci(e2e): run the full suite nightly and post failures to Feishu (#5575)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=4",
+      "ledger": "pending"
+    },
+    "cad77bfb1013efb72114e90f3cafef8a5d047535": {
+      "subject": "fix(agent-core-v2): compare working directories as paths before sending the date reminder (#5576)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=2 adapted=2",
+      "ledger": "pending"
+    },
+    "7f67e5df5c7046da1aea077312da4c921425b35f": {
+      "subject": "test: expect forward-slash host paths from the SDK and klient on Windows (#5577)",
+      "status": "test-adapted",
+      "kind": "test",
+      "evidence": "fast blob present=0 missing=1 adapted=7",
+      "ledger": "pending"
+    },
+    "46beafd3da53441749d6d0ceadebad7f75b320e8": {
+      "subject": "fix(tui): drop the cut-off reply when a step is retried (#5460)",
+      "status": "adapted",
+      "kind": "source",
+      "evidence": "fast blob present=0 missing=4 adapted=8",
+      "ledger": "pending"
+    }
+  }
+}
