@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { validateHeaderName, validateHeaderValue, type Agent } from 'node:http';
 import { hostname, platform } from 'node:os';
 import { join } from 'node:path';
@@ -335,7 +336,7 @@ export function isGzipCompressibleType(contentType: string): boolean {
 }
 
 export function rewrittenResponseETag(body: Buffer): string {
-  return `W/"${new Bun.CryptoHasher('sha256').update(body).digest('hex')}"`;
+  return `W/"${createHash('sha256').update(body).digest('hex')}"`;
 }
 
 export function requestMatchesETag(headers: readonly [string, string][], etag: string): boolean {

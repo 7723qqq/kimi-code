@@ -1,4 +1,4 @@
-import { mkdir, open, unlink } from 'node:fs/promises';
+import { mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 export interface RemoteControlLockInfo {
@@ -118,7 +118,7 @@ async function releaseRemoteControlLock(lockPath: string, nonce: string): Promis
 async function readRemoteControlLock(lockPath: string): Promise<RemoteControlLockInfo | undefined> {
   let raw: string;
   try {
-    raw = await Bun.file(lockPath).text();
+    raw = await readFile(lockPath, 'utf8');
   } catch {
     return undefined;
   }
