@@ -14,6 +14,7 @@ import {
   type CoreLoopRequester,
   type CoreLoopRequesterOptions,
   type LoopRequester,
+  type RequestConfigSnapshot,
 } from './requesterContract';
 import { IAgentLLMRequesterService, type AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
 import type { LlmRequestPayload } from '#/agent/loop/llmRequestOps';
@@ -68,13 +69,20 @@ import {
 import { IProviderCatalogService } from '#/provider-catalog/providerCatalogService';
 import { resolveMaxOutputTokens } from '#/provider-catalog/model/completion-budget';
 import type { ModelOverrides } from '#/provider-catalog/model/model.types';
-import type { LlmRequestModel, ThinkingEffort } from '@moonshot-ai/core/llm/request';
+import type { LlmRequest, LlmRequestModel, ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import type { ModelCapability } from '#/provider-catalog/capability';
 import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
 import { toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import { isRetryableGenerateError, llmMessageFromError } from '#/llm-adapter/contract/errors';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
-import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
+import {
+  requesterContents,
+  type InitializedLlmRequester,
+  type InitializedLlmRequestPart,
+} from '@moonshot-ai/core/llm/requester';
+import { createLlmRequesterExecution } from '@moonshot-ai/core/llm/policy/policy';
+import { getProviderDefinition } from '#/provider-catalog/provider/provider-definition';
+import { requestModelOf } from '#/provider-catalog/requester';
 import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentInterruptionReminderService } from '#/agent/interruptionReminder/interruptionReminder';
@@ -124,6 +132,7 @@ import { EMPTY_LOOP_PROMPT, contextFromHistoryEntry, historyEntryFromContext, hi
 import {
   createLoop,
   createMaxStepsHook,
+  type FullLoopLlmRequester,
   type Loop,
   type LoopEmitted,
   type LoopLlmRequester,
@@ -179,6 +188,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private readonly turns: AgentTurnProjection;
   private readonly notifications = new AgentNotificationProjection();
   private readonly profileAdapter: AgentLoopProfileAdapter;
+  private readonly requesterExecution = createLlmRequesterExecution();
 
   constructor(
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
@@ -424,6 +434,73 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   get infiniteRetryEnabled(): boolean {
     return parseBooleanEnv(process.env[KIMI_CODE_INFINITE_RETRY_ENV]) === true;
+  }
+
+  requestConfigSnapshot(profile = this.profileAdapter.snapshot()): RequestConfigSnapshot {
+    return {
+      resolved: this.profile.resolveModelContext(profile),
+      params: this.profile.resolveRequestParams(profile),
+      systemPrompt: this.profile.getSystemPrompt(profile),
+      maxCompletionTokensCap: this.config.get<ModelOverrides>('modelOverrides')?.maxCompletionTokens,
+    };
+  }
+
+  bindRequester(config: RequestConfigSnapshot): InitializedLlmRequester {
+    const resolved = config.resolved;
+    const model = this.providerCatalog.get(resolved.modelAlias);
+    const maxOutputTokens = this.resolveMaxOutputTokens(resolved.maxOutputSize);
+    const spec = {
+      ...model.spec,
+      maxContextSize: resolved.model.maxContextSize,
+      maxInputSize: resolved.model.maxInputSize,
+    };
+    const params: InitializedLlmRequestPart = {
+      ...config.params,
+      model: {
+        ...config.params.model,
+        spec,
+        ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+      },
+    };
+    return this.providerCatalog.createRequester(model, params, this.requesterExecution).with({
+      profile: { systemPrompt: config.systemPrompt },
+      attributes: { modelAlias: resolved.modelAlias, providerType: model.providerType },
+      policy: {
+        retry: {
+          maxAttemptsPerStep: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxAttemptsPerStep,
+          infiniteRetry: this.infiniteRetryEnabled,
+        },
+      },
+    });
+  }
+
+  wantsRequestMetadata(request: LlmRequest): boolean {
+    const providerType = request.attributes?.providerType;
+    if (providerType === undefined) return false;
+    return getProviderDefinition(providerType, requestModelOf(request).protocol)?.requestMetadata === true;
+  }
+
+  syncRequester(): void {
+    const loop = this.loop;
+    if (loop === undefined) return;
+    try {
+      const config = this.requestConfigSnapshot();
+      const requester = this.bindRequester(config);
+      this.turns.thinkingEffort = config.resolved.thinkingLevel;
+      loop.setRequester(requester as FullLoopLlmRequester);
+    } catch (error) {
+      const requester: FullLoopLlmRequester = {
+        [requesterContents]: {},
+        with: (() => requester) as FullLoopLlmRequester['with'],
+        request: () => {
+          throw error;
+        },
+        generate: async () => {
+          throw error;
+        },
+      };
+      loop.setRequester(requester);
+    }
   }
 
   hasModel(): boolean {
