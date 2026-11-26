@@ -330,6 +330,7 @@ class LoopActor implements Loop {
   private readonly events: LoopEmitted[] = [];
   private readonly completedTurns: LiveTurn[] = [];
   private readonly toolContext?: CreateLoopOptions['toolContext'];
+  private readonly decorateTurnRequester?: CreateLoopOptions['decorateTurnRequester'];
   private readonly completionFactory?: CreateLoopOptions['completionMessage'];
   private readonly shouldQueueTaskNotification?: CreateLoopOptions['shouldQueueTaskNotification'];
   private readonly abortGraceMs: number;
@@ -378,6 +379,7 @@ class LoopActor implements Loop {
     this.requesterTemplate = options.requester;
     this.executor = options.executor;
     this.toolContext = options.toolContext;
+    this.decorateTurnRequester = options.decorateTurnRequester;
     this.completionFactory = options.completionMessage;
     this.shouldQueueTaskNotification = options.shouldQueueTaskNotification;
     this.abortGraceMs = options.abortGraceMs ?? 2_500;
@@ -1292,7 +1294,10 @@ class LoopActor implements Loop {
     this.toolsSettled = false;
     try {
       const template = this.requesterTemplate;
-      this.turnRequester = (template as LoopLlmRequester | undefined)?.snapshot?.() ?? template;
+      const requester = (template as LoopLlmRequester | undefined)?.snapshot?.() ?? template;
+      this.turnRequester = isFullLoopRequester(requester)
+        ? (this.decorateTurnRequester?.(requester) ?? requester)
+        : requester;
       this.requesterError = undefined;
     } catch (error) {
       this.turnRequester = undefined;
