@@ -1,6 +1,3 @@
-import { createServerLogger } from '@moonshot-ai/kap-server';
-import { app } from 'electron';
-
 import { createRendererLogWriter, type RendererLogWriter } from '../diagnostics/renderer-log';
 
 const PINO_WARN = 40;
@@ -48,20 +45,4 @@ export function createServerLogStream(
       if (payload !== null) forward(payload);
     },
   };
-}
-
-function mirrorToStdout(chunk: string): void {
-  try {
-    process.stdout.write(chunk);
-  } catch {
-    return;
-  }
-}
-
-export function createDesktopServerLogger(): ReturnType<typeof createServerLogger> {
-  const packaged = app.isPackaged;
-  return createServerLogger({
-    level: packaged ? 'warn' : 'info',
-    stream: createServerLogStream(undefined, packaged ? undefined : mirrorToStdout),
-  });
 }

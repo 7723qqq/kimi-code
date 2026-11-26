@@ -1,13 +1,23 @@
 import { loadOrCreateServerToken } from '@moonshot-ai/kap-server';
+import { configureSearchWorkerRuntime } from '@moonshot-ai/kap-server/search-worker-runtime';
 import { resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
 
 import { startDesktopBackend } from './desktopBackend';
+import { createDesktopBrowserHostClient } from './browser/host-client';
 
+process.env['KIMI_CODE_REGION_MARKER'] = 'off';
+const searchWorker = process.env['KIMI_DESKTOP_SEARCH_WORKER'];
+if (searchWorker !== undefined) configureSearchWorkerRuntime(searchWorker);
 const homeDir = resolveKimiHome();
-const token = await loadOrCreateServerToken(homeDir);
+const token = process.env['KIMI_DESKTOP_TOKEN'] ?? (await loadOrCreateServerToken(homeDir));
 const serverVersion = process.env['KIMI_DESKTOP_VERSION'] ?? '0.0.0';
 const webAssetsDir = process.env['KIMI_DESKTOP_WEB_ASSETS'];
 const debugEndpoints = process.env['KIMI_DESKTOP_DEBUG_ENDPOINTS'] === '1';
+const browserHostUrl = process.env['KIMI_DESKTOP_BROWSER_HOST_URL'];
+const browserHostToken = process.env['KIMI_DESKTOP_BROWSER_HOST_TOKEN'];
+const browserHost = browserHostUrl !== undefined && browserHostToken !== undefined
+  ? createDesktopBrowserHostClient(browserHostUrl, browserHostToken)
+  : undefined;
 const corsOrigins = (process.env['KIMI_DESKTOP_CORS_ORIGINS'] ?? '')
   .split(',')
   .map((origin) => origin.trim())
@@ -20,6 +30,15 @@ const backend = await startDesktopBackend({
   debugEndpoints,
   serverVersion,
   corsOrigins,
+  browserHost,
+  telemetry: process.env['KIMI_DESKTOP_DEVICE_ID'] === undefined ? undefined : {
+    deviceId: process.env['KIMI_DESKTOP_DEVICE_ID']!,
+    theme: process.env['KIMI_DESKTOP_THEME'] === 'dark' ? 'dark' : 'light',
+    launchId: process.env['KIMI_DESKTOP_LAUNCH_ID'] ?? '',
+    releaseChannel: process.env['KIMI_DESKTOP_RELEASE_CHANNEL'] ?? '',
+    locale: process.env['KIMI_DESKTOP_LOCALE'],
+    firstLaunch: process.env['KIMI_DESKTOP_FIRST_LAUNCH'] === '1',
+  },
   identity: {
     productName: 'kimi-code-desktop',
     version: serverVersion,
@@ -27,7 +46,7 @@ const backend = await startDesktopBackend({
   },
 });
 
-process.stdout.write(`${JSON.stringify({ type: 'ready', origin: backend.origin, port: backend.port })}\n`);
+process.stdout.write(`${JSON.stringify({ type: 'ready', origin: backend.origin, port: backend.port, ...(backend.telemetry === undefined ? {} : { telemetry: backend.telemetry }), ...(backend.browserMcp === undefined ? {} : { browserMcp: backend.browserMcp }) })}\n`);
 
 let closing = false;
 async function shutdown(code: number): Promise<void> {
@@ -35,6 +54,7 @@ async function shutdown(code: number): Promise<void> {
   closing = true;
   try {
     await backend.close();
+    browserHost?.close();
   } finally {
     process.exit(code);
   }

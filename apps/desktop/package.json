@@ -2,7 +2,7 @@
   "name": "kimi-code-app",
   "version": "1.5.0",
   "private": true,
-  "description": "Kimi Code Desktop \u2014 Everything you love about Kimi Code, now on desktop",
+  "description": "Kimi Code Desktop — Everything you love about Kimi Code, now on desktop",
   "author": "Moonshot AI",
   "homepage": "https://kimi.com/code",
   "type": "module",
@@ -11,7 +11,7 @@
     "predev": "bun run build:native:screenshot && bun run build:native:clamshell",
     "build:native:screenshot": "bun native/screenshot-window-list/build.mjs",
     "build:native:clamshell": "bun native/clamshell-tool/build.mjs",
-    "build": "bun run build:native:screenshot && bun run build:native:clamshell && tsdown",
+    "build": "bun run build:native:screenshot && bun run build:native:clamshell && tsdown && bun run backend:build",
     "build:renderer": "vite build --config vite.renderer.config.ts",
     "build:web": "vite build --config vite.web.config.ts",
     "dev:web": "vite --config vite.web.config.ts",
@@ -24,7 +24,8 @@
     "e2e": "bun e2e/run.mjs",
     "e2e:headless": "bun e2e/run.mjs",
     "postinstall": "bun scripts/rebuild-native.mjs",
-    "dist": "bun run build:renderer && bun run build:native:screenshot && bun run build:native:clamshell && tsdown && electron-builder --config electron-builder.config.cjs"
+    "dist": "bun run build:renderer && bun run build:native:screenshot && bun run build:native:clamshell && tsdown && bun run backend:build && electron-builder --config electron-builder.config.cjs",
+    "backend:build": "bun scripts/build-backend.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

@@ -19,12 +19,12 @@ vi.mock('@moonshot-ai/kap-server', () => ({
 }));
 
 import {
-  createDesktopAuthTokenService,
   desktopServerSecret,
   installEmbeddedServerAuthInjection,
   registerAppWebContents,
   setEmbeddedServerOrigin,
 } from '../../../src/main/server/server-auth';
+import { createDesktopAuthTokenService } from '../../../src/backend/auth';
 
 const EMBEDDED_ORIGIN = 'http://127.0.0.1:54321';
 
@@ -183,7 +183,7 @@ describe('createDesktopAuthTokenService', () => {
   }
 
   it('creates the shared token file when missing and accepts it alongside the secret', async () => {
-    const service = createDesktopAuthTokenService(homeDir);
+    const service = createDesktopAuthTokenService(homeDir, desktopServerSecret());
     const token = service.getToken();
     expect(token.length).toBeGreaterThan(0);
     expect(readFileSync(tokenPath, 'utf8').trim()).toBe(token);
@@ -193,13 +193,13 @@ describe('createDesktopAuthTokenService', () => {
   });
 
   it.skipIf(process.platform === 'win32')('creates the shared token file with private permissions', () => {
-    createDesktopAuthTokenService(homeDir);
+    createDesktopAuthTokenService(homeDir, desktopServerSecret());
     expect(statSync(tokenPath).mode & 0o777).toBe(0o600);
   });
 
   it('accepts the persisted server token alongside the secret', async () => {
     writeToken('server-token-1');
-    const service = createDesktopAuthTokenService(homeDir);
+    const service = createDesktopAuthTokenService(homeDir, desktopServerSecret());
     await expect(service.isValid('server-token-1')).resolves.toBe(true);
     await expect(service.isValid(desktopServerSecret())).resolves.toBe(true);
     await expect(service.isValid('server-token-2')).resolves.toBe(false);
@@ -208,7 +208,7 @@ describe('createDesktopAuthTokenService', () => {
 
   it('follows a token rotation without invalidating the per-launch secret', async () => {
     writeToken('server-token-1');
-    const service = createDesktopAuthTokenService(homeDir);
+    const service = createDesktopAuthTokenService(homeDir, desktopServerSecret());
     await expect(service.isValid('server-token-1')).resolves.toBe(true);
 
     writeToken('rotated-token');
@@ -222,7 +222,7 @@ describe('createDesktopAuthTokenService', () => {
 
   it('drops the cached token when the token file is deleted', async () => {
     writeToken('cached-token');
-    const service = createDesktopAuthTokenService(homeDir);
+    const service = createDesktopAuthTokenService(homeDir, desktopServerSecret());
     await expect(service.isValid('cached-token')).resolves.toBe(true);
 
     rmSync(tokenPath);
@@ -237,14 +237,14 @@ describe('createDesktopAuthTokenService', () => {
 
   it.skipIf(process.platform === 'win32')('ignores a token file that is readable by group or others', async () => {
     writeToken('world-readable-token', 0o644);
-    const service = createDesktopAuthTokenService(homeDir);
+    const service = createDesktopAuthTokenService(homeDir, desktopServerSecret());
     await expect(service.isValid('world-readable-token')).resolves.toBe(false);
     await expect(service.isValid(desktopServerSecret())).resolves.toBe(true);
   });
 
   it.skipIf(process.platform === 'win32')('drops the cached token the moment the file turns permissive', async () => {
     writeToken('cached-token', 0o600);
-    const service = createDesktopAuthTokenService(homeDir);
+    const service = createDesktopAuthTokenService(homeDir, desktopServerSecret());
     await expect(service.isValid('cached-token')).resolves.toBe(true);
 
     chmodSync(tokenPath, 0o644);
@@ -257,7 +257,7 @@ describe('createDesktopAuthTokenService', () => {
 
   it('trims whitespace around the persisted token', async () => {
     writeToken('  padded-token\n');
-    const service = createDesktopAuthTokenService(homeDir);
+    const service = createDesktopAuthTokenService(homeDir, desktopServerSecret());
     await expect(service.isValid('padded-token')).resolves.toBe(true);
     expect(service.getToken()).toBe('padded-token');
   });

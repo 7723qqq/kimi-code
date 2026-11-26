@@ -45,14 +45,14 @@ import {
   isTelemetryConsentEnabled,
   resetDaysSinceInstallCacheForTests,
   wireDesktopTelemetry,
-} from '../../../src/main/diagnostics/telemetry';
+} from '../../../src/backend/diagnostics/telemetry';
 import {
   setDesktopTrackImpl,
   setRuntimeLocale,
   trackDesktopEvent,
-} from '../../../src/main/diagnostics/track';
+} from '../../../src/backend/diagnostics/track';
 
-const EXISTING_DEVICE = { deviceId: 'device-1' } as const;
+const EXISTING_DEVICE = { deviceId: 'device-1', theme: 'light', launchId: 'launch-1', releaseChannel: 'stable' } as const;
 
 function makeCore(configValue: unknown, opts: { getThrows?: boolean } = {}) {
   const configService = {
@@ -167,7 +167,6 @@ describe('wireDesktopTelemetry', () => {
     expect(telemetryService.addAppender).toHaveBeenCalledWith(appender);
     expect(appender.startPeriodicFlush).toHaveBeenCalledOnce();
     expect(appender.retryDiskEvents).toHaveBeenCalledOnce();
-    expect(systemMetricsMock.start).toHaveBeenCalledWith({ sessionCount: expect.any(Function) });
     expect(telemetryService.track2).not.toHaveBeenCalledWith('first_launch');
   });
 
@@ -188,16 +187,14 @@ describe('wireDesktopTelemetry', () => {
     const { core, telemetryService } = makeCore(undefined);
     shouldReportFirstLaunchMock.mockReturnValue(true);
 
-    await wireDesktopTelemetry(core as never, { deviceId: 'device-new' });
+    const onFirstLaunch = vi.fn();
+    await wireDesktopTelemetry(core as never, { deviceId: 'device-new', firstLaunch: true, onFirstLaunch });
 
     expect(telemetryService.track2).toHaveBeenCalledWith('first_launch');
     expect(telemetryService.addAppender.mock.invocationCallOrder[0]).toBeLessThan(
       telemetryService.track2.mock.invocationCallOrder[0]!,
     );
-    expect(markFirstLaunchReportedMock).toHaveBeenCalledOnce();
-    expect(telemetryService.track2.mock.invocationCallOrder[0]).toBeLessThan(
-      markFirstLaunchReportedMock.mock.invocationCallOrder[0]!,
-    );
+    expect(onFirstLaunch).toHaveBeenCalledOnce();
   });
 
   it('still wires when the config read throws (defaults to enabled)', async () => {
@@ -220,7 +217,6 @@ describe('wireDesktopTelemetry', () => {
     };
     const handle = await wireDesktopTelemetry(core as never, EXISTING_DEVICE);
     expect(handle).toBeNull();
-    expect(logMock.error).toHaveBeenCalledOnce();
   });
 
   it('shutdown emits exit, stops periodic flush, flushes, and is idempotent', async () => {
@@ -232,7 +228,6 @@ describe('wireDesktopTelemetry', () => {
     expect(handle).not.toBeNull();
     await Promise.all([handle!.shutdown(), handle!.shutdown()]);
 
-    expect(systemMetricsMock.stop).toHaveBeenCalledOnce();
     expect(telemetryService.track2).toHaveBeenCalledOnce();
     expect(telemetryService.track2).toHaveBeenCalledWith('exit', {
       duration_ms: expect.any(Number),
@@ -284,7 +279,6 @@ describe('super properties injection', () => {
 
   beforeEach(async () => {
     createCloudAppenderMock.mockReset();
-    nativeThemeMock.shouldUseDarkColors = false;
     setRuntimeLocale(undefined);
     resetDaysSinceInstallCacheForTests();
     homeDir = await mkdtemp(join(tmpdir(), 'kimi-telemetry-'));
@@ -397,9 +391,7 @@ describe('super properties injection', () => {
   it('reflects later context updates and the dark theme', async () => {
     const appender = wiredTrack();
     const { core } = makeCore(undefined);
-    nativeThemeMock.shouldUseDarkColors = true;
-
-    const handle = await wireDesktopTelemetry(core as never, EXISTING_DEVICE);
+    const handle = await wireDesktopTelemetry(core as never, { ...EXISTING_DEVICE, theme: 'dark' });
     setRuntimeLocale('en');
 
     trackDesktopEvent('global_shortcut_invoked', { action: 'summonApp' });

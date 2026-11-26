@@ -131,7 +131,7 @@ export function startAutoUpdater(deps: StartAutoUpdaterDeps): UpdateController |
   const resolveDeviceId = (): string | Promise<string> => {
     if (deps.resolveDeviceId !== undefined) return deps.resolveDeviceId();
     return Promise.all([
-      import('@moonshot-ai/kimi-code-sdk'),
+      import('../home'),
       import('../app/identity'),
     ]).then(([{ resolveKimiHome }, { resolveDesktopHostIdentity }]) => resolveDesktopHostIdentity(resolveKimiHome()).deviceId);
   };

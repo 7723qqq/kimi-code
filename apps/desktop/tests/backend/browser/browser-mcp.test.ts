@@ -14,14 +14,28 @@ const runBrowserAutomation = vi.hoisted(() =>
   ),
 );
 
-vi.mock('../../../src/main/browser/browser-automation', () => ({ runBrowserAutomation, isAgentLocalFileAddress: () => false }));
+let trackSink: ((event: string, properties?: Record<string, unknown>) => void) | null = null;
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { DESKTOP_BROWSER_DISABLED_ERROR, startDesktopBrowserMcp, type DesktopBrowserAccess, type DesktopBrowserMcpHandle } from '../../../src/main/browser/browser-mcp';
+import { DESKTOP_BROWSER_DISABLED_ERROR, startDesktopBrowserMcp, type DesktopBrowserAccess, type DesktopBrowserMcpHandle } from '../../../src/backend/browser/browser-mcp';
+import type { DesktopBrowserHost } from '../../../src/backend/browser/host';
 import { BROWSER_AUTOMATION_PROTOCOL } from '../../../src/shared/browser-automation';
-import { DESKTOP_BROWSER_SUBAGENT_RUN } from '../../../src/main/browser/browser-subagent-control';
-import { setDesktopTrackImpl } from '../../../src/main/diagnostics/track';
+import { DESKTOP_BROWSER_SUBAGENT_RUN } from '../../../src/backend/browser/browser-subagent-control';
+
+
+const host: DesktopBrowserHost = {
+  url: 'http://127.0.0.1:0',
+  token: 'host-token',
+  state: async () => ({ agentControl: true, subagentControl: true, localFiles: false }),
+  localFilesEnabled: () => false,
+  run: runBrowserAutomation as unknown as DesktopBrowserHost['run'],
+  collectDialogs: async () => undefined,
+  forgetSession: () => {},
+  restoreSubagentRuns: () => {},
+  revokeSubagentRun: () => {},
+  track: (event, properties) => trackSink?.(event, properties),
+};
 
 let handle: DesktopBrowserMcpHandle | undefined;
 let client: Client | undefined;
@@ -45,17 +59,17 @@ afterEach(async () => {
   client = undefined;
   handle = undefined;
   vi.clearAllMocks();
-  setDesktopTrackImpl(null);
+  trackSink = null;
 });
 
 function captureTelemetry(): Array<{ event: string; properties?: Record<string, unknown> }> {
   const events: Array<{ event: string; properties?: Record<string, unknown> }> = [];
-  setDesktopTrackImpl((event, properties) => events.push({ event, properties }));
+  trackSink = (event, properties) => events.push({ event, properties });
   return events;
 }
 
 async function connect(access?: DesktopBrowserAccess): Promise<Client> {
-  handle = await startDesktopBrowserMcp({ access });
+  handle = await startDesktopBrowserMcp({ access, host });
   const transport = new StreamableHTTPClientTransport(new URL(handle.url), {
     requestInit: { headers: { Authorization: `Bearer ${handle.token}`, 'X-Kimi-Session-Id': 'session-test' } },
   });
@@ -66,7 +80,7 @@ async function connect(access?: DesktopBrowserAccess): Promise<Client> {
 
 describe('Desktop Browser MCP', () => {
   it('requires the per-launch bearer token and exposes only run', async () => {
-    handle = await startDesktopBrowserMcp({ token: 'fixed-test-token' });
+    handle = await startDesktopBrowserMcp({ token: 'fixed-test-token', host });
     expect(handle.token).toBe('fixed-test-token');
     const unauthorized = await fetch(handle.url, { method: 'POST' });
     expect(unauthorized.status).toBe(401);
@@ -180,6 +194,7 @@ describe('Desktop Browser MCP', () => {
       { protocol: BROWSER_AUTOMATION_PROTOCOL, operation: 'browser.get_state' },
       expect.any(AbortSignal),
       'session-test',
+      undefined,
     );
     const [text] = result.content as Array<{ type: string; text: string }>;
     expect(text?.type).toBe('text');
@@ -213,7 +228,7 @@ describe('Desktop Browser MCP', () => {
       { protocol: BROWSER_AUTOMATION_PROTOCOL, operation: 'browser.get_state' },
       expect.any(AbortSignal),
       'session-test',
-      controller,
+      identity,
     );
 
     const forged = await connected.callTool({
@@ -293,7 +308,7 @@ describe('Desktop Browser MCP', () => {
   });
 
   it('accepts a fresh MCP client after an earlier session closes', async () => {
-    handle = await startDesktopBrowserMcp({ token: 'reconnect-token' });
+    handle = await startDesktopBrowserMcp({ token: 'reconnect-token', host });
     const makeClient = async (): Promise<Client> => {
       const next = new Client({ name: 'browser-mcp-reconnect', version: '1.0.0' });
       await next.connect(new StreamableHTTPClientTransport(new URL(handle!.url), {

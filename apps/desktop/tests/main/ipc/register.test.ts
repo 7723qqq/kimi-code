@@ -815,7 +815,7 @@ describe('native browser IPC', () => {
       import('@moonshot-ai/kap-server'),
       import('@moonshot-ai/agent-core-v2'),
       import('../../../src/main/browser/browser-mcp'),
-      import('../../../src/main/browser/browser-mcp-registration'),
+      import('../../../src/backend/browser/browser-mcp-registration'),
       import('../../../src/main/browser/browser-automation'),
       import('../../../src/shared/browser-automation'),
       import('../../../src/renderer/lib/browserExecutionReadiness'),

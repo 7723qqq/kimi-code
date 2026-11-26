@@ -15,7 +15,7 @@ import {
   DESKTOP_BROWSER_DIALOGS_REMINDER_VARIANT,
   formatBrowserDialogReminder,
   registerDesktopBrowserDialogReminder,
-} from '../../../src/main/browser/browser-dialog-reminder';
+} from '../../../src/backend/browser/browser-dialog-reminder';
 import {
   configureBrowserDialogs,
   forgetBrowserDialogSession,

@@ -1,5 +1,5 @@
 
-import type { TelemetryProperties } from '@moonshot-ai/agent-core-v2';
+type TelemetryProperties = Readonly<Record<string, string | number | boolean | null | undefined>>;
 
 import type { DesktopEventName, DesktopEventPayloads } from './telemetry-events';
 

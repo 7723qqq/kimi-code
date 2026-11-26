@@ -30,11 +30,31 @@ import {
   DESKTOP_BROWSER_REMINDER_VARIANT,
   createDesktopBrowserAccess,
   registerDesktopBrowserMcp,
-} from '../../../src/main/browser/browser-mcp-registration';
-import { runBrowserAutomation } from '../../../src/main/browser/browser-automation';
-import { DESKTOP_BROWSER_BLOCKED_GUIDANCE, DESKTOP_BROWSER_DISABLED_ERROR, startDesktopBrowserMcp, type DesktopBrowserAgentControl } from '../../../src/main/browser/browser-mcp';
+} from '../../../src/backend/browser/browser-mcp-registration';
+import { DESKTOP_BROWSER_BLOCKED_GUIDANCE, DESKTOP_BROWSER_DISABLED_ERROR, startDesktopBrowserMcp, type DesktopBrowserAgentControl } from '../../../src/backend/browser/browser-mcp';
+import type { DesktopBrowserHost } from '../../../src/backend/browser/host';
 import { browserControlOwnership } from '../../../src/main/browser/browser-control-ownership';
 
+const runBrowserAutomation = vi.fn(async (request: { operation: string }) => ({
+  ok: true,
+  operation: request.operation,
+  browser: { available: true, panelVisible: false, activeTabId: null, visibleTabId: null, tabs: [] },
+}));
+
+const host: DesktopBrowserHost = {
+  url: 'http://127.0.0.1:0',
+  token: 'host-token',
+  state: async () => ({ agentControl: true, subagentControl: true, localFiles: false }),
+  localFilesEnabled: () => false,
+  run: runBrowserAutomation as unknown as DesktopBrowserHost['run'],
+  collectDialogs: async () => undefined,
+  forgetSession: () => {},
+  restoreSubagentRuns: () => browserControlOwnership.restoreRevokedRuns(),
+  revokeSubagentRun: (sessionId, run) => { browserControlOwnership.revoke(sessionId, run); },
+  track: () => {},
+};
+
+vi.mock('electron', () => ({ app: { getAppPath: () => process.cwd(), getVersion: () => '0.0.0' }, BrowserWindow: { getAllWindows: () => [] }, nativeTheme: { shouldUseDarkColors: false } }));
 vi.mock('../../../src/main/browser/browser-automation', () => ({
   isAgentLocalFileAddress: () => false,
   runBrowserAutomation: vi.fn(async (request) => ({
@@ -89,7 +109,7 @@ it('loads the browser through upstream MCP selection and restores it with sessio
   vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', 'false');
   vi.stubEnv('KIMI_CODE_SEARCH_WORKER', 'false');
   const home = await mkdtemp(join(tmpdir(), 'desktop-browser-mcp-registration-'));
-  const browser = await startDesktopBrowserMcp();
+  const browser = await startDesktopBrowserMcp({ host });
   const server = await startServer({
     hostIdentity: { productName: 'test-host', platform: 'test_platform', version: '0.0.0' },
     homeDir: home,
@@ -97,7 +117,7 @@ it('loads the browser through upstream MCP selection and restores it with sessio
     logLevel: 'silent',
     env: { ...process.env },
   });
-  const registration = registerDesktopBrowserMcp(server.core, browser.config, createDesktopBrowserAccess(createControl()));
+  const registration = registerDesktopBrowserMcp(server.core, browser.config, createDesktopBrowserAccess(createControl()), host);
   try {
     const sessions = server.core.accessor.get(ISessionManager);
     const session = await sessions.create({
@@ -134,7 +154,7 @@ it('loads the browser through upstream MCP selection and restores it with sessio
     expect(registry.resolve(name)).toBeDefined();
     await selection.prepareForRequest();
     expect(selection.shapeTools(registry.list()).map((tool) => tool.name)).not.toContain(name);
-    expect(selection.loadableToolsAnnouncement()?.content).toContain(name);
+    expect(JSON.stringify(selection.loadableToolsAnnouncement()?.content)).toContain(name);
     const loaded = selection.load([name]);
     expect(loaded.toLoad).toEqual([name]);
     expect(loaded.schemas.map((tool) => tool.name)).toEqual([name]);
@@ -145,7 +165,7 @@ it('loads the browser through upstream MCP selection and restores it with sessio
     });
     expect(result.isError).not.toBe(true);
     expect(JSON.stringify(result.content)).toContain('browser.get_state');
-    expect(runBrowserAutomation).toHaveBeenLastCalledWith(expect.objectContaining({ operation: 'browser.get_state' }), expect.any(AbortSignal), session.id);
+    expect(runBrowserAutomation).toHaveBeenLastCalledWith(expect.objectContaining({ operation: 'browser.get_state' }), expect.any(AbortSignal), session.id, undefined);
 
     await sessions.close(session.id);
     const restored = await sessions.resume(session.id, {
@@ -178,7 +198,7 @@ it('reminds agents about the built-in browser and follows the agent control swit
   const home = await mkdtemp(join(tmpdir(), 'desktop-browser-mcp-control-'));
   const control = createControl();
   const access = createDesktopBrowserAccess(control);
-  const browser = await startDesktopBrowserMcp({ access });
+  const browser = await startDesktopBrowserMcp({ access, host });
   const server = await startServer({
     hostIdentity: { productName: 'test-host', platform: 'test_platform', version: '0.0.0' },
     homeDir: home,
@@ -188,7 +208,7 @@ it('reminds agents about the built-in browser and follows the agent control swit
   });
   const sessions = server.core.accessor.get(ISessionManager);
   const existing = await sessions.create({ workDir: home });
-  const registration = registerDesktopBrowserMcp(server.core, browser.config, access);
+  const registration = registerDesktopBrowserMcp(server.core, browser.config, access, host);
   try {
     const createdDir = join(home, 'created');
     await mkdir(createdDir);
@@ -293,7 +313,7 @@ it('keeps the built-in browser for chats that already used it when agent control
   const closes = vi.spyOn(Server.prototype, 'close');
   const control = createControl();
   const access = createDesktopBrowserAccess(control);
-  const browser = await startDesktopBrowserMcp({ access });
+  const browser = await startDesktopBrowserMcp({ access, host });
   const server = await startServer({
     hostIdentity: { productName: 'test-host', platform: 'test_platform', version: '0.0.0' },
     homeDir: home,
@@ -302,7 +322,7 @@ it('keeps the built-in browser for chats that already used it when agent control
     env: { ...process.env },
   });
   const sessions = server.core.accessor.get(ISessionManager);
-  const registration = registerDesktopBrowserMcp(server.core, browser.config, access);
+  const registration = registerDesktopBrowserMcp(server.core, browser.config, access, host);
   const name = 'mcp__desktop_browser__run';
   const prepare = async (session: Awaited<ReturnType<typeof sessions.create>>) => {
     await session.accessor.get(ISessionMcpHandle).ready;
@@ -401,7 +421,7 @@ it('does not keep the built-in browser for chats whose only browser attempts wer
   const home = await mkdtemp(join(tmpdir(), 'desktop-browser-mcp-refused-'));
   const control = createControl();
   const access = createDesktopBrowserAccess(control);
-  const browser = await startDesktopBrowserMcp({ access });
+  const browser = await startDesktopBrowserMcp({ access, host });
   const server = await startServer({
     hostIdentity: { productName: 'test-host', platform: 'test_platform', version: '0.0.0' },
     homeDir: home,
@@ -410,7 +430,7 @@ it('does not keep the built-in browser for chats whose only browser attempts wer
     env: { ...process.env },
   });
   const sessions = server.core.accessor.get(ISessionManager);
-  const registration = registerDesktopBrowserMcp(server.core, browser.config, access);
+  const registration = registerDesktopBrowserMcp(server.core, browser.config, access, host);
   const name = 'mcp__desktop_browser__run';
   const prepare = async (session: Awaited<ReturnType<typeof sessions.create>>, dynamic = true) => {
     await session.accessor.get(ISessionMcpHandle).ready;
@@ -520,7 +540,7 @@ it('tells every agent why the built-in browser is blocked and allows other avail
   const control = createControl(false);
   const subagentControl = createControl(false);
   const access = createDesktopBrowserAccess(control, subagentControl);
-  const browser = await startDesktopBrowserMcp({ access });
+  const browser = await startDesktopBrowserMcp({ access, host });
   const server = await startServer({
     hostIdentity: { productName: 'test-host', platform: 'test_platform', version: '0.0.0' },
     homeDir: home,
@@ -529,7 +549,7 @@ it('tells every agent why the built-in browser is blocked and allows other avail
     env: { ...process.env },
   });
   const sessions = server.core.accessor.get(ISessionManager);
-  const registration = registerDesktopBrowserMcp(server.core, browser.config, access);
+  const registration = registerDesktopBrowserMcp(server.core, browser.config, access, host);
   const name = 'mcp__desktop_browser__run';
   try {
     const session = await sessions.create({ workDir: home });
@@ -630,7 +650,7 @@ it('injects trusted subagent runs through dynamic and direct tools without weake
   const control = createControl();
   const subagentControl = createControl();
   const access = createDesktopBrowserAccess(control, subagentControl);
-  const browser = await startDesktopBrowserMcp({ access });
+  const browser = await startDesktopBrowserMcp({ access, host });
   const server = await startServer({
     hostIdentity: { productName: 'test-host', platform: 'test_platform', version: '0.0.0' },
     homeDir: home,
@@ -639,7 +659,7 @@ it('injects trusted subagent runs through dynamic and direct tools without weake
     env: { ...process.env },
   });
   const sessions = server.core.accessor.get(ISessionManager);
-  const registration = registerDesktopBrowserMcp(server.core, browser.config, access);
+  const registration = registerDesktopBrowserMcp(server.core, browser.config, access, host);
   const name = 'mcp__desktop_browser__run';
   try {
     const session = await sessions.create({ workDir: home });
@@ -695,11 +715,11 @@ it('injects trusted subagent runs through dynamic and direct tools without weake
     expect(runBrowserAutomation).toHaveBeenCalledTimes(2);
     expect(runBrowserAutomation).toHaveBeenNthCalledWith(1,
       expect.objectContaining({ operation: 'browser.get_state' }), expect.any(AbortSignal), session.id,
-      expect.objectContaining({ run: { agentId: 'worker', generation: workerContext.generation, turnId: 7 }, profile: 'coder', description: 'Inspect docs' }),
+      { agentId: 'worker', generation: workerContext.generation, turnId: 7 },
     );
     expect(runBrowserAutomation).toHaveBeenNthCalledWith(2,
       expect.objectContaining({ operation: 'browser.get_state' }), expect.any(AbortSignal), session.id,
-      expect.objectContaining({ run: { agentId: 'direct', generation: directContext.generation, turnId: 8 } }),
+      { agentId: 'direct', generation: directContext.generation, turnId: 8 },
     );
 
     const revoked = vi.fn();
@@ -729,11 +749,11 @@ it('injects trusted subagent runs through dynamic and direct tools without weake
     expect(runBrowserAutomation).toHaveBeenCalledTimes(4);
     expect(runBrowserAutomation).toHaveBeenNthCalledWith(3,
       expect.objectContaining({ operation: 'browser.get_state' }), expect.any(AbortSignal), session.id,
-      expect.objectContaining({ run: { agentId: 'worker', generation: workerContext.generation, turnId: 9 }, profile: 'coder', description: 'Inspect docs' }),
+      { agentId: 'worker', generation: workerContext.generation, turnId: 9 },
     );
     expect(runBrowserAutomation).toHaveBeenNthCalledWith(4,
       expect.objectContaining({ operation: 'browser.get_state' }), expect.any(AbortSignal), session.id,
-      expect.objectContaining({ run: { agentId: 'direct', generation: directContext.generation, turnId: 8 } }),
+      { agentId: 'direct', generation: directContext.generation, turnId: 8 },
     );
 
     const workerRun = { agentId: 'worker', generation: workerContext.generation, turnId: 9 };
@@ -779,7 +799,7 @@ it('attaches trusted identity to an eligible subagent scope that already exists'
   vi.mocked(runBrowserAutomation).mockClear();
   const home = await mkdtemp(join(tmpdir(), 'desktop-browser-existing-subagent-'));
   const access = createDesktopBrowserAccess(createControl(), createControl());
-  const browser = await startDesktopBrowserMcp({ access });
+  const browser = await startDesktopBrowserMcp({ access, host });
   const server = await startServer({
     hostIdentity: { productName: 'test-host', platform: 'test_platform', version: '0.0.0' },
     homeDir: home,
@@ -810,7 +830,7 @@ it('attaches trusted identity to an eligible subagent scope that already exists'
     vi.spyOn(loop, 'snapshot').mockReturnValue({ ...base, state: 'running', activeTurnId: 12 });
     await agent.accessor.get(IAgentMcpService).waitForInitialLoad();
     await vi.waitFor(() => expect(agent.accessor.get(IAgentToolRegistryService).resolve('mcp__desktop_browser__run')).toBeDefined());
-    registration = registerDesktopBrowserMcp(server.core, browser.config, access);
+    registration = registerDesktopBrowserMcp(server.core, browser.config, access, host);
     const run = { agentId: 'existing', generation: context.generation, turnId: 12 };
     await vi.waitFor(() => expect(access.runs.resolve(session.id, run)).not.toBeNull());
     const tool = agent.accessor.get(IAgentToolRegistryService).resolve('mcp__desktop_browser__run')!;
@@ -819,7 +839,7 @@ it('attaches trusted identity to an eligible subagent scope that already exists'
     expect((await execution.execute({ turnId: 12, toolCallId: 'existing-call', signal: new AbortController().signal })).isError).not.toBe(true);
     expect(runBrowserAutomation).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ operation: 'browser.get_state' }), expect.any(AbortSignal), session.id,
-      expect.objectContaining({ run, profile: 'coder' }),
+      run,
     );
   } finally {
     registration?.dispose();

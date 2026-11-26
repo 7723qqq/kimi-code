@@ -136,6 +136,7 @@ module.exports = {
       ],
 
   extraResources: [
+    { from: 'build/backend', to: 'backend', filter: ['kimi-desktop-backend', 'kimi-desktop-backend.exe', 'search-worker.mjs'] },
     { from: 'desktop-dist', to: 'desktop-dist' },
     { from: path.resolve(path.dirname(require.resolve('fabric')), '../LICENSE'), to: 'third-party-notices/fabric-LICENSE.txt' },
     { from: 'native/screenshot-window-list/dist', to: 'screenshot-window-list', filter: ['screenshot-window-list', '*.exe', '*.node'] },

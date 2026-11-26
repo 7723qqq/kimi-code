@@ -4,8 +4,7 @@ import { join } from 'node:path';
 
 import { app } from 'electron';
 import type { MainWindow } from '../window/main-window';
-import { resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
-import { serverTokenPath } from '@moonshot-ai/kap-server';
+import { resolveKimiHome } from '../home';
 
 import { startDesktopServer, type DesktopServerHandle } from './embedded-server';
 import { desktopServerSecret, setEmbeddedServerOrigin } from './server-auth';
@@ -34,6 +33,15 @@ type ConnectFailureStage = 'server_start' | 'load_url';
 type ConnectFailurePhase = NonNullable<StartupConnectResultEvent['failure_phase']>;
 
 let connectQueue: Promise<void> = Promise.resolve();
+
+export function resetConnectStateForTests(): void {
+  serverHandle = null;
+  serverInitialization = null;
+  serverCloseRequested = false;
+  serverClosePromise = null;
+  consecutiveConnectFailures = 0;
+  connectQueue = Promise.resolve();
+}
 
 export function rendererDistRoot(): string {
   return app.isPackaged
@@ -85,7 +93,7 @@ export function embeddedServerOrigin(): string | null {
 
 export function readServerToken(): string | undefined {
   try {
-    const token = readFileSync(serverTokenPath(resolveKimiHome()), 'utf-8').trim();
+    const token = readFileSync(join(resolveKimiHome(), 'server.token'), 'utf-8').trim();
     return token.length > 0 ? token : undefined;
   } catch {
     return undefined;

@@ -588,11 +588,11 @@ export class DaemonKimiWebApi implements KimiWebApi {
     if (input.goalControl !== undefined) agentConfig['goal_control'] = input.goalControl;
     if (input.thinking !== undefined) agentConfig['thinking'] = input.thinking;
     if (Object.keys(agentConfig).length > 0) body['agent_config'] = agentConfig;
-    const data = await this.http.post<{ session: WireSession }>(
+    const data = await this.http.post<WireSession>(
       `/sessions/${encodeURIComponent(sessionId)}/profile`,
       body,
     );
-    return toAppSession(data.session);
+    return toAppSession(data);
   }
 
   async evaluateSessionRating(sessionId: string, turnId: string): Promise<AppSessionRatingOffer | null> {

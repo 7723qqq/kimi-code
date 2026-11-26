@@ -4,9 +4,8 @@ import type { BrowserSubagentRun } from '../../shared/browser-run';
 import type { DesktopBrowserAccess, DesktopBrowserAgentControl, DesktopBrowserMcpHandle } from './browser-mcp';
 import { DESKTOP_BROWSER_CONTROL_OFF_REASON, DESKTOP_BROWSER_UNAVAILABLE_NOTICE, describeBlockedDesktopBrowser } from './browser-mcp';
 import { BrowserSubagentRunRegistry, DESKTOP_BROWSER_SUBAGENT_RUN, type DesktopBrowserSubagentRun } from './browser-subagent-control';
-import { restoreBrowserSubagentRuns, revokeBrowserSubagentRun } from './browser-control';
-import type { BrowserControlTrigger, BrowserMcpReconnectEvent } from '../diagnostics/telemetry-events';
-import { trySendDesktopEvent } from '../diagnostics/track';
+import type { BrowserMcpReconnectEvent } from '../../main/diagnostics/telemetry-events';
+import type { DesktopBrowserHost } from './host';
 
 export const DESKTOP_BROWSER_MCP_SERVER = 'desktop_browser';
 export const DESKTOP_BROWSER_REMINDER_VARIANT = 'desktop_browser';
@@ -197,10 +196,10 @@ function sessionUsedBrowser(session: ISessionScopeHandle): boolean {
   return false;
 }
 
-function reconnectBrowser(session: ISessionScopeHandle, allowed: () => boolean, reason: BrowserMcpReconnectEvent['reason']): void {
+function reconnectBrowser(session: ISessionScopeHandle, allowed: () => boolean, reason: BrowserMcpReconnectEvent['reason'], host?: DesktopBrowserHost): void {
   let retried = false;
   const report = (ok: boolean): void => {
-    trySendDesktopEvent('browser_mcp_reconnect', { reason, retried, ok, session_id: session.id });
+    host?.track('browser_mcp_reconnect', { reason, retried, ok, session_id: session.id });
   };
   try {
     const manager = session.accessor.get(ISessionMcpHandle).connectionManager;
@@ -224,6 +223,7 @@ export function registerDesktopBrowserMcp(
   core: Scope,
   config: DesktopBrowserMcpHandle['config'],
   access: DesktopBrowserSessionAccess,
+  host?: DesktopBrowserHost,
 ): IDisposable {
   const { control, kept } = access;
   const sessions = core.accessor.get(ISessionManager);
@@ -307,20 +307,14 @@ export function registerDesktopBrowserMcp(
     attachSession(session);
     if (disposed || control.enabled() || kept.has(session.id) || !sessionUsedBrowser(session)) return;
     kept.add(session.id);
-    reconnectBrowser(session, () => access.allows(session.id), 'session_create');
+    reconnectBrowser(session, () => access.allows(session.id), 'session_create', host);
   };
-  let revokeTrigger: BrowserControlTrigger | undefined;
   const syncSubagentRuns = (): void => {
     if (control.enabled() && access.subagentControl.enabled()) {
-      restoreBrowserSubagentRuns();
+      host?.restoreSubagentRuns();
       return;
     }
-    revokeTrigger = 'ipc';
-    try {
-      access.runs.revokeAll();
-    } finally {
-      revokeTrigger = undefined;
-    }
+    access.runs.revokeAll();
   };
   const onDidChangeControl = (enabled: boolean): void => {
     syncSubagentRuns();
@@ -330,7 +324,7 @@ export function registerDesktopBrowserMcp(
         kept.add(session.id);
         continue;
       }
-      reconnectBrowser(session, () => access.allows(session.id), 'setting_change');
+      reconnectBrowser(session, () => access.allows(session.id), 'setting_change', host);
     }
     if (enabled) kept.clear();
   };
@@ -345,7 +339,7 @@ export function registerDesktopBrowserMcp(
     sessions.onDidCreateSession((event) => onDidCreateSession(event.handle)),
     { dispose: control.onDidChange(onDidChangeControl) },
     { dispose: access.subagentControl.onDidChange(syncSubagentRuns) },
-    { dispose: access.runs.onDidRevoke((sessionId, run) => revokeBrowserSubagentRun(sessionId, run, revokeTrigger)) },
+    { dispose: access.runs.onDidRevoke((sessionId, run) => host?.revokeSubagentRun(sessionId, run)) },
   ];
   if (sessions.onDidCloseSession !== undefined) {
     subscriptions.push(sessions.onDidCloseSession(({ sessionId }) => detachSession(sessionId)));

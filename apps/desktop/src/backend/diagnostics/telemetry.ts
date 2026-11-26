@@ -1,16 +1,18 @@
-import { createCloudAppender, IConfigService, IOAuthToolkit, ITelemetryService, type Scope, type TelemetryProperties, ISessionIndex, IProjectService } from '@moonshot-ai/agent-core-v2';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { nativeTheme } from 'electron';
-
+import {
+  createCloudAppender,
+  IConfigService,
+  IOAuthToolkit,
+  ITelemetryService,
+  type Scope,
+  type TelemetryProperties,
+} from '@moonshot-ai/agent-core-v2';
 import { resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
 
 import { DESKTOP_PRODUCT_NAME, DESKTOP_UI_MODE } from '../../shared/identity';
-import { launchChannel, launchId, log } from './log';
-import { startDesktopSystemMetrics, stopDesktopSystemMetrics } from './system-metrics';
 import { getRuntimeLocale, setDesktopTrackImpl } from './track';
-import { markFirstLaunchReported, shouldReportFirstLaunch } from '../app/ui-state';
 
 export interface DesktopTelemetryHandle {
   readonly shutdown: () => Promise<void>;
@@ -18,12 +20,17 @@ export interface DesktopTelemetryHandle {
 
 export interface DesktopTelemetryIdentity {
   readonly deviceId: string;
+  readonly theme?: 'dark' | 'light';
+  readonly launchId?: string;
+  readonly releaseChannel?: string;
+  readonly locale?: string;
+  readonly firstLaunch?: boolean;
+  readonly onFirstLaunch?: () => void;
 }
 
 const SHUTDOWN_TIMEOUT_MS = 3_000;
 const DISABLE_ENV = 'KIMI_DISABLE_TELEMETRY';
 const TRUE_ENV_VALUES = new Set(['1', 'true', 't', 'yes', 'y']);
-
 const DAY_MS = 86_400_000;
 
 export function daysSince(birthtimeMs: number, nowMs: number): number {
@@ -35,10 +42,7 @@ let daysSinceInstallCache: { at: number; value: number | undefined } | undefined
 
 function readDaysSinceInstall(): number | undefined {
   const now = Date.now();
-  if (
-    daysSinceInstallCache !== undefined &&
-    now - daysSinceInstallCache.at < DAYS_SINCE_INSTALL_TTL_MS
-  ) {
+  if (daysSinceInstallCache !== undefined && now - daysSinceInstallCache.at < DAYS_SINCE_INSTALL_TTL_MS) {
     return daysSinceInstallCache.value;
   }
   let value: number | undefined;
@@ -56,27 +60,22 @@ export function resetDaysSinceInstallCacheForTests(): void {
   daysSinceInstallCache = undefined;
 }
 
-function withSuperProperties(properties: TelemetryProperties | undefined): TelemetryProperties {
+function withSuperProperties(identity: DesktopTelemetryIdentity, properties: TelemetryProperties | undefined): TelemetryProperties {
   const injected: Record<string, string | number> = {
     app_uptime_ms: Math.round(process.uptime() * 1000),
-    theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light',
-    launch_id: launchId(),
-    release_channel: launchChannel(),
+    theme: identity.theme ?? 'light',
+    launch_id: identity.launchId ?? '',
+    release_channel: identity.releaseChannel ?? '',
   };
   const daysSinceInstall = readDaysSinceInstall();
   if (daysSinceInstall !== undefined) injected['days_since_install'] = daysSinceInstall;
-  const locale = getRuntimeLocale();
+  const locale = identity.locale ?? getRuntimeLocale();
   if (locale !== undefined) injected['locale'] = locale;
   return { ...injected, ...properties };
 }
 
-export function isTelemetryConsentEnabled(
-  configValue: unknown,
-  envValue: string | undefined,
-): boolean {
-  if (envValue !== undefined && TRUE_ENV_VALUES.has(envValue.trim().toLowerCase())) {
-    return false;
-  }
+export function isTelemetryConsentEnabled(configValue: unknown, envValue: string | undefined): boolean {
+  if (envValue !== undefined && TRUE_ENV_VALUES.has(envValue.trim().toLowerCase())) return false;
   return configValue !== false;
 }
 
@@ -93,10 +92,7 @@ export async function wireDesktopTelemetry(
     } catch {
       configValue = undefined;
     }
-    if (!isTelemetryConsentEnabled(configValue, process.env[DISABLE_ENV])) {
-      log.info('[kimi-desktop] telemetry disabled by config or env');
-      return null;
-    }
+    if (!isTelemetryConsentEnabled(configValue, process.env[DISABLE_ENV])) return null;
 
     const telemetry = core.accessor.get(ITelemetryService);
     const startedAt = Date.now();
@@ -113,28 +109,20 @@ export async function wireDesktopTelemetry(
       appender.track({
         event,
         context: typeof session_id === 'string' ? { session_id } : {},
-        properties: withSuperProperties(eventProperties),
+        properties: withSuperProperties(identity, eventProperties),
       });
     });
     appender.startPeriodicFlush();
     void appender.retryDiskEvents().catch(() => {});
-    startDesktopSystemMetrics({
-      sessionCount: async () => {
-        const workspaces = await core.accessor.get(IProjectService).list();
-        return core.accessor.get(ISessionIndex).count({ workspaceIds: workspaces.map((w) => w.id) });
-      },
-    });
-    if (shouldReportFirstLaunch()) {
+    if (identity.firstLaunch === true) {
       telemetry.track2('first_launch');
-      markFirstLaunchReported();
+      identity.onFirstLaunch?.();
     }
-    log.info('[kimi-desktop] telemetry wired (cloud appender)');
 
     let shutdownOnce: Promise<void> | undefined;
     return {
       shutdown: () =>
         (shutdownOnce ??= (async () => {
-          stopDesktopSystemMetrics();
           telemetry.track2('exit', { duration_ms: Date.now() - startedAt });
           appender.stopPeriodicFlush();
           await raceTimeout(telemetry.shutdown(), SHUTDOWN_TIMEOUT_MS);
@@ -142,9 +130,7 @@ export async function wireDesktopTelemetry(
         })()),
     };
   } catch (error) {
-    log.error(
-      `[kimi-desktop] telemetry wiring failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error('[kimi-desktop] telemetry wiring failed', error);
     return null;
   }
 }

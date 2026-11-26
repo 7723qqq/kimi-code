@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { MainWindow } from '../../../src/main/window/main-window';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -53,7 +53,7 @@ vi.mock('node:fs/promises', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:fs/promises')>()),
   stat: mocks.stat,
 }));
-vi.mock('@moonshot-ai/kimi-code-sdk', () => ({
+vi.mock('../../../src/main/home', () => ({
   resolveKimiHome: () => '/tmp/kimi-test',
 }));
 vi.mock('../../../src/main/server/embedded-server', () => ({
@@ -127,8 +127,14 @@ async function importConnect(): Promise<typeof import('../../../src/main/server/
   return import('../../../src/main/server/connect');
 }
 
+let connectModule: Awaited<ReturnType<typeof importConnect>>;
+
+beforeAll(async () => {
+  connectModule = await importConnect();
+}, 30_000);
+
 beforeEach(() => {
-  vi.resetModules();
+  connectModule.resetConnectStateForTests();
   vi.clearAllMocks();
   mocks.isPackaged.mockReturnValue(true);
   mocks.stat.mockReset();
@@ -437,7 +443,7 @@ describe('connect', () => {
 
     await connect(fakeWindow() as unknown as MainWindow);
 
-    expect(mocks.readFileSync).toHaveBeenCalledWith('/tmp/kimi-test/server.token', 'utf-8');
+    expect(mocks.readFileSync).toHaveBeenCalledWith(join('/tmp/kimi-test', 'server.token'), 'utf-8');
     expect(mocks.startShellEnvProbe.mock.invocationCallOrder[0]!).toBeLessThan(
       mocks.readFileSync.mock.invocationCallOrder[0]!,
     );

@@ -1,28 +1,14 @@
-import { fileURLToPath } from 'node:url';
-import { configureSearchWorkerRuntime } from '@moonshot-ai/kap-server/search-worker-runtime';
-import {
-  startServer,
-  createServerLogger,
-} from '@moonshot-ai/kap-server';
-import {
-  installGlobalProxyDispatcher,
-  resolveKimiHome,
-} from '@moonshot-ai/kimi-code-sdk';
+import { nativeTheme } from 'electron';
 
-import {
-  DESKTOP_DISPLAY_NAME,
-  DESKTOP_REPLY_STYLE_GUIDE,
-} from '../../shared/identity';
+import { resolveKimiHome } from '../home';
+
 import { resolveDesktopHostIdentity } from '../app/identity';
-import { log } from '../diagnostics/log';
-import { createDesktopServerLogger } from './server-log';
-import { createDesktopAuthTokenService } from './server-auth';
-import { wireDesktopTelemetry } from '../diagnostics/telemetry';
-import { startDesktopBrowserMcp } from '../browser/browser-mcp';
-import { createDesktopBrowserAccess, registerDesktopBrowserMcp } from '../browser/browser-mcp-registration';
-import { browserAgentControl, browserSubagentControl } from '../browser/browser-agent-control';
-import { registerDesktopBrowserDialogReminder } from '../browser/browser-dialog-reminder';
-import { collectBrowserDialogReminder, forgetSessionBrowserDialogs } from '../browser/browser-automation';
+import { markFirstLaunchReported, shouldReportFirstLaunch } from '../app/ui-state';
+import { startBrowserHostBridge, type BrowserHostBridgeHandle } from '../browser/browser-host-bridge';
+import { launchChannel, launchId } from '../diagnostics/log';
+import { getRuntimeLocale } from '../diagnostics/track';
+import { startDesktopSystemMetrics, stopDesktopSystemMetrics } from '../diagnostics/system-metrics';
+import { startDesktopBackendProcess } from './backend-process';
 
 export interface DesktopServerHandle {
   readonly origin: string;
@@ -35,78 +21,46 @@ export interface StartDesktopServerOptions {
   readonly webAssetsDir?: string;
   readonly extraCorsOrigins?: readonly string[];
   readonly debugEndpoints?: boolean;
-  readonly logger?: ReturnType<typeof createServerLogger>;
+  readonly logger?: unknown;
 }
 
-export async function startDesktopServer(
-  opts: StartDesktopServerOptions,
-): Promise<DesktopServerHandle> {
-  configureSearchWorkerRuntime(fileURLToPath(new URL('./search-worker.mjs', import.meta.url)));
-  installGlobalProxyDispatcher();
-  const homeDir = resolveKimiHome();
-  const host = resolveDesktopHostIdentity(homeDir);
-
-  process.env['KIMI_CODE_REGION_MARKER'] = 'off';
-
-  const browserAccess = createDesktopBrowserAccess(browserAgentControl, browserSubagentControl);
-  const browserMcp = await startDesktopBrowserMcp({
-    access: browserAccess,
-    token:
-      opts.debugEndpoints === true
-        ? process.env['KIMI_BROWSER_MCP_TEST_TOKEN']
-        : undefined,
-  });
-  log.info(`[kimi-desktop] Browser MCP listening on ${browserMcp.url}`);
-  let handle: Awaited<ReturnType<typeof startServer>>;
+export async function startDesktopServer(opts: StartDesktopServerOptions): Promise<DesktopServerHandle> {
+  let bridge: BrowserHostBridgeHandle | undefined;
   try {
-    handle = await startServer({
-      host: '127.0.0.1',
-      port: 0,
-      logger: opts.logger ?? createDesktopServerLogger(),
+    bridge = await startBrowserHostBridge();
+    const identity = resolveDesktopHostIdentity(resolveKimiHome());
+    const firstLaunch = shouldReportFirstLaunch();
+    if (firstLaunch) markFirstLaunchReported();
+    const backend = await startDesktopBackendProcess({
       webAssetsDir: opts.webAssetsDir,
-      env: { ...process.env },
-      serverVersion: __KIMI_CORE_VERSION__,
-      hostIdentity: {
-        ...host.identity,
-        displayName: DESKTOP_DISPLAY_NAME,
-        replyStyleGuide: DESKTOP_REPLY_STYLE_GUIDE,
+      extraCorsOrigins: opts.extraCorsOrigins,
+      debugEndpoints: opts.debugEndpoints,
+      browserHost: bridge,
+      telemetry: {
+        deviceId: identity.deviceId,
+        theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light',
+        launchId: launchId(),
+        releaseChannel: launchChannel(),
+        locale: getRuntimeLocale(),
+        firstLaunch,
       },
-      corsOrigins: ['app://renderer', ...(opts.extraCorsOrigins ?? [])],
-      authTokenService: createDesktopAuthTokenService(homeDir),
-      debugEndpoints: opts.debugEndpoints === true,
     });
-  } catch (error) {
-    await browserMcp.close();
-    throw error;
-  }
-
-  let browserRegistration: ReturnType<typeof registerDesktopBrowserMcp> | undefined;
-  let dialogReminder: ReturnType<typeof registerDesktopBrowserDialogReminder> | undefined;
-  let telemetry: Awaited<ReturnType<typeof wireDesktopTelemetry>>;
-  const close = async (): Promise<void> => {
-    const results = await Promise.allSettled([
-      Promise.resolve().then(() => browserRegistration?.dispose()),
-      Promise.resolve().then(() => dialogReminder?.dispose()),
-      Promise.resolve().then(() => telemetry?.shutdown()),
-      Promise.resolve().then(() => handle.close()),
-      Promise.resolve().then(() => browserMcp.close()),
-    ]);
-    const failures = results.filter(result => result.status === 'rejected');
-    if (failures.length > 0) throw new AggregateError(failures.map(result => result.reason), 'Server cleanup failed');
-  };
-  try {
-    browserRegistration = registerDesktopBrowserMcp(handle.core, browserMcp.config, browserAccess);
-    dialogReminder = registerDesktopBrowserDialogReminder(handle.core, { collect: collectBrowserDialogReminder, forgetSession: forgetSessionBrowserDialogs });
-    telemetry = await wireDesktopTelemetry(handle.core, { deviceId: host.deviceId });
-    log.info(`[kimi-desktop] embedded server listening on http://${handle.host}:${handle.port}`);
+    startDesktopSystemMetrics();
     return {
-      origin: `http://${handle.host}:${handle.port}`,
-      port: handle.port,
-      shutdownTelemetry: () => telemetry?.shutdown() ?? Promise.resolve(),
-      close,
+      origin: backend.origin,
+      port: backend.port,
+      shutdownTelemetry: backend.shutdownTelemetry,
+      async close() {
+        try {
+          stopDesktopSystemMetrics();
+          await backend.close();
+        } finally {
+          await bridge?.close();
+        }
+      },
     };
   } catch (error) {
-    await close().catch(cleanupError => log.error('[kimi-desktop] failed to clean up server initialization', cleanupError));
+    await bridge?.close().catch(() => {});
     throw error;
   }
 }

@@ -94,3 +94,6 @@ tools/review/.zig-cache/
 
 # Rust build output for the textual-rs frontend sidecar (apps/kimi-code/rust).
 /apps/kimi-code/rust/target/
+
+# Bun desktop backend build output
+apps/desktop/build/backend/
