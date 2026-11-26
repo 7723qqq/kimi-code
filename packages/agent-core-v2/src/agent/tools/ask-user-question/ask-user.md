@@ -7,6 +7,7 @@ Use this tool when you need to ask the user questions with structured options du
 **When NOT to use:**
 - When you can infer the answer from context — be decisive and proceed
 - Trivial decisions that don't materially affect the outcome
+- Asking whether to continue a task the user already authorized — continue the work instead; ask only when a step needs a materially different decision, is risky or irreversible, or is blocked
 
 Overusing this tool interrupts the user's flow. Only use it when the user's input genuinely changes your next action.
 

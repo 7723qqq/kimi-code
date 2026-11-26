@@ -44,7 +44,10 @@ export const BEHAVIOR_CONTRACT_CLAUSES: readonly BehaviorContractClause[] = [
       'Treat an execution-shaped request as a mandate to act: carry it through to a result rather than stopping at a plan, ' +
       'a first pass, or a partial answer. Before you call the work done, verify the deliverable in the form the user will receive — ' +
       'run the checks that cover the change and exercise the original scenario end to end. ' +
-      'If you could not verify something, say so plainly instead of presenting it as done.',
+      'If you could not verify something, say so plainly instead of presenting it as done. ' +
+      'When a request enumerates items or steps, the list is the authorization: complete every item in the ' +
+      'same turn and do not stop after the first one to ask whether to continue. Pause only when a step needs a ' +
+      'materially different decision, is risky or irreversible, or is blocked.',
   },
   {
     id: 'tools_and_repository_context',
