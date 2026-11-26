@@ -589,10 +589,11 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
 
     expect(host.svc.resolveRequestParams()).toEqual({
-      cacheKey: 'session-test',
-      sampling: { temperature: 0.3 },
-      thinkingEffort: 'high',
-      thinkingKeep: 'all',
+      model: {
+        cacheKey: 'session-test',
+        sampling: { temperature: 0.3 },
+        thinking: { effort: 'high', keep: 'all' },
+      },
     });
   });
 
@@ -667,9 +668,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
 
     expect(host.svc.resolveRequestParams()).toEqual({
-      cacheKey: 'session-test',
-      thinkingEffort: 'high',
-      thinkingKeep: 'all',
+      model: { cacheKey: 'session-test', thinking: { effort: 'high', keep: 'all' } },
     });
   });
 
@@ -687,9 +686,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     expect(host.svc.resolveModelContext().thinkingLevel).toBe('max');
 
     expect(host.svc.resolveRequestParams()).toEqual({
-      cacheKey: 'session-test',
-      thinkingEffort: 'max',
-      thinkingKeep: 'all',
+      model: { cacheKey: 'session-test', thinking: { effort: 'max', keep: 'all' } },
     });
   });
 
@@ -705,12 +702,12 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
     expect(host.svc.data().thinkingLevel).toBe('high');
     expect(host.svc.resolveModelContext().thinkingLevel).toBe('max');
-    expect(host.svc.resolveRequestParams().thinkingEffort).toBe('max');
+    expect(host.svc.resolveRequestParams().model?.thinking?.effort).toBe('max');
 
     host.svc.update({ modelAlias: 'other-code' });
     expect(host.svc.data().thinkingLevel).toBe('high');
     expect(host.svc.resolveModelContext().thinkingLevel).toBe('high');
-    expect(host.svc.resolveRequestParams().thinkingEffort).toBe('high');
+    expect(host.svc.resolveRequestParams().model?.thinking?.effort).toBe('high');
   });
 
   it('applies thinking.keep model override on the Anthropic path', () => {
@@ -724,10 +721,11 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     host.svc.update({ modelAlias: 'claude-code', thinkingLevel: 'high' });
 
     expect(host.svc.resolveRequestParams()).toEqual({
-      cacheKey: 'session-test',
-      sampling: { temperature: 0.3 },
-      thinkingEffort: 'high',
-      thinkingKeep: 'all',
+      model: {
+        cacheKey: 'session-test',
+        sampling: { temperature: 0.3 },
+        thinking: { effort: 'high', keep: 'all' },
+      },
     });
   });
 
@@ -743,9 +741,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
     expect(host.svc.resolveModelContext().thinkingLevel).toBe('max');
     expect(host.svc.resolveRequestParams()).toEqual({
-      cacheKey: 'session-test',
-      thinkingEffort: 'max',
-      thinkingKeep: 'all',
+      model: { cacheKey: 'session-test', thinking: { effort: 'max', keep: 'all' } },
     });
   });
 
@@ -759,9 +755,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
 
     expect(host.svc.resolveRequestParams()).toEqual({
-      cacheKey: 'session-test',
-      thinkingEffort: 'high',
-      thinkingKeep: 'all',
+      model: { cacheKey: 'session-test', thinking: { effort: 'high', keep: 'all' } },
     });
   });
 
@@ -776,9 +770,9 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
 
     const params = host.svc.resolveRequestParams();
-    expect(params.cacheKey).toBe('session-test');
-    expect(params.thinkingEffort).toBe('high');
-    expect(params.thinkingKeep).toBeUndefined();
+    expect(params.model?.cacheKey).toBe('session-test');
+    expect(params.model?.thinking?.effort).toBe('high');
+    expect(params.model?.thinking?.keep).toBeUndefined();
   });
 
   it('applies config thinking.keep on the Anthropic path', () => {
@@ -792,9 +786,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     host.svc.update({ modelAlias: 'claude-code', thinkingLevel: 'high' });
 
     expect(host.svc.resolveRequestParams()).toEqual({
-      cacheKey: 'session-test',
-      thinkingEffort: 'high',
-      thinkingKeep: 'config-keep',
+      model: { cacheKey: 'session-test', thinking: { effort: 'high', keep: 'config-keep' } },
     });
   });
 
@@ -811,10 +803,11 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     expect(host.svc.resolveModelContext().thinkingLevel).toBe('off');
 
     expect(host.svc.resolveRequestParams()).toEqual({
-      cacheKey: 'session-test',
-      sampling: { temperature: 0.3 },
-      thinkingEffort: 'off',
-      thinkingKeep: undefined,
+      model: {
+        cacheKey: 'session-test',
+        sampling: { temperature: 0.3 },
+        thinking: { effort: 'off', keep: undefined },
+      },
     });
   });
 
@@ -828,9 +821,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
 
     expect(host.svc.resolveRequestParams()).toEqual({
-      cacheKey: 'session-test',
-      thinkingEffort: 'high',
-      thinkingKeep: 'all',
+      model: { cacheKey: 'session-test', thinking: { effort: 'high', keep: 'all' } },
     });
   });
 
@@ -843,6 +834,6 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
     host.svc.update({ modelAlias: 'claude-sonnet', thinkingLevel: 'high' });
 
-    expect(host.svc.resolveRequestParams().cacheKey).toBe('session-test');
+    expect(host.svc.resolveRequestParams().model?.cacheKey).toBe('session-test');
   });
 });

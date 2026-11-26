@@ -8,7 +8,7 @@ import type {
 import type { ErrorCode } from '#/errors';
 import type { ModelCapability } from '#/provider-catalog/capability';
 import type { ProfileUpdatePlan } from './profileOps';
-import type { ModelRequestParams } from '#/llm-adapter/model/model-requester';
+import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
 import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';
 import type { ThinkingEffort } from '#human/llm/thinking';
 
@@ -129,7 +129,7 @@ export interface IAgentProfileService {
   data(snapshot?: ProfileBindingSnapshot): ProfileData;
   getEffectiveThinkingLevel(snapshot?: ProfileBindingSnapshot): ThinkingEffort;
   resolveModelContext(snapshot?: ProfileBindingSnapshot): ProfileModelContext;
-  resolveRequestParams(snapshot?: ProfileBindingSnapshot): ModelRequestParams;
+  resolveRequestParams(snapshot?: ProfileBindingSnapshot): InitializedLlmRequestPart;
   getModelCapabilities(snapshot?: ProfileBindingSnapshot): ModelCapability;
   getModelWireName(): string | undefined;
   getModelProviderType(alias?: string, snapshot?: ProfileBindingSnapshot): string | undefined;
@@ -159,7 +159,7 @@ export interface EffectiveProfileReader {
   data(): ProfileData;
   getEffectiveThinkingLevel(): ThinkingEffort;
   resolveModelContext(): ProfileModelContext;
-  resolveRequestParams(): ModelRequestParams;
+  resolveRequestParams(): InitializedLlmRequestPart;
   getModelCapabilities(): ModelCapability;
   getModelProviderType(alias?: string, snapshot?: ProfileBindingSnapshot): string | undefined;
   getMaxOutputSize(): number | undefined;

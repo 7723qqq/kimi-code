@@ -74,7 +74,7 @@ import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
 import { toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import { isRetryableGenerateError, llmMessageFromError } from '#/llm-adapter/contract/errors';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
-import type { ModelRequestParams } from '#/llm-adapter/model/model-requester';
+import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
 import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentInterruptionReminderService } from '#/agent/interruptionReminder/interruptionReminder';
@@ -399,7 +399,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     return this.profileAdapter.resolveModelContext();
   }
 
-  resolveRequestParams(): ModelRequestParams {
+  resolveRequestParams(): InitializedLlmRequestPart {
     return this.profileAdapter.resolveRequestParams();
   }
 

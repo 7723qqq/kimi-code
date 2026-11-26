@@ -56,6 +56,7 @@ import {
   type ModelRequestTiming,
 } from '#/llm-adapter/model/model-requester';
 import type { ModelOverrides } from '#/llm-adapter/model/model.types';
+import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
 import { fromLlmModelSpec } from '#/provider-catalog/capability';
 import { IModelService } from '#/llm-adapter/model/model';
 import { streamWithCredentialRecovery } from '#/llm-adapter/model/credential-recovery';
@@ -149,6 +150,16 @@ interface TurnRequestConfig {
   readonly resolved: ProfileModelContext;
   readonly params: ModelRequestParams;
   readonly systemPrompt: string;
+}
+
+function toModelRequestParams(part: InitializedLlmRequestPart): ModelRequestParams {
+  const model = part.model;
+  return {
+    cacheKey: model?.cacheKey,
+    sampling: model?.sampling,
+    thinkingEffort: model?.thinking?.effort,
+    thinkingKeep: model?.thinking?.keep,
+  };
 }
 
 interface ProactiveMediaEscalation {
@@ -937,7 +948,8 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     await this.toolSelect.prepareForRequest(signal);
     const turnConfig = this.resolveTurnConfig(overrides.source);
     const resolved = turnConfig?.resolved ?? this.profile.resolveModelContext();
-    const baseParams = turnConfig?.params ?? this.profile.resolveRequestParams();
+    const baseParams =
+      turnConfig?.params ?? toModelRequestParams(this.profile.resolveRequestParams());
     const requester = this.modelCatalog.getRequester(resolved.modelAlias);
     const maxCompletionTokensCap =
       this.config.get<ModelOverrides>(MODEL_OVERRIDES_SECTION)?.maxCompletionTokens;
@@ -1003,7 +1015,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     if (snapshot === undefined) {
       snapshot = {
         resolved: this.profile.resolveModelContext(),
-        params: this.profile.resolveRequestParams(),
+        params: toModelRequestParams(this.profile.resolveRequestParams()),
         systemPrompt: this.profile.getSystemPrompt(),
       };
       this.turnConfigs.set(turnId, snapshot);

@@ -51,9 +51,9 @@ import {
   UNKNOWN_CAPABILITY,
   type ModelCapability,
 } from '#/provider-catalog/capability';
-import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';
+import type { LlmModelSpec, LlmSampling } from '@moonshot-ai/core/llm/request';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import { type ModelRequestParams, type SamplingOptions } from '#/llm-adapter/model/model-requester';
+import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
 import { type ModelOverrides } from '#/llm-adapter/model/model.types';
 import {
   drivesThinkingThroughTraits,
@@ -596,25 +596,29 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     };
   }
 
-  resolveRequestParams(): ModelRequestParams {
+  resolveRequestParams(): InitializedLlmRequestPart {
     const model = this.tryResolveRawModel();
     const thinking = this.resolveThinkingState(model);
     const thinkingConfig = this.config.get<ThinkingConfig>(THINKING_SECTION);
     const overrides = this.config.get<ModelOverrides>(MODEL_OVERRIDES_SECTION);
-    const sampling: SamplingOptions = {
+    const sampling: LlmSampling = {
       temperature: overrides?.temperature,
       topP: overrides?.topP,
     };
     return {
-      cacheKey: this.sessionContext.sessionId,
-      sampling:
-        sampling.temperature === undefined && sampling.topP === undefined ? undefined : sampling,
-      thinkingEffort: thinking.effective,
-      thinkingKeep: resolveThinkingKeep(
-        overrides?.thinkingKeep,
-        thinkingConfig?.keep,
-        thinking.effective,
-      ),
+      model: {
+        cacheKey: this.sessionContext.sessionId,
+        sampling:
+          sampling.temperature === undefined && sampling.topP === undefined ? undefined : sampling,
+        thinking: {
+          effort: thinking.effective,
+          keep: resolveThinkingKeep(
+            overrides?.thinkingKeep,
+            thinkingConfig?.keep,
+            thinking.effective,
+          ),
+        },
+      },
     };
   }
 
