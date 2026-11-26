@@ -364,3 +364,6 @@ packages/kap-server/test/context.test.ts llm-adapter/contract/tokens
 packages/migration-legacy/test/resume.integration.test.ts _base/utils/workdir-slug
 
 apps/desktop/tests/main/browser/browser-mcp-registration.test.ts agent/loop/history
+
+packages/kap-server/src/routes/config.ts app/config/toml
+packages/kap-server/src/routes/fs.ts app/project/implicitProject

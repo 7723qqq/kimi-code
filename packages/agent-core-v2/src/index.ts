@@ -829,7 +829,7 @@ export * from '#/_base/utils/errorMessage';
 export * from '#/_base/utils/promise';
 export * from '#/_base/utils/retry';
 export * from '#/_base/utils/timer';
-export { workspaceRootKey } from '#/_base/utils/workdir-slug';
+export { sameDir, workspaceRootKey } from '#/_base/utils/workdir-slug';
 import '#/agent/loop/configSection';
 export * from '#/agent/loop/loop';
 export * from '#/agent/loop/loopService';

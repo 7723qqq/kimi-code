@@ -72,7 +72,7 @@ import type {
 import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
 import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
-import { sameDir } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { sameDir } from '@moonshot-ai/agent-core-v2';
 import type {
   ToolCallStarted,
   ToolProgress,

@@ -16,14 +16,6 @@ import {
   WorkspaceFsService,
   WorkspaceGitService,
   ITelemetryService,
-  type Project,
-  type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import { Event } from '@moonshot-ai/agent-core-v2/_base/event';
-import { IGitService } from '@moonshot-ai/agent-core-v2/app/git/git';
-import { encodeWorkDirKey, sameDir } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-import { isNonDirectory } from '@moonshot-ai/agent-core-v2/app/project/implicitProject';
-import {
   fsDiffRequestSchema,
   fsGitStatusBatchRequestSchema,
   fsGitStatusRequestSchema,
@@ -42,7 +34,13 @@ import {
   fsSuggestRequestSchema,
   fsSuggestResponseSchema,
   type FsSuggestRequest,
-} from '@moonshot-ai/agent-core-v2/project/projectFs/fs';
+  type Project,
+  type Scope,
+} from '@moonshot-ai/agent-core-v2';
+import { Event } from '@moonshot-ai/agent-core-v2/_base/event';
+import { IGitService } from '@moonshot-ai/agent-core-v2/app/git/git';
+import { encodeWorkDirKey, sameDir } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { isNonDirectory } from '@moonshot-ai/agent-core-v2/app/project/implicitProject';
 import type { EnvironmentCapability, EnvironmentLease } from '@moonshot-ai/agent-core-v2/environment/environment';
 import { z } from 'zod';
 
