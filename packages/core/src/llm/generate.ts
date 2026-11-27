@@ -1,6 +1,8 @@
 import { resolveEndpoint } from '#/llm/endpoint';
 import { isAbortError, toLlmErrorMessage, toLlmSyntaxErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
 import type { DecodeSink, LlmModule, ProtocolReply } from '#/llm/protocol/protocol';
+import { createThinkingTagParser } from '#/llm/thinking-tags';
+import type { StreamedMessagePart } from '@moonshot-ai/core/llm/message';
 import type { LlmRequest } from '@moonshot-ai/core/llm/request';
 import type {
   LlmDeltaEvent,
@@ -48,6 +50,7 @@ function remoteErrorOf(
 
 interface EventSink extends DecodeSink {
   readonly failure: () => LlmGenerateFailure | undefined;
+  readonly flush: () => void;
 }
 
 interface AttemptClock {
@@ -117,16 +120,27 @@ function createAttemptClock(): AttemptClock {
 function createEventSink(
   control: Pick<LlmGenerateControl, 'onEvent' | 'onToolCallEnd'>,
   attemptClock: AttemptClock,
+  parseThinkingTags: boolean,
 ): EventSink {
   const { onEvent, onToolCallEnd } = control;
+  const parser = parseThinkingTags ? createThinkingTagParser() : undefined;
   let messageId: string | undefined;
   let failure: LlmGenerateFailure | undefined;
+  const emitPart = (part: StreamedMessagePart): void => {
+    const event: LlmGenerateEvent = { type: 'llm.delta.part', part };
+    log.debug({ ...event }, 'llm event');
+    onEvent?.(event);
+  };
   return {
     onDelta: (part) => {
       const arrivedAt = attemptClock.partArrived();
-      const event: LlmGenerateEvent = { type: 'llm.delta.part', part };
-      log.debug({ ...event }, 'llm event');
-      onEvent?.(event);
+      if (parser === undefined) {
+        emitPart(part);
+      } else {
+        for (const parsed of parser.push(part)) {
+          emitPart(parsed);
+        }
+      }
       attemptClock.partConsumed(arrivedAt);
     },
     onFinish: (finish) => {
@@ -155,6 +169,12 @@ function createEventSink(
       onToolCallEnd?.(index);
     },
     failure: () => failure,
+    flush: () => {
+      if (parser === undefined) return;
+      for (const parsed of parser.finish()) {
+        emitPart(parsed);
+      }
+    },
   };
 }
 
@@ -207,6 +227,7 @@ export async function generate(
     return failure;
   }
   let streamStarted = false;
+  let sink: EventSink | undefined;
   try {
     const endpoint = await resolveEndpoint(request.endpoint);
     const clientFactory = request.endpoint?.clientFactory;
@@ -214,7 +235,7 @@ export async function generate(
       clientFactory === undefined
         ? base.client(endpoint, options)
         : clientFactory(endpoint);
-    const sink = createEventSink({ onEvent, onToolCallEnd }, attemptClock);
+    sink = createEventSink({ onEvent, onToolCallEnd }, attemptClock, request.model.responseFormat === undefined);
     attemptClock.sent();
     const chunks = stream
       ? receive(request, await base.sendStream(client, encodedRequest, signal), onEvent)
@@ -225,14 +246,17 @@ export async function generate(
       decoder.push(chunk);
       const failure = sink.failure();
       if (failure !== undefined) {
+        sink.flush();
         emitTiming();
         return failure;
       }
     }
     decoder.end();
+    sink.flush();
     emitTiming();
     return sink.failure();
   } catch (error) {
+    sink?.flush();
     emitTiming();
     const failure: LlmGenerateFailure = {
       error: remoteErrorOf(request, error, streamStarted ? 'stream' : undefined),

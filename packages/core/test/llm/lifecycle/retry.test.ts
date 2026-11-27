@@ -224,12 +224,15 @@ describe('LLM retry boundaries', () => {
 
   it('as a user, I want oversized media requests to recover with a compatible rewritten request', async () => {
     const modules: OpenAIModule[] = [];
+    const encodedRequests: unknown[] = [];
     let sends = 0;
     const protocol = {
       ...openAIProtocol,
       encode: (module: OpenAIModule) => {
         modules.push(module);
-        return openAIProtocol.encode(module);
+        const encoded = openAIProtocol.encode(module);
+        encodedRequests.push(encoded);
+        return encoded;
       },
       sendStream: async () => {
         sends += 1;
@@ -262,20 +265,23 @@ describe('LLM retry boundaries', () => {
       action: 'stripped',
     });
     expect(modules).toHaveLength(2);
-    expect(JSON.stringify(modules[0]?.content.messages)).toContain('data:image/png;base64,AAAA');
-    const recovered = JSON.stringify(modules[1]?.content.messages);
+    expect(JSON.stringify(encodedRequests[0])).toContain('data:image/png;base64,AAAA');
+    const recovered = JSON.stringify(encodedRequests[1]);
     expect(recovered).not.toContain('data:image/png;base64,AAAA');
     expect(recovered).toContain('[image omitted for provider compatibility');
   });
 
   it('as a user, I want oversized requests to drop only older media and send the degraded placeholder text', async () => {
     const modules: OpenAIModule[] = [];
+    const encodedRequests: unknown[] = [];
     let sends = 0;
     const protocol = {
       ...openAIProtocol,
       encode: (module: OpenAIModule) => {
         modules.push(module);
-        return openAIProtocol.encode(module);
+        const encoded = openAIProtocol.encode(module);
+        encodedRequests.push(encoded);
+        return encoded;
       },
       sendStream: async () => {
         sends += 1;
@@ -302,7 +308,7 @@ describe('LLM retry boundaries', () => {
       action: 'degraded',
     });
     expect(modules).toHaveLength(2);
-    const recovered = JSON.stringify(modules[1]?.content.messages);
+    const recovered = JSON.stringify(encodedRequests[1]);
     expect(recovered).not.toContain('data:image/png;base64,OLDER');
     expect(recovered).toContain('data:image/png;base64,RECENT1');
     expect(recovered).toContain('data:image/png;base64,RECENT2');

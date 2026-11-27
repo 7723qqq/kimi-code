@@ -27,6 +27,7 @@ import {
   IEnvironmentService,
   IEventService,
   IModelService,
+  IProjectSessions,
   IProviderService,
   IMcpOAuthService,
   ISessionIndexMirror,
@@ -313,6 +314,7 @@ function makeFakeHarness() {
       ISessionIndex,
       {
         list: jest.fn(async () => ({ items: [] })),
+        listRecent: jest.fn(async () => ({ items: [] })),
         get: jest.fn(async (id: string) => ({
           id,
           workspaceId: 'wd_v2',
@@ -324,8 +326,8 @@ function makeFakeHarness() {
       },
     ],
     [
-      ISessionIndex,
-      { get: jest.fn(async () => undefined), listRecent: jest.fn(async () => ({ items: [] })) },
+      IProjectSessions,
+      { listForWorkdir: jest.fn(async () => ({ items: [] })) },
     ],
     [ISessionLockService, new InMemorySessionLockService()],
     [IAppendLogStore, { externallyModified: jest.fn(() => false), drainRetirements: jest.fn(async () => {}) }],
@@ -584,7 +586,7 @@ describe('runV2Print', () => {
     });
 
     const input = mocks.bootstrap.mock.calls[0]?.[0] as BootstrapInput;
-    expect(input.args?.agentFiles).toEqual([agentFile]);
+    expect(input.args?.agentFiles).toEqual([agentFile.replaceAll('\\', '/')]);
 
     const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof jest.fn> };
     expect(sessions.create).toHaveBeenCalledWith({
@@ -826,8 +828,10 @@ describe('runV2Print', () => {
     const { app, agentServices, appServices, planState } = makeFakeHarness();
     planState.active = true;
 
-    const index = appServices.get(ISessionIndex) as { listRecent: ReturnType<typeof jest.fn> };
-    index.listRecent.mockResolvedValue({ items: [{ id: 'ses_9', cwd: process.cwd() }] });
+    const projectSessions = appServices.get(IProjectSessions) as {
+      listForWorkdir: ReturnType<typeof jest.fn>;
+    };
+    projectSessions.listForWorkdir.mockResolvedValue({ items: [{ id: 'ses_9', cwd: process.cwd() }] });
 
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });

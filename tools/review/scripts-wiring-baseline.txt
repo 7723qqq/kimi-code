@@ -27,7 +27,6 @@ apps/kimi-code/package.json:dev:cli-only
 apps/kimi-code/package.json:dev:plugin-marketplace
 apps/kimi-code/package.json:dev:prod
 apps/kimi-code/package.json:dev:server:restart
-apps/kimi-code/package.json:e2e
 apps/kimi-code/package.json:e2e:real
 apps/kimi-code/package.json:produce:native:manifest
 apps/kimi-code/package.json:release:native:resolve

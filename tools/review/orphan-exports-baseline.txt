@@ -234,7 +234,6 @@ currentValidatedWorkspacePath  packages/app-core/src/lib/workspacePathInput.ts
 toggleCodeWrap  packages/app-markdown/src/lib/codeWrap.ts
 toggleCodeNums  packages/app-markdown/src/lib/codeWrap.ts
 matchInlineMath  packages/app-markdown/src/lib/inlineMath.ts
-composeToolExecutorHooks  packages/core/src/tool/hook-composer.ts
 fileOutputStore  packages/core/src/tool/output-store.ts
 setClock  packages/core/src/utils/clock.ts
 setLog  packages/core/src/utils/log.ts

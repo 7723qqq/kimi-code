@@ -1450,11 +1450,6 @@ export default {
             description:
               '为 Agent 工具启用 claude-code / codex / acp 后端，改为启动外部 agent CLI 而非进程内子代理。',
           },
-          tool_select: {
-            title: '工具选择（渐进式工具披露）',
-            description:
-              '将 MCP 工具架构从不可变的顶层 tools[] 中移出；模型通过 select_tools 工具按需加载。仅在模型能力目录声明了动态加载工具时生效。',
-          },
           tower: {
             title: 'Tower 模式',
             description:
@@ -1464,6 +1459,11 @@ export default {
             title: 'WaitFor 工具',
             description:
               '向模型提供 WaitFor 工具，使其能在当前轮内等待后台任务，而不必结束本轮后被重新调用。',
+          },
+          worktree: {
+            title: 'Git worktree 工作树',
+            description:
+              '使用 kimi -w 在新的 git worktree 中启动会话，并在 /worktree 面板中列出、进入和移除工作树。',
           },
         },
       },
@@ -2829,7 +2829,16 @@ export default {
           updateTodos: '更新待办',
           loadSkill: '加载技能',
           searchWeb: '网页搜索',
+          searchWebAsk: '联网研读',
           fetch: '获取',
+          fetchQuery: '{{url}} · "{{query}}"',
+          scopeHint: '{{target}} · {{scope}}',
+          scopeAcademic: '学术',
+          scopeCode: '代码',
+          scopeDocs: '文档',
+          scopeReference: '百科',
+          scopePackage: '软件包',
+          scopeNews: '新闻',
           waitFor: '等待',
           readOutput: '读取输出',
           listTasks: '列出任务',

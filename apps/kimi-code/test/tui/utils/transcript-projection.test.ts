@@ -1212,4 +1212,16 @@ describe('fold rules', () => {
 
     expect(project(components, compact).map((item) => item.kind)).toEqual(['group', 'row']);
   });
+
+  it('formats WebSearch scope/ask mode and FetchURL query in collapsed item labels', () => {
+    const components = [
+      tool('WebSearch', { query: 'bun sqlite', scope: 'docs', mode: 'ask' }),
+      tool('FetchURL', { url: 'https://bun.sh/docs/api/sqlite', query: 'fts5' }),
+    ];
+    const group = onlyGroup(components, compact);
+    expect(group.members.map((item) => `${item.label.verb} ${item.label.subject ?? ''}`.trim())).toEqual([
+      'Research web "bun sqlite" · docs',
+      'Fetch bun.sh/docs/api/sqlite · "fts5"',
+    ]);
+  });
 });

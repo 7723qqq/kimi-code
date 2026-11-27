@@ -1495,11 +1495,6 @@ export default {
             description:
               'Enables the claude-code / codex / acp backends for the Agent tool, which spawn external agent CLIs instead of in-process subagents.',
           },
-          tool_select: {
-            title: 'Tool select (progressive tool disclosure)',
-            description:
-              'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
-          },
           tower: {
             title: 'Tower mode',
             description:
@@ -1509,6 +1504,11 @@ export default {
             title: 'WaitFor tool',
             description:
               'Give the model the WaitFor tool so it can wait for background tasks inside the current turn instead of ending the turn and being re-invoked.',
+          },
+          worktree: {
+            title: 'Git worktrees',
+            description:
+              'Start sessions in new git worktrees with kimi -w, and list, enter and remove them from the /worktree panel.',
           },
         },
       },
@@ -2939,7 +2939,16 @@ export default {
           updateTodos: 'Update todos',
           loadSkill: 'Load skill',
           searchWeb: 'Search web',
+          searchWebAsk: 'Research web',
           fetch: 'Fetch',
+          fetchQuery: '{{url}} · "{{query}}"',
+          scopeHint: '{{target}} · {{scope}}',
+          scopeAcademic: 'academic',
+          scopeCode: 'code',
+          scopeDocs: 'docs',
+          scopeReference: 'reference',
+          scopePackage: 'package',
+          scopeNews: 'news',
           waitFor: 'Wait for',
           readOutput: 'Read output',
           listTasks: 'List tasks',

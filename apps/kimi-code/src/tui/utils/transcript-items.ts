@@ -552,12 +552,28 @@ function toolLabel(component: ToolCallComponent): ItemLabel {
     case 'Skill': return label(t(`${labels}.loadSkill`), argument('skill'));
     case 'WebSearch': {
       const query = argument('query');
+      const scope = searchScopeLabel(argument('scope'));
+      const verb = t(argument('mode') === 'ask' ? `${labels}.searchWebAsk` : `${labels}.searchWeb`);
+      const querySubject = query === undefined ? undefined : t(`${labels}.searchQuery`, { query });
+      const subject =
+        querySubject === undefined
+          ? scope
+          : scope === undefined
+            ? querySubject
+            : t(`${labels}.scopeHint`, { target: querySubject, scope });
+      return label(verb, subject);
+    }
+    case 'FetchURL': {
+      const url = nonEmpty(argument('url')?.replace(/^[a-z][a-z\d+.-]*:\/\//i, ''));
+      const query = argument('query');
+      if (url !== undefined && query !== undefined) {
+        return label(t(`${labels}.fetch`), t(`${labels}.fetchQuery`, { url, query }));
+      }
       return label(
-        t(`${labels}.searchWeb`),
-        query === undefined ? undefined : t(`${labels}.searchQuery`, { query }),
+        t(`${labels}.fetch`),
+        url ?? (query === undefined ? undefined : t(`${labels}.searchQuery`, { query })),
       );
     }
-    case 'FetchURL': return label(t(`${labels}.fetch`), nonEmpty(argument('url')?.replace(/^[a-z][a-z\d+.-]*:\/\//i, '')));
     case 'WaitFor': return label(t(`${labels}.waitFor`), taskId ?? t(`${labels}.anyTask`));
     case 'TaskOutput': {
       return label(
@@ -572,6 +588,20 @@ function toolLabel(component: ToolCallComponent): ItemLabel {
       return label(name, nonEmpty(extractKeyArgumentDetail(name, args)?.text));
     }
   }
+}
+
+const WEB_SEARCH_SCOPE_LABEL_KEYS = {
+  academic: 'tui.messages.transcriptGroups.labels.scopeAcademic',
+  code: 'tui.messages.transcriptGroups.labels.scopeCode',
+  docs: 'tui.messages.transcriptGroups.labels.scopeDocs',
+  reference: 'tui.messages.transcriptGroups.labels.scopeReference',
+  package: 'tui.messages.transcriptGroups.labels.scopePackage',
+  news: 'tui.messages.transcriptGroups.labels.scopeNews',
+} as const;
+
+function searchScopeLabel(scope: string | undefined): string | undefined {
+  if (scope === undefined || !(scope in WEB_SEARCH_SCOPE_LABEL_KEYS)) return undefined;
+  return t(WEB_SEARCH_SCOPE_LABEL_KEYS[scope as keyof typeof WEB_SEARCH_SCOPE_LABEL_KEYS]);
 }
 
 function activeTodoTitle(todos: unknown): string | undefined {
