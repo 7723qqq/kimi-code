@@ -3,6 +3,8 @@ import { lookup } from 'node:dns/promises';
 
 import type { FetchLike } from '#/_base/utils/fetchLike';
 import { FetchURLTool } from '#/agent/tools/fetch-url/fetchUrlTool';
+import { WebSearchTool } from '#/agent/tools/web-search/webSearchTool';
+import { createFailoverWebSearchProvider } from '#/app/auth/webSearch/webSearchService';
 import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
 import { type UrlFetcher, type UrlFetchResult } from '#/app/web/tools/fetch-url-types';
 import {
@@ -194,5 +196,121 @@ describe('LocalFetchURLProvider abort signal', () => {
 
     const [, init] = fetchImpl.mock.calls[0]!;
     expect((init as RequestInit | undefined)?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('forwards optional query, maxChars, and bypassCache options from FetchURLTool', async () => {
+    const fetch = mock<UrlFetcher['fetch']>().mockResolvedValue({
+      content: 'focused excerpt',
+      kind: 'extracted',
+    } satisfies UrlFetchResult);
+    const tool = new FetchURLTool({
+      _serviceBrand: undefined,
+      getUrlFetcher: () => ({ fetch }),
+    });
+    const execution = await tool.resolveExecution({
+      url: 'https://example.com/long',
+      query: 'rate limits',
+      maxChars: 2000,
+      bypassCache: true,
+    });
+    if (!('execute' in execution)) throw new Error('expected execution');
+    const result = await execution.execute({
+      turnId: 0,
+      toolCallId: 'tc_opts',
+      signal: new AbortController().signal,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('focused excerpt');
+    expect(fetch).toHaveBeenCalledWith('https://example.com/long', {
+      toolCallId: 'tc_opts',
+      signal: expect.any(AbortSignal),
+      query: 'rate limits',
+      maxChars: 2000,
+      bypassCache: true,
+    });
+  });
+});
+
+describe('WebSearchTool ask mode and scoped failover', () => {
+  it('runs search plus parallel top-page fetches and returns cited ranked passages in ask mode', async () => {
+    const search = mock(async () => [
+      {
+        title: 'Bun SQLite Guide',
+        url: 'https://bun.sh/docs/api/sqlite',
+        snippet: 'Built-in SQLite3 driver with FTS5.',
+      },
+      {
+        title: 'Unrelated Page',
+        url: 'https://example.com/unrelated',
+        snippet: 'Nothing about databases here.',
+      },
+      {
+        title: 'Broken Page',
+        url: 'https://example.com/broken',
+        snippet: 'Fallback snippet mentions SQLite WAL mode.',
+      },
+    ]);
+    const fetch = mock<UrlFetcher['fetch']>().mockImplementation(async (url) => {
+      if (url.includes('broken')) throw new Error('502 Bad Gateway');
+      if (url.includes('sqlite')) {
+        return {
+          content: '# Bun SQLite\n\n## FTS5 Support\n\nbun:sqlite includes built-in FTS5 full-text search tables with bm25 scoring.',
+          kind: 'extracted',
+        };
+      }
+      return {
+        content: '# Unrelated\n\nCompletely off topic prose.',
+        kind: 'extracted',
+      };
+    });
+
+    const tool = new WebSearchTool(
+      {
+        _serviceBrand: undefined,
+        hasWebSearchProvider: () => true,
+        getWebSearchProvider: () => ({ search }),
+      },
+      { getModel: () => 'test-model' } as never,
+      {
+        _serviceBrand: undefined,
+        getUrlFetcher: () => ({ fetch }),
+      },
+    );
+
+    const execution = await tool.resolveExecution({
+      query: 'bun sqlite fts5 bm25',
+      mode: 'ask',
+      scope: 'docs',
+      domains: ['bun.sh'],
+    });
+    if (!('execute' in execution)) throw new Error('expected execution');
+    const result = await execution.execute({
+      turnId: 1,
+      toolCallId: 'tc_ask',
+      signal: new AbortController().signal,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('## Key Passages');
+    expect(result.output).toContain('[1] Bun SQLite Guide — FTS5 Support');
+    expect(result.output).toContain('built-in FTS5 full-text search');
+    expect(result.output).toContain('[1] [Bun SQLite Guide](https://bun.sh/docs/api/sqlite) (fetched)');
+    expect(result.output).toContain('[3] [Broken Page](https://example.com/broken) (snippet-only)');
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('filters remote results by domains in failover provider', async () => {
+    const provider = createFailoverWebSearchProvider([
+      {
+        async search() {
+          return [
+            { title: 'Skip', url: 'https://other.org/a', snippet: 'a' },
+            { title: 'Keep', url: 'https://docs.bun.sh/b', snippet: 'b' },
+          ];
+        },
+      },
+    ]);
+    const filtered = await provider.search('bun', { domains: ['bun.sh'] });
+    expect(filtered.map((item) => item.title)).toEqual(['Keep']);
   });
 });

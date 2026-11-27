@@ -1,6 +1,9 @@
+import { join } from 'node:path';
+
 import { KIMI_CODE_PROVIDER_NAME, kimiCodeBaseUrl } from '@moonshot-ai/kimi-code-oauth';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Disposable } from '#/_base/di/lifecycle';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IOAuthService } from '#/app/auth/auth';
 import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
@@ -11,14 +14,16 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IProviderService } from '#/llm-adapter/provider/provider';
 import { isOAuthCatalogVendor } from '#/llm-adapter/provider/provider-definition';
 
+import { WebCache } from './cache/webCache';
 import { LocalFetchURLProvider } from './providers/local-fetch-url';
 import { MoonshotFetchURLProvider } from './providers/moonshot-fetch-url';
 import type { UrlFetcher } from './tools/fetch-url-types';
 import { IWebFetchService } from './web';
 
-export class WebFetchService implements IWebFetchService {
+export class WebFetchService extends Disposable implements IWebFetchService {
   declare readonly _serviceBrand: undefined;
   private readonly localFetcher: UrlFetcher;
+  private readonly cache: WebCache | undefined;
 
   constructor(
     @IProviderService private readonly providers: IProviderService,
@@ -28,7 +33,18 @@ export class WebFetchService implements IWebFetchService {
     @IAgentIdentity private readonly identity: IAgentIdentity,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
-    this.localFetcher = new LocalFetchURLProvider();
+    super();
+    const cacheDir = (this.bootstrap as { readonly cacheDir?: string } | undefined)?.cacheDir;
+    this.cache =
+      cacheDir !== undefined && cacheDir.trim().length > 0
+        ? new WebCache({ dbPath: join(cacheDir, 'web-cache.sqlite') })
+        : undefined;
+    this.localFetcher = new LocalFetchURLProvider({ cache: this.cache });
+  }
+
+  override dispose(): void {
+    this.cache?.close();
+    super.dispose();
   }
 
   getUrlFetcher(): UrlFetcher {

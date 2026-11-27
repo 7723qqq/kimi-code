@@ -24,6 +24,7 @@ import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/pr
 import { isOAuthCatalogVendor } from '#/llm-adapter/provider/provider-definition';
 
 import { SERVICES_SECTION, type ServicesConfig } from '../configSection';
+import { matchesDomainFilter } from './providers/fusion';
 import { LocalWebSearchProvider } from './providers/local-web-search';
 import { MoonshotWebSearchProvider } from './providers/moonshot-web-search';
 import { IWebSearchProviderService } from './webSearch';
@@ -196,12 +197,29 @@ export function createFailoverWebSearchProvider(
 ): WebSearchProvider {
   return {
     async search(query, options) {
+      const scopedVertical =
+        options?.scope === 'academic' ||
+        options?.scope === 'code' ||
+        options?.scope === 'reference' ||
+        options?.scope === 'package';
+      const ordered = scopedVertical
+        ? [...candidates].sort((a, b) => {
+            const aLocal = a instanceof LocalWebSearchProvider ? 0 : 1;
+            const bLocal = b instanceof LocalWebSearchProvider ? 0 : 1;
+            return aLocal - bLocal;
+          })
+        : candidates;
       let lastError: unknown = new Error('no search provider configured');
       let sawError = false;
-      for (const candidate of candidates) {
+      for (const candidate of ordered) {
         try {
-          const results = await candidate.search(query, options);
-          if (results.length > 0) return results;
+          const rawResults = await candidate.search(query, options);
+          const results =
+            options?.domains !== undefined && options.domains.length > 0
+              ? rawResults.filter((item) => matchesDomainFilter(item.url, options.domains ?? []))
+              : rawResults;
+          const sliced = options?.limit !== undefined ? results.slice(0, options.limit) : results;
+          if (sliced.length > 0) return sliced;
         } catch (error) {
           if (options?.signal?.aborted) throw error;
           sawError = true;

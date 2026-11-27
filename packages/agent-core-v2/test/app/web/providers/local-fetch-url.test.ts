@@ -1,7 +1,13 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { deflateSync } from 'node:zlib';
 import { describe, expect, it, mock } from 'bun:test';
 
 import type { FetchLike } from '#/_base/utils/fetchLike';
+import { rankPassages, WebCache } from '#/app/web/cache/webCache';
 import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
+import { extractPdfText } from '#/app/web/providers/pdf-extract';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { waitUntil } from '#test/helpers/waitFor';
 
@@ -322,5 +328,126 @@ describe('LocalFetchURLProvider timeouts and streaming caps', () => {
       'Response body too large',
     );
     expect(pullCount).toBeLessThan(30);
+  });
+});
+
+function buildMinimalPdf(streamContent: string, compress: boolean): Uint8Array {
+  const payload = compress ? deflateSync(Buffer.from(streamContent, 'latin1')) : Buffer.from(streamContent, 'latin1');
+  const dict = compress ? '<< /Filter /FlateDecode >>' : '<< >>';
+  const header = Buffer.from('%PDF-1.4\n1 0 obj\n' + dict + '\nstream\n', 'latin1');
+  const footer = Buffer.from('\nendstream\nendobj\n%%EOF', 'latin1');
+  return Buffer.concat([header, payload, footer]);
+}
+
+describe('LocalFetchURLProvider rich formats, query extraction, and WebCache', () => {
+  it('pretty-prints application/json responses as passthrough', async () => {
+    const fetchImpl = mock<FetchLike>().mockResolvedValue(
+      new Response('{"name":"kimi","features":["search","cache"]}', {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      }),
+    );
+    const provider = new LocalFetchURLProvider({ fetchImpl });
+
+    const result = await provider.fetch('https://api.example.com/info.json');
+
+    expect(result.kind).toBe('passthrough');
+    expect(result.content).toBe('{\n  "name": "kimi",\n  "features": [\n    "search",\n    "cache"\n  ]\n}');
+  });
+
+  it('extracts text from uncompressed and FlateDecode PDF streams', async () => {
+    const plainPdf = buildMinimalPdf('BT /F1 12 Tf 72 720 Td (Hello Plain PDF) Tj ET', false);
+    const compressedPdf = buildMinimalPdf('BT [(Hello ) -20 (Flate PDF)] TJ ET', true);
+    const emptyPdf = buildMinimalPdf('q 100 0 0 100 0 0 cm /Im0 Do Q', false);
+
+    expect(extractPdfText(plainPdf)).toBe('Hello Plain PDF');
+    expect(extractPdfText(compressedPdf)).toBe('Hello Flate PDF');
+    expect(extractPdfText(emptyPdf)).toContain('no extractable text streams');
+
+    const fetchImpl = mock<FetchLike>().mockResolvedValue(
+      new Response(Buffer.from(compressedPdf), {
+        status: 200,
+        headers: { 'content-type': 'application/pdf' },
+      }),
+    );
+    const provider = new LocalFetchURLProvider({ fetchImpl });
+    const result = await provider.fetch('https://example.com/paper.pdf');
+    expect(result.kind).toBe('extracted');
+    expect(result.content).toContain('Hello Flate PDF');
+  });
+
+  it('extracts query-matched passages from large documents and truncates with guidance', async () => {
+    const largeDoc = [
+      '# Overview',
+      'Introductory filler '.repeat(120),
+      '## SQLite FTS5 Caching',
+      'Kimi uses bun:sqlite FTS5 virtual tables for sub-millisecond cached passage ranking.',
+      '## Conclusion',
+      'More unrelated closing text '.repeat(120),
+    ].join('\n\n');
+
+    const fetchImpl = mock<FetchLike>().mockImplementation(async () =>
+      htmlResponse(largeDoc, 'text/markdown'),
+    );
+    const provider = new LocalFetchURLProvider({ fetchImpl });
+
+    const queried = await provider.fetch('https://example.com/guide.md', {
+      query: 'SQLite FTS5 caching',
+    });
+    expect(queried.content).toContain('FTS5 virtual tables');
+    expect(queried.content.length).toBeLessThan(largeDoc.length);
+
+    const truncated = await provider.fetch('https://example.com/guide.md', { maxChars: 600 });
+    expect(truncated.content).toContain('Content truncated at 600');
+  });
+
+  it('caches fetched pages with TTL expiration, bypassCache, and FTS5 passage search', async () => {
+    let clock = 1000;
+    const tempDir = mkdtempSync(join(tmpdir(), 'web-cache-test-'));
+    const cache = new WebCache({
+      dbPath: join(tempDir, 'web-cache.sqlite'),
+      defaultTtlMs: 5000,
+      now: () => clock,
+    });
+    try {
+      let calls = 0;
+      const fetchImpl = mock<FetchLike>().mockImplementation(async () => {
+        calls += 1;
+        return htmlResponse(`# Doc v${String(calls)}\n\nFast hybrid search uses RRF and BM25 ranking.`, 'text/markdown');
+      });
+      const provider = new LocalFetchURLProvider({ fetchImpl, cache });
+
+      const first = await provider.fetch('https://example.com/article?utm_source=test');
+      expect(first.cached).toBeUndefined();
+      expect(first.content).toContain('Doc v1');
+
+      const second = await provider.fetch('https://example.com/article');
+      expect(second.cached).toBe(true);
+      expect(second.content).toContain('Doc v1');
+      expect(calls).toBe(1);
+
+      const hits = cache.searchPassages('RRF BM25 ranking', 3);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]?.text).toContain('RRF');
+
+      const bypassed = await provider.fetch('https://example.com/article', { bypassCache: true });
+      expect(bypassed.content).toContain('Doc v2');
+      expect(calls).toBe(2);
+
+      clock += 10_000;
+      const expired = await provider.fetch('https://example.com/article');
+      expect(expired.cached).toBeUndefined();
+      expect(expired.content).toContain('Doc v3');
+      expect(calls).toBe(3);
+      expect(cache.isSqliteBacked).toBe(true);
+    } finally {
+      cache.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+    const ranked = rankPassages('kv cache', [
+      { url: 'https://a', title: 'A', content: '# Caching\n\nPrompt prefix KV cache hit.' },
+      { url: 'https://b', title: 'B', content: '# Routing\n\nNetwork router guide.' },
+    ]);
+    expect(ranked[0]?.url).toBe('https://a');
   });
 });

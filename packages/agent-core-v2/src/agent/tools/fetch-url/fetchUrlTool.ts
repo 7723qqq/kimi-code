@@ -46,7 +46,13 @@ export class FetchURLTool implements IFetchURLTool {
     try {
       const { content, kind } = await this.webFetch
         .getUrlFetcher()
-        .fetch(args.url, { toolCallId, signal });
+        .fetch(args.url, {
+          toolCallId,
+          signal,
+          query: args.query,
+          maxChars: args.maxChars,
+          bypassCache: args.bypassCache,
+        });
 
       if (!content) {
         return {

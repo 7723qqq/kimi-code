@@ -1,5 +1,11 @@
-Search the web for information. Use this when you need up-to-date information from the internet.
+Search the web for information. Use this when you need up-to-date information, papers, code repositories, documentation, or packages from the internet.
 
-Each result includes its title, its URL, and a snippet, plus its source site and publication date when available. Results are short summaries, not full pages — when a result looks relevant, call the FetchURL tool on its URL to read the full page content. Fetch only the few URLs you actually need. Prefer specific queries, and refine the query if the results don't contain what you need.
+Each result includes its title, its URL, and a snippet, plus its source site, contributing engines, and publication date when available.
 
-When you rely on a result in your answer, cite its source URL so the user can verify it.
+Optional parameters let you focus or streamline research:
+- `scope`: target `academic` (arXiv/OpenAlex/Semantic Scholar/Crossref), `code` (GitHub + web), `docs`, `reference` (Wikipedia + web), `package` (npm/PyPI), `news`, or `web` (default multi-engine fused search).
+- `domains`: restrict hits to specific hostnames (e.g. `["bun.sh", "github.com"]`).
+- `freshness`: hint recency (`day`, `week`, `month`, `year`, `any`).
+- `mode`: use `search` (default) for ranked snippets, or `ask` to concurrently fetch top results and return cited, query-ranked passages in one step.
+
+When you rely on a result in your answer, cite its source URL inline as a markdown link so the user can verify it.

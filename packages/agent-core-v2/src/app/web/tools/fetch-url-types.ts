@@ -7,13 +7,20 @@ export type UrlFetchKind = 'passthrough' | 'extracted';
 export interface UrlFetchResult {
   readonly content: string;
   readonly kind: UrlFetchKind;
+  readonly title?: string;
+  readonly cached?: boolean;
+}
+
+export interface UrlFetchOptions {
+  toolCallId?: string;
+  signal?: AbortSignal;
+  query?: string;
+  maxChars?: number;
+  bypassCache?: boolean;
 }
 
 export interface UrlFetcher {
-  fetch(
-    url: string,
-    options?: { toolCallId?: string; signal?: AbortSignal },
-  ): Promise<UrlFetchResult>;
+  fetch(url: string, options?: UrlFetchOptions): Promise<UrlFetchResult>;
 }
 
 export class HttpFetchError extends Error2 {
