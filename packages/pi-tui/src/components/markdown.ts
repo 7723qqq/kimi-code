@@ -184,13 +184,23 @@ function tokenizeInlineLatex(source: string): LatexToken | undefined {
 	}
 
 	const text = source.slice(opening.length, closingIndex);
-	if (!text || text.includes("\n")) {
+	if (!text || (opening === "$" && text.includes("\n"))) {
 		return undefined;
 	}
 
 	const raw = source.slice(0, closingIndex + closing.length);
 	return { type: "latex", raw, text };
 }
+
+const BLOCK_MATH_ENVIRONMENTS =
+	"equation\\*?|align\\*?|aligned|alignedat|alignat\\*?|gather\\*?|gathered|multline\\*?|split|cases\\*?|array|matrix|smallmatrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix";
+
+const BLOCK_ENV_RE = new RegExp(
+	`^ {0,3}(\\\\begin\\{(${BLOCK_MATH_ENVIRONMENTS})\\}[\\s\\S]*?\\\\end\\{\\2\\})[ \\t]*(?:\\n|$)`,
+);
+const BLOCK_ENV_START_RE = new RegExp(
+	`(?:^|\\n) {0,3}(?:\\$\\$|\\\\\\[|\\\\begin\\{(?:${BLOCK_MATH_ENVIRONMENTS})\\})`,
+);
 
 function tokenizeBlockLatex(source: string): LatexToken | undefined {
 	const dollarMatch = /^ {0,3}\$\$[ \t]*(?:\n)?([\s\S]*?)\$\$[ \t]*(?:\n|$)/.exec(source);
@@ -201,6 +211,11 @@ function tokenizeBlockLatex(source: string): LatexToken | undefined {
 	const bracketMatch = /^ {0,3}\\\[[ \t]*(?:\n)?([\s\S]*?)\\\][ \t]*(?:\n|$)/.exec(source);
 	if (bracketMatch?.[1]) {
 		return { type: "latexBlock", raw: bracketMatch[0], text: bracketMatch[1].trim() };
+	}
+
+	const envMatch = BLOCK_ENV_RE.exec(source);
+	if (envMatch?.[1]) {
+		return { type: "latexBlock", raw: envMatch[0], text: envMatch[1].trim() };
 	}
 
 	const pendingBracket = /^ {0,3}\\\[[ \t]*(?:\n)?([\s\S]*)$/.exec(source);
@@ -219,7 +234,7 @@ const LATEX_MARKDOWN_EXTENSIONS: readonly TokenizerExtension[] = [
 		name: "latexBlock",
 		level: "block",
 		start(source) {
-			const match = /(?:^|\n) {0,3}(?:\$\$|\\\[)/.exec(source);
+			const match = BLOCK_ENV_START_RE.exec(source);
 			return match ? match.index + (match[0].startsWith("\n") ? 1 : 0) : undefined;
 		},
 		tokenizer: tokenizeBlockLatex,
@@ -290,6 +305,13 @@ markdownParser.setOptions({
 });
 markdownParser.use({ extensions: [...LATEX_MARKDOWN_EXTENSIONS] });
 
+const markdownParserWithBreaks = new Marked({ breaks: true });
+markdownParserWithBreaks.setOptions({
+	breaks: true,
+	tokenizer: new CjkBoundaryUrlTokenizer(),
+});
+markdownParserWithBreaks.use({ extensions: [...LATEX_MARKDOWN_EXTENSIONS] });
+
 /**
  * Default text styling for markdown content.
  * Applied to all text unless overridden by markdown formatting.
@@ -342,6 +364,8 @@ export interface MarkdownOptions {
 	transform?: (markdown: string, availableWidth: number) => string;
 	/** Render supported LaTeX math expressions as Unicode text (default: true). */
 	renderLatex?: boolean;
+	/** Preserve single newlines as line breaks inside paragraphs (default: false). */
+	breaks?: boolean;
 }
 
 interface InlineStyleContext {
@@ -427,7 +451,8 @@ export class Markdown implements Component {
 		const normalizedText = text.replace(/\t/g, "   ");
 
 		// Parse markdown to HTML-like tokens
-		const tokens = markdownParser.lexer(normalizedText);
+		const parser = this.options.breaks ? markdownParserWithBreaks : markdownParser;
+		const tokens = parser.lexer(normalizedText);
 		trimPartialClosingFences(tokens);
 
 		const cached = this.blockCache;

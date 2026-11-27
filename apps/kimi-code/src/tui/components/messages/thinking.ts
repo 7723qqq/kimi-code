@@ -6,7 +6,7 @@
  */
 
 import {
-  Text,
+  Markdown as PiMarkdown,
   truncateToWidth,
   visibleWidth,
   type Component,
@@ -25,11 +25,14 @@ import {
 } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import type { Elapsed } from '#/tui/types';
+import { createMarkdownOptions } from '#/tui/utils/markdown-options';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 import { elapsedSuffix, shownSeconds, TitleSweep } from './running-title';
 
 const FINALIZED_FOLD_HINT_ROWS = 1;
+const CODE_BLOCK_RE = /```|~~~|^(?: {4}|\t)/m;
 
 export type ThinkingRenderMode = 'live' | 'finalized';
 
@@ -56,11 +59,10 @@ export class ThinkingComponent implements Component {
   private liveTitle = '';
   private onToggle: (() => void) | undefined;
   private readonly headerButton: ButtonComponent;
-  // Hold a single Text instance so pi-tui's (text, width) → lines cache
-  // actually survives across renders. Re-constructing per render destroys
-  // the cache and forces full re-wrap on every frame, which dominates CPU
-  // once the transcript accumulates many finalized thinking blocks.
-  private readonly textComponent: Text;
+  // Hold a single Markdown instance so pi-tui's (text, width) and block caches
+  // survive across renders instead of re-lexing and re-wrapping on every frame.
+  private markdownComponent: PiMarkdown;
+  private markdownTransient: boolean;
 
   private renderCache: { width: number; lines: string[] } | undefined;
   private rowDetailCache: { width: number; lines: string[] } | undefined;
@@ -76,7 +78,8 @@ export class ThinkingComponent implements Component {
     this.mode = mode;
     this.ui = ui;
     this.elapsed = mode === 'live' ? undefined : { known: false };
-    this.textComponent = new Text(this.styled(text), 0, 0);
+    this.markdownTransient = mode === 'live';
+    this.markdownComponent = this.createMarkdown(text, this.markdownTransient);
     this.headerButton = new ButtonComponent(
       () => this.liveTitle,
       () => this.onToggle?.(),
@@ -84,6 +87,17 @@ export class ThinkingComponent implements Component {
     if (mode === 'live') {
       this.startFrames();
     }
+  }
+
+  private createMarkdown(text: string, transient: boolean): PiMarkdown {
+    return new PiMarkdown(
+      text,
+      0,
+      0,
+      createMarkdownTheme({ transient }),
+      { color: (value) => currentTheme.fg('textDim', value), italic: true },
+      { ...createMarkdownOptions(), breaks: true },
+    );
   }
 
   setToggleHandler(handler: (() => void) | undefined): void {
@@ -103,24 +117,25 @@ export class ThinkingComponent implements Component {
 
   invalidate(): void {
     this.markRenderDirty();
-    this.textComponent.setText(this.styled(this.text));
+    this.markdownTransient = this.mode === 'live';
+    this.markdownComponent = this.createMarkdown(this.text, this.markdownTransient);
   }
 
   setText(text: string): void {
     if (this.text === text) return;
     this.text = text;
     this.markRenderDirty();
-    this.textComponent.setText(this.styled(text));
-  }
-
-  private styled(text: string): string {
-    return currentTheme.italicFg('textDim', text);
+    this.markdownComponent.setText(text);
   }
 
   finalize(elapsed: Elapsed = { known: false }): void {
     this.elapsed = elapsed;
     this.projectionVersion += 1;
     this.mode = 'finalized';
+    if (this.markdownTransient && CODE_BLOCK_RE.test(this.text)) {
+      this.markdownTransient = false;
+      this.markdownComponent = this.createMarkdown(this.text, false);
+    }
     this.markRenderDirty();
     this.stopFrames();
   }
@@ -171,7 +186,7 @@ export class ThinkingComponent implements Component {
     }
 
     const contentWidth = Math.max(1, width - MESSAGE_INDENT.length);
-    const contentLines = this.text.length > 0 ? this.textComponent.render(contentWidth) : [''];
+    const contentLines = this.renderContentLines(contentWidth);
 
     let rendered: string[];
     if (this.mode === 'live') {
@@ -230,10 +245,16 @@ export class ThinkingComponent implements Component {
       return this.rowDetailCache.lines;
     }
     const contentWidth = Math.max(1, width - MESSAGE_INDENT.length);
-    const contentLines = this.text.length > 0 ? this.textComponent.render(contentWidth) : [''];
+    const contentLines = this.renderContentLines(contentWidth);
     const lines = withoutTrailingBlankLines(contentLines).map((line) => MESSAGE_INDENT + line);
     this.rowDetailCache = { width, lines };
     return lines;
+  }
+
+  private renderContentLines(contentWidth: number): readonly string[] {
+    if (this.text.length === 0) return [''];
+    const lines = this.markdownComponent.render(contentWidth);
+    return lines.length > 0 ? lines : [''];
   }
 
   private buildLiveTitle(): string {

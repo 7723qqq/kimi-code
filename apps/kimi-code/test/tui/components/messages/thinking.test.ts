@@ -296,4 +296,21 @@ describe('ThinkingComponent', () => {
     expect(out).toContain('… (2 more lines, ctrl+o to expand)');
     expect(component.hasHiddenContent()).toBe(true);
   });
+
+  it('renders Markdown formatting and LaTeX math in both live and finalized thinking', () => {
+    const component = new ThinkingComponent(
+      'Check **key step** and $\\mathbb{R}^n \\to \\mathbb{R}$ with `code`',
+      true,
+      'live',
+    );
+    const liveOut = strip(component.render(80).join('\n'));
+    expect(liveOut).toContain('Check key step and ℝⁿ → ℝ with code');
+    expect(liveOut).not.toContain('**');
+    expect(liveOut).not.toContain('\\mathbb');
+
+    component.finalize({ known: true, ms: 1_000 });
+    const finalOut = strip(component.render(80).join('\n'));
+    expect(finalOut).toContain('Check key step and ℝⁿ → ℝ with code');
+    expect(finalOut).not.toContain('**');
+  });
 });

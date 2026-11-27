@@ -495,4 +495,12 @@ R\left(\frac{\pi}{4}\right)
 		const depth = 100;
 		expect(renderLatex("{".repeat(depth) + "x" + "}".repeat(depth))).toBe("x");
 	});
+
+	it("renders common blackboard, color, cancel, tag, and arrow commands", () => {
+		expect(renderLatex(String.raw`\mathbb{E}[X] + \mathbb{1}_{A}`)).toBe("𝔼[X] + 𝟙_A");
+		expect(renderLatex(String.raw`\textcolor{red}{x} + \cancel{y} = z \triangleq 1 \label{eq:1}`)).toBe(
+			"x + y = z ≜ 1",
+		);
+		expect(renderLatex(String.raw`a \xrightarrow{f} b \tag{1}`)).toBe("a →(f) b (1)");
+	});
 });

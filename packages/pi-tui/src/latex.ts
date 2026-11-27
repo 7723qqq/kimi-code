@@ -171,7 +171,15 @@ const SYMBOLS: Readonly<Record<string, string>> = {
 	mapsto: "↦",
 	longmapsto: "↦",
 	uparrow: "↑",
+	Uparrow: "⇑",
 	downarrow: "↓",
+	Downarrow: "⇓",
+	nmid: "∤",
+	triangleq: "≜",
+	coloneqq: "≔",
+	eqqcolon: "≕",
+	cdotp: "·",
+	centerdot: "·",
 	partial: "∂",
 	nabla: "∇",
 	int: "∫",
@@ -420,8 +428,13 @@ const NEGATED_SYMBOLS: Readonly<Record<string, string>> = {
 };
 
 const BLACKBOARD: Readonly<Record<string, string>> = {
+	"1": "𝟙",
 	C: "ℂ",
+	E: "𝔼",
+	F: "𝔽",
 	H: "ℍ",
+	K: "𝕂",
+	M: "𝕄",
 	N: "ℕ",
 	P: "ℙ",
 	Q: "ℚ",
@@ -527,6 +540,8 @@ const IGNORED_COMMANDS = new Set([
 	"displaystyle",
 	"limits",
 	"nolimits",
+	"nonumber",
+	"notag",
 	"scriptstyle",
 	"scriptscriptstyle",
 	"textstyle",
@@ -546,6 +561,8 @@ const SIZE_COMMANDS = new Set([
 	"Biggr",
 ]);
 const PLAIN_WRAPPERS = new Set([
+	"bcancel",
+	"cancel",
 	"emph",
 	"mathcal",
 	"mathbf",
@@ -557,10 +574,12 @@ const PLAIN_WRAPPERS = new Set([
 	"mathsf",
 	"mathtt",
 	"mathup",
+	"mathclap",
 	"mbox",
 	"overbrace",
 	"pmb",
 	"smash",
+	"sout",
 	"substack",
 	"text",
 	"textbf",
@@ -574,6 +593,7 @@ const PLAIN_WRAPPERS = new Set([
 	"texttt",
 	"textup",
 	"underbrace",
+	"xcancel",
 	"bm",
 	"boldsymbol",
 ]);
@@ -1116,6 +1136,33 @@ class LatexParser {
 		if (PLAIN_WRAPPERS.has(command)) {
 			const value = this.parseRequiredArgument();
 			return command.startsWith("text") || command === "mbox" ? value : value.trim();
+		}
+		if (command === "textcolor" || command === "colorbox") {
+			this.parseRequiredArgument();
+			return this.parseRequiredArgument();
+		}
+		if (command === "color" || command === "label") {
+			this.parseRequiredArgument();
+			return "";
+		}
+		if (command === "phantom" || command === "hphantom" || command === "vphantom") {
+			this.parseRequiredArgument();
+			return command === "vphantom" ? "" : " ";
+		}
+		if (command === "tag") {
+			if (this.source[this.position] === "*") {
+				this.position++;
+			}
+			const value = normalizeOutput(this.parseRequiredArgument()).trim();
+			return value ? ` (${value})` : "";
+		}
+		if (command === "xrightarrow" || command === "xleftarrow") {
+			const below = this.parseOptionalArgument()?.trim();
+			const above = normalizeOutput(this.parseRequiredArgument()).trim();
+			const arrow = command === "xrightarrow" ? "→" : "←";
+			if (above && below) return `${arrow}(${above}/${below})`;
+			if (above) return `${arrow}(${above})`;
+			return arrow;
 		}
 		if (command === "begin") {
 			return this.parseEnvironment();

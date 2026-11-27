@@ -977,6 +977,41 @@ A=
 
 			expect(markdown.render(80).map((line) => stripAnsi(line).trimEnd())).toStrictEqual(["Map ℂ³"]);
 		});
+
+		it("renders standalone math environments and multiline $$ inside lists", () => {
+			const markdown = new Markdown(
+				[
+					String.raw`\begin{cases}a & x<0 \\ b & x\ge 0\end{cases}`,
+					"",
+					"- Item:",
+					"  $$",
+					String.raw`  \mathbb{E}[X] = \frac{1}{2}`,
+					"  $$",
+				].join("\n"),
+				0,
+				0,
+				defaultMarkdownTheme,
+			);
+			const output = markdown.render(80).map((line) => stripAnsi(line).trimEnd()).join("\n");
+			expect(output).toContain("⎧ a if x < 0");
+			expect(output).toContain("⎩ b if x ≥ 0");
+			expect(output).toContain("𝔼[X] = ─");
+			expect(output).toContain("       1");
+			expect(output).toContain("       2");
+		});
+
+		it("preserves single line breaks when breaks option is enabled", () => {
+			const markdown = new Markdown(
+				"line1\n**bold** $\\alpha + \\beta$",
+				0,
+				0,
+				defaultMarkdownTheme,
+				undefined,
+				{ breaks: true },
+			);
+			const lines = markdown.render(80).map((line) => stripAnsi(line).trimEnd());
+			expect(lines).toStrictEqual(["line1", "bold α + β"]);
+		});
 	});
 
 	describe("Backslash escapes", () => {
