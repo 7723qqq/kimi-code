@@ -28,6 +28,12 @@ type AssistantMarkdownOptions = {
   transient?: boolean;
 };
 
+const DEFERRED_FINAL_FORMAT_RE = /```|~~~|mermaid|^(?: {4}|\t)/im;
+
+function mayHaveDeferredFinalFormatting(text: string): boolean {
+  return DEFERRED_FINAL_FORMAT_RE.test(text);
+}
+
 export class AssistantMessageComponent implements Component {
   private contentContainer: Container;
   private markdown: Markdown | undefined;
@@ -79,6 +85,17 @@ export class AssistantMessageComponent implements Component {
       this.contentContainer.clear();
       this.markdown = undefined;
       this.markdownTransient = false;
+      return;
+    }
+
+    if (
+      this.markdown !== undefined &&
+      this.markdownTransient &&
+      !transient &&
+      !mayHaveDeferredFinalFormatting(displayText)
+    ) {
+      this.markdownTransient = false;
+      this.markdown.setText(displayText);
       return;
     }
 

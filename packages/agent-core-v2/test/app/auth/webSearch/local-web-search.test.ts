@@ -387,5 +387,58 @@ describe('vertical search engines', () => {
     expect(academic.some((item) => item.siteName === 'NeurIPS')).toBe(true);
     expect(academic.some((item) => item.siteName === 'ICLR')).toBe(true);
   });
+
+  it('cuts off slower hanging engines once fast quorum engines satisfy the limit', async () => {
+    let abortedSlowCount = 0;
+    const fetchImpl = mock<FetchLike>().mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes('api.openalex.org')) {
+        return Promise.resolve(
+          Response.json({
+            results: [
+              { display_name: 'Dense Passage Retrieval', primary_location: { landing_page_url: 'https://papers.test/1' } },
+              { display_name: 'Sparse Lexical Indexing', primary_location: { landing_page_url: 'https://papers.test/2' } },
+            ],
+          }),
+        );
+      }
+      if (url.includes('api.crossref.org')) {
+        return Promise.resolve(
+          Response.json({
+            message: {
+              items: [
+                { title: ['Hybrid Vector Search'], URL: 'https://papers.test/3' },
+              ],
+            },
+          }),
+        );
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        (init?.signal as AbortSignal | undefined)?.addEventListener('abort', () => {
+          abortedSlowCount += 1;
+          const err = new Error('The operation was aborted.');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+    });
+
+    const provider = new LocalWebSearchProvider({
+      fetchImpl,
+      concurrency: 4,
+      engineTimeoutMs: 12_000,
+    });
+    const startedAt = Date.now();
+    const results = await provider.search('retrieval', { scope: 'academic', limit: 3 });
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(results.map((r) => r.url)).toEqual([
+      'https://papers.test/1',
+      'https://papers.test/3',
+      'https://papers.test/2',
+    ]);
+    expect(abortedSlowCount).toBeGreaterThanOrEqual(1);
+    expect(elapsedMs).toBeLessThan(3_000);
+  });
 });
 

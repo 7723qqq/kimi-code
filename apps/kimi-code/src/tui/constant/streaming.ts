@@ -6,8 +6,9 @@ export const STREAMING_ARGS_FIELD_RE =
 // Bounds live tool-argument previews; final tool.call payloads remain complete.
 export const STREAMING_ARGS_PREVIEW_MAX_CHARS = 64 * 1024;
 
-// Coalesces high-frequency model/tool deltas before rebuilding TUI components.
-export const STREAMING_UI_FLUSH_MS = 50;
+// Coalesces high-frequency model/tool deltas before rebuilding TUI components,
+// aligned with TuiBase.MIN_RENDER_INTERVAL_MS (16ms, ~60fps).
+export const STREAMING_UI_FLUSH_MS = 16;
 
 export const UNNAMED_TOOL_CALL_NAME = 'Tool';
 

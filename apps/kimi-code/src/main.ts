@@ -16,6 +16,10 @@ import { isSshAskpassEnvironment, runSshAskpass } from '@moonshot-ai/kimi-code-s
 
 import { isExecServerArgv, runExecServerCommand } from './cli/exec-server';
 
+function isBareVersionArgv(argv: readonly string[]): boolean {
+  return argv.length === 3 && (argv[2] === '--version' || argv[2] === '-V');
+}
+
 if (isSshAskpassEnvironment()) {
   void runSshAskpass().then((code) => {
     process.exitCode = code;
@@ -24,6 +28,10 @@ if (isSshAskpassEnvironment()) {
   // stdout is reserved for protocol frames; the runner logs to stderr only.
   void runExecServerCommand('stdio').then((code) => {
     process.exitCode = code;
+  });
+} else if (isBareVersionArgv(process.argv) && process.env['KIMI_CODE_NATIVE_ASSET_SMOKE'] !== '1') {
+  void import('./cli/version-info').then(({ getVersion }) => {
+    process.stdout.write(`${getVersion()}\n`);
   });
 } else {
   void import('./cli/main').then(({ main }) => main());

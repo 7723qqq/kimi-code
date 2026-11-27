@@ -95,6 +95,7 @@ export async function handleMainCommand(
   }
 
   if (validated.uiMode === 'print') {
+    ensureNativeWorkersInstalled();
     const { runPrompt } = await import('./run-prompt');
     await runPrompt(validated.options, version);
     return { headlessCompleted: true };
@@ -102,7 +103,8 @@ export async function handleMainCommand(
 
   startupTrace('runShell:begin');
   const { runShell } = await import('./run-shell');
-  await runShell(validated.options, version, { startupWarnings });
+  const warnings = startupWarnings.length > 0 ? startupWarnings : ensureNativeWorkersInstalled();
+  await runShell(validated.options, version, { startupWarnings: warnings });
   return { headlessCompleted: false };
 }
 
@@ -240,23 +242,11 @@ export function workerInstallWarnings(
   return warnings;
 }
 
-async function bootstrap(): Promise<void> {
-  // Configure the host-side diagnostic logger first: every symbol below this
-  // point (proxy install, worker setup, CLI dispatch) logs through `log`, and
-  // an unconfigured root logger drops those lines silently. Failures are not
-  // fatal — diagnostics are best-effort and must not block startup.
-  void configureDiagnosticLogging({ homeDir: resolveKimiHome(), env: process.env }).catch(
-    () => undefined,
-  );
-  // Route all outbound fetch through HTTP_PROXY/HTTPS_PROXY (honoring NO_PROXY)
-  // before any client is constructed. The installer is a guaranteed no-op when
-  // no proxy variable is set (verified against createProxyDispatcher), so the
-  // heavy dispatcher stack (undici/socks) only loads when a proxy exists; an
-  // invalid proxy URL is reported and ignored rather than aborting startup.
-  if (isProxyConfigured(process.env)) {
-    const { installGlobalProxyDispatcher } = await import('@moonshot-ai/kimi-code-sdk/proxy');
-    installGlobalProxyDispatcher(process.env);
-  }
+let cachedWorkerWarnings: readonly string[] | undefined;
+
+function ensureNativeWorkersInstalled(): readonly string[] {
+  if (cachedWorkerWarnings !== undefined) return cachedWorkerWarnings;
+
   // Best-effort worker installation. Diagnostics are trace-only and avoid
   // exposing the user's cache path; failure keeps MiniDb's bounded inline mode.
   const workerInstall = installMinidbTextBuildWorker();
@@ -278,16 +268,10 @@ async function bootstrap(): Promise<void> {
         ? `search-worker:failed code=${searchWorkerInstall.errorCode} sha256=${searchWorkerInstall.assetSha256 ?? 'unknown'}`
         : `search-worker:${searchWorkerInstall.status}`,
   );
-  // The smoke module pulls the native search/index stack; only pay for it
-  // when the smoke gate (the single owner of the trigger) says it will run.
-  if (nativeAssetSmokeRequested()) {
-    const { runNativeAssetSmokeIfRequested } = await import('../native/smoke');
-    if (runNativeAssetSmokeIfRequested()) return;
-  }
 
   // Degraded workers are reported through the TUI startup notice; the tracer
   // lines above stay as the debug-only record.
-  const workerWarnings = workerInstallWarnings([
+  cachedWorkerWarnings = workerInstallWarnings([
     { label: 'minidb-text-build', status: workerInstall },
     { label: 'kap-search', status: searchWorkerInstall },
   ]);
@@ -301,12 +285,40 @@ async function bootstrap(): Promise<void> {
     }
   });
 
+  return cachedWorkerWarnings;
+}
+
+async function bootstrap(): Promise<void> {
+  // Configure the host-side diagnostic logger first: every symbol below this
+  // point (proxy install, worker setup, CLI dispatch) logs through `log`, and
+  // an unconfigured root logger drops those lines silently. Failures are not
+  // fatal — diagnostics are best-effort and must not block startup.
+  void configureDiagnosticLogging({ homeDir: resolveKimiHome(), env: process.env }).catch(
+    () => undefined,
+  );
+  // Route all outbound fetch through HTTP_PROXY/HTTPS_PROXY (honoring NO_PROXY)
+  // before any client is constructed. The installer is a guaranteed no-op when
+  // no proxy variable is set (verified against createProxyDispatcher), so the
+  // heavy dispatcher stack (undici/socks) only loads when a proxy exists; an
+  // invalid proxy URL is reported and ignored rather than aborting startup.
+  if (isProxyConfigured(process.env)) {
+    const { installGlobalProxyDispatcher } = await import('@moonshot-ai/kimi-code-sdk/proxy');
+    installGlobalProxyDispatcher(process.env);
+  }
+  // The smoke module pulls the native search/index stack; only pay for it
+  // when the smoke gate (the single owner of the trigger) says it will run.
+  if (nativeAssetSmokeRequested()) {
+    ensureNativeWorkersInstalled();
+    const { runNativeAssetSmokeIfRequested } = await import('../native/smoke');
+    if (runNativeAssetSmokeIfRequested()) return;
+  }
+
   const version = getVersion();
 
   const program = createProgram(
     version,
     (opts) => {
-      void handleMainCommand(opts, version, workerWarnings)
+      void handleMainCommand(opts, version, [])
         .then(async (outcome) => {
           // Only the process entrypoint disposes of the process. Print mode
           // relies on the event loop draining to exit; flush any buffered output

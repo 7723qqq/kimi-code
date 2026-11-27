@@ -27,6 +27,7 @@ type MermaidSegment =
   | { kind: 'mermaid'; body: string; raw: string; spacedBefore: boolean };
 
 const markdownParser = new Marked();
+const MAY_CONTAIN_MERMAID_RE = /mermaid/i;
 
 function splitMermaidSegments(source: string): MermaidSegment[] {
   const segments: MermaidSegment[] = [];
@@ -159,7 +160,7 @@ export class Markdown extends Container {
       return;
     }
     this.structure = { text: this.sourceText, mode, transient };
-    if (mode === 'off' || transient) {
+    if (mode === 'off' || transient || !MAY_CONTAIN_MERMAID_RE.test(this.sourceText)) {
       const prose = this.prose;
       if (prose !== undefined && this.children.length === 1 && this.children[0] === prose) {
         prose.setText(this.sourceText);

@@ -27,6 +27,8 @@ export type LocalSearchEngine = string;
 const DEFAULT_CONCURRENCY = 5;
 const MAX_CONCURRENCY = 12;
 const DEFAULT_ENGINE_TIMEOUT_MS = 12_000;
+const SINGLE_ENGINE_GRACE_MS = 2_500;
+const QUORUM_ENGINE_GRACE_MS = 1_000;
 
 const WEB_ENGINE_REGISTRY: Record<string, SearchEngineFn> = {
   baidu: searchBaidu,
@@ -235,18 +237,67 @@ export class LocalWebSearchProvider implements WebSearchProvider {
     };
     callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
 
+    let earlyCutoff = false;
+    let settledCount = 0;
+    let nonEmptyEngines = 0;
+    let totalRawResults = 0;
+    let graceTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+    let graceDeadlineAt = Number.POSITIVE_INFINITY;
+
+    const clearGraceTimer = (): void => {
+      if (graceTimer !== undefined) {
+        globalThis.clearTimeout(graceTimer);
+        graceTimer = undefined;
+      }
+    };
+
+    const scheduleGraceCutoff = (waitMs: number): void => {
+      if (groupController.signal.aborted || settledCount >= batch.length) return;
+      const clampedMs = Math.min(this.engineTimeoutMs, waitMs);
+      const nextDeadline = Date.now() + clampedMs;
+      if (graceTimer !== undefined && graceDeadlineAt <= nextDeadline) return;
+      clearGraceTimer();
+      graceDeadlineAt = nextDeadline;
+      graceTimer = globalThis.setTimeout(() => {
+        graceTimer = undefined;
+        if (nonEmptyEngines > 0 && !groupController.signal.aborted) {
+          earlyCutoff = true;
+          groupController.abort(new Error('Search quorum reached; cutting off slower engines.'));
+        }
+      }, clampedMs);
+    };
+
     const settled = await Promise.allSettled(
       batch.map(async (engine): Promise<EngineResultList> => {
-        const results = await this.runEngine(
-          engine,
-          rawQuery,
-          modifiedQuery,
-          limit,
-          groupController.signal,
-        );
-        return { engine, results };
+        try {
+          const results = await this.runEngine(
+            engine,
+            rawQuery,
+            modifiedQuery,
+            limit,
+            groupController.signal,
+          );
+          if (results.length > 0) {
+            nonEmptyEngines += 1;
+            totalRawResults += results.length;
+            if (!this.explicitEngine && batch.length > 1 && this.engineTimeoutMs > 0) {
+              if (nonEmptyEngines >= 2 && totalRawResults >= limit) {
+                scheduleGraceCutoff(QUORUM_ENGINE_GRACE_MS);
+              } else {
+                scheduleGraceCutoff(SINGLE_ENGINE_GRACE_MS);
+              }
+            }
+          }
+          return { engine, results };
+        } finally {
+          settledCount += 1;
+          if (settledCount >= batch.length) {
+            clearGraceTimer();
+          }
+        }
       }),
     ).finally(() => {
+      clearGraceTimer();
       callerSignal?.removeEventListener('abort', onCallerAbort);
     });
 
@@ -261,6 +312,9 @@ export class LocalWebSearchProvider implements WebSearchProvider {
           lists.push(outcome.value);
         }
       } else {
+        if (earlyCutoff && callerSignal?.aborted !== true) {
+          continue;
+        }
         if (callerSignal?.aborted === true || isAbortLike(outcome.reason)) {
           abortError ??=
             outcome.reason instanceof Error
