@@ -874,16 +874,16 @@ describe('ProviderFormDialogComponent', () => {
   it('carries a stored type it cannot offer instead of rewriting it', () => {
     const { dialog, onDone } = makeDialog({
       mode: 'edit',
-      provider: { ...EDIT_PROVIDER, type: 'astron' },
+      provider: { ...EDIT_PROVIDER, type: 'bedrock' },
     });
 
     // The field shows the stored type. Left to the six the form offers it would
     // read `kimi` and submit that, silently changing the record's transport.
-    expect(plain(dialog)).toContain('‹ astron ›');
+    expect(plain(dialog)).toContain('‹ bedrock ›');
     // It joins the cycle at the end, so the six official types keep their
     // relative order and the stored one is reachable again by cycling around.
     for (let i = 0; i < 7; i++) dialog.handleInput(RIGHT);
-    expect(plain(dialog)).toContain('‹ astron ›');
+    expect(plain(dialog)).toContain('‹ bedrock ›');
 
     // Submitting without touching the field writes the type back verbatim.
     for (let i = 0; i < 9; i++) dialog.handleInput(TAB); // id → save
@@ -891,7 +891,7 @@ describe('ProviderFormDialogComponent', () => {
     expect(onDone).toHaveBeenCalledTimes(1);
     const result = onDone.mock.calls[0]?.[0] as ProviderFormDialogResult;
     expect(result.kind).toBe('ok');
-    expect(result.kind === 'ok' ? result.value.type : undefined).toBe('astron');
+    expect(result.kind === 'ok' ? result.value.type : undefined).toBe('bedrock');
   });
 
   it('keeps every line within narrow widths', () => {

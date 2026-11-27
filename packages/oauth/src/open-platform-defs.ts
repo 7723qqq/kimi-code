@@ -31,12 +31,6 @@ export const OPEN_PLATFORMS: readonly OpenPlatformDefinition[] = [
     consoleUrl: 'https://aistudio.google.com',
     providerType: 'google-genai',
   },
-  {
-    id: 'astron',
-    name: 'Xunfei Coding Plan (API key · xfyun.cn)',
-    baseUrl: 'https://maas-coding-api.cn-huabei-1.xf-yun.com/v2',
-    consoleUrl: 'https://www.xfyun.cn',
-  },
 ];
 
 export function getOpenPlatformById(id: string): OpenPlatformDefinition | undefined {

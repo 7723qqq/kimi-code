@@ -23,7 +23,7 @@ import { rootCertificates } from 'node:tls';
 
 import { Agent, buildConnector, fetch as undiciFetch } from '#/http/undici-npm';
 
-// ── System CA loading (for providers with non-public CAs, e.g. xfyun.cn) ────
+// ── System CA loading (for providers with non-public CAs) ─────────────────────
 
 const SYSTEM_CA_PATHS = ['/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt'];
 
@@ -34,8 +34,7 @@ let _systemCaCerts: string[] | undefined;
  * certificates. Idempotent: loads once and caches.
  *
  * Needed for providers whose TLS certificates chain to a CA that is in the
- * system trust store but not in the Mozilla CA bundle shipped with Node
- * (e.g. Chinese CAs for xfyun.cn).
+ * system trust store but not in the Mozilla CA bundle shipped with Node.
  */
 export function loadSystemCAs(): string[] {
   if (_systemCaCerts) return _systemCaCerts;
@@ -90,7 +89,7 @@ export function createSharedAgent(): Agent {
       // measures time between body chunks too.
       bodyTimeout: 120_000,
       // Include system CA certs alongside Node's built-in roots so
-      // providers with non-Mozilla CAs (e.g. xfyun.cn) are trusted.
+      // providers with non-Mozilla CAs are trusted.
       connect: buildConnector({ ca: loadSystemCAs() }),
     });
   }

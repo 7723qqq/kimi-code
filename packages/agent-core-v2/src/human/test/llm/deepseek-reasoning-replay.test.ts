@@ -107,7 +107,6 @@ describe('fullReasoningEchoRequired', () => {
   it('requires the full echo for deepseek only when tools are present', () => {
     expect(fullReasoningEchoRequired('deepseek-v4-pro', true)).toBe(true);
     expect(fullReasoningEchoRequired('workbuddy/deepseek-v4.1-flash', true)).toBe(true);
-    expect(fullReasoningEchoRequired('xopdeepseekv4pro', true)).toBe(true);
     expect(fullReasoningEchoRequired('deepseek-v4-pro', false)).toBe(false);
   });
 

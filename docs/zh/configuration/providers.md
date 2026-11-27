@@ -99,7 +99,7 @@ Kimi Code CLI 支持同时接入多家模型供应商服务，模型在供应商
 
 **编辑与改名**：在管理器列表里把光标移到目标供应商行、按 `E`，表单以上一次保存的配置预填（含 API 密钥）。保存时**先删除旧记录、再写入新记录**——这正是改名与删行不留残渣的原因：旧模型别名、悬空的 `default_model` / `default_provider` 在删除时被级联清理，而指向该供应商的默认指针在写入时迁移到新 id。表单之外的字段（`env`、`custom_headers`、`source`，以及模型行上表单不呈现的 `overrides`、`reasoning_key`、`beta_api` 等）保持原值；改名不会重写 [`[secondary_model]`](./config-files.md#secondary_model) 里的引用。
 
-新的供应商 ID 已被别的供应商占用，或新别名会覆盖别的供应商的模型时，写入会被拒绝并给出提示，配置文件保持不变。表单只认六种协议：存储类型不在这六种之内的供应商（例如引擎内部的 `astron`）会提示协议不受支持，无法在这里编辑。
+新的供应商 ID 已被别的供应商占用，或新别名会覆盖别的供应商的模型时，写入会被拒绝并给出提示，配置文件保持不变。表单只认六种协议：存储类型不在这六种之内的供应商会提示协议不受支持，无法在这里编辑。
 
 `oauth` 非空的供应商（Kimi Code 托管账号）表单整体只读，页脚提示「该供应商由 Kimi Code 托管，无法在此编辑」，请改用 `/login` 与 `/logout` 管理。
 
@@ -198,7 +198,7 @@ kimi provider update demo --new-id demo2 --base-url https://api2.example.com/v1
 kimi provider update demo2 --model gpt-4.1-mini --max-context-size 128000 --default
 ```
 
-> `--type` 只接受上面六种取值；不给 `--type` 时，已存储的类型原样保留，包括引擎独有的 `astron`。
+> `--type` 只接受上面六种取值；不给 `--type` 时，已存储的类型原样保留。
 
 ## `kimi`
 
@@ -260,7 +260,7 @@ DeepSeek 自有端点的一等 provider。它走 OpenAI Chat Completions 协议�
 - 默认 `base_url`：`https://api.deepseek.com`
 - 凭证键名：`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`
 - 定义选取：由 provider 的 **id** `deepseek` 选中这一节，`type` 仍写 `openai`。不写 `base_url` 时依次回落到 env 子表里的 `DEEPSEEK_BASE_URL` 与上面声明的默认值。
-- 家族识别：模型 id 中任一段以 `deepseek` 或 `xopdeepseek` 开头（最长前缀优先），也包括 `deepseek/deepseek-v4` 和 `vendor/deepseek-proxy/foo` 这类带供应商前缀与网关形态的写法
+- 家族识别：模型 id 中任一段以 `deepseek` 开头（最长前缀优先），也包括 `deepseek/deepseek-v4` 和 `vendor/deepseek-proxy/foo` 这类带供应商前缀与网关形态的写法
 
 ```toml
 [providers.deepseek]

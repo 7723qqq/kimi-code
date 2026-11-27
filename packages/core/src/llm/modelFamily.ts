@@ -62,7 +62,6 @@ const DEEPSEEK_THINKING_HISTORY: FamilyThinkingHistory = Object.freeze({
 
 const DEEPSEEK_PREFIXES: readonly ModelFamilyPrefix[] = Object.freeze([
   Object.freeze({ value: 'deepseek' }),
-  Object.freeze({ value: 'xopdeepseek', glued: true }),
 ]);
 
 const MODEL_FAMILIES: readonly ModelFamilyProfile[] = Object.freeze([

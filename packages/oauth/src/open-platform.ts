@@ -1,14 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { request as httpsRequest } from 'node:https';
-import { rootCertificates } from 'node:tls';
-import { URL } from 'node:url';
-
-import {
-  ASTRON_MODEL_DEFS,
-  ASTRON_REASONING_EFFORT_MODEL_IDS,
-  type AstronModelDef,
-} from '@moonshot-ai/kosong/providers/astron-models';
-
 import { readApiErrorMessage } from './api-error';
 import { GOOGLE_GEMINI_DEFAULT_MODELS } from './google-models';
 import { parseKimiCodeCustomHeaders } from './identity';
@@ -25,11 +14,6 @@ import { isRecord } from './utils';
 export type { ManagedKimiConfigShape };
 export { getOpenPlatformById, isOpenPlatformId, OPEN_PLATFORMS } from './open-platform-defs';
 export type { OpenPlatformDefinition };
-
-/** Embedded model list for iFlytek Astron Coding Plan — no remote fetch needed.
- *  Re-exports the canonical model definitions from @moonshot-ai/kosong. */
-export type AstronPlatformModelInfo = AstronModelDef;
-export const ASTRON_PLATFORM_MODELS: readonly AstronModelDef[] = ASTRON_MODEL_DEFS;
 
 function toModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
   if (!isRecord(item) || typeof item['id'] !== 'string' || item['id'].length === 0) {
@@ -104,91 +88,6 @@ export class OpenPlatformApiError extends Error {
   }
 }
 
-// ── System CA fetch for providers with non-Mozilla CAs (e.g. xfyun.cn) ──────
-//     Dead code: fetchOpenPlatformModels returns early for astron, so the
-//     systemCaFetch branch is never selected.
-
-const SYSTEM_CA_PATHS = ['/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt'];
-
-let _systemCaCerts: string[] | undefined;
-let _systemCaLoadedAt = 0;
-
-function loadSystemCAs(): string[] {
-  const now = Date.now();
-  // Refresh cached CAs every hour so newly installed certificates are picked up.
-  if (_systemCaCerts && now - _systemCaLoadedAt < 3_600_000) {
-    return _systemCaCerts;
-  }
-  _systemCaLoadedAt = now;
-  let systemCerts = '';
-  for (const path of SYSTEM_CA_PATHS) {
-    if (existsSync(path)) {
-      try {
-        systemCerts = readFileSync(path, 'utf-8');
-        break;
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-  _systemCaCerts = [systemCerts, ...rootCertificates].filter(Boolean);
-  return _systemCaCerts;
-}
-
-function systemCaFetch(url: string | URL, init?: RequestInit): Promise<Response> {
-  const parsed = typeof url === 'string' ? new URL(url) : url;
-  const ca = loadSystemCAs();
-  return new Promise((resolve, reject) => {
-    const headers: Record<string, string> = {};
-    if (init?.headers) {
-      const h = init.headers as Record<string, string>;
-      for (const [k, v] of Object.entries(h)) headers[k] = v;
-    }
-    const req = httpsRequest(
-      {
-        hostname: parsed.hostname,
-        port: parsed.port || 443,
-        path: parsed.pathname + parsed.search,
-        method: (init?.method ?? 'GET').toUpperCase(),
-        headers,
-        ca,
-        rejectUnauthorized: true,
-        timeout: 30_000,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => {
-          const body = Buffer.concat(chunks).toString('utf-8');
-          resolve(
-            new Response(body, {
-              status: res.statusCode ?? 0,
-              headers: res.headers as Record<string, string>,
-            }),
-          );
-        });
-      },
-    );
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Connection timed out'));
-    });
-    if (init?.signal) {
-      const onAbort = (): void => {
-        req.destroy();
-        reject(new Error('Aborted'));
-      };
-      if (init.signal.aborted) {
-        onAbort();
-        return;
-      }
-      init.signal.addEventListener('abort', onAbort, { once: true });
-    }
-    req.end();
-  });
-}
-
 export async function fetchOpenPlatformModels(
   platform: OpenPlatformDefinition,
   apiKey: string,
@@ -211,32 +110,7 @@ export async function fetchOpenPlatformModels(
     }));
   }
 
-  // Astron (xfyun.cn) models are embedded — no remote fetch needed.
-  if (platform.id === 'astron') {
-    return ASTRON_MODEL_DEFS.map((m): ManagedKimiCodeModelInfo => {
-      // Only GLM-5.2 and the DeepSeek-V4 Pro/Flash models accept reasoning_effort
-      // (high/max) on the Coding Plan; expose those levels so the effort picker
-      // can select a concrete level. Every other model is thinking on/off only.
-      const effortCapable = ASTRON_REASONING_EFFORT_MODEL_IDS.includes(m.id);
-      return {
-        id: m.id,
-        contextLength: m.contextLength,
-        displayName: m.displayName,
-        supportsReasoning: true,
-        supportsImageIn: false,
-        supportsVideoIn: false,
-        supportEfforts: effortCapable ? ['high', 'max'] : undefined,
-        defaultEffort: effortCapable ? 'high' : undefined,
-      };
-    });
-  }
-
-  // Unreachable dead branch: astron returns early above, so the system-CA
-  // fetch (xfyun.cn's Chinese CA is not in the Mozilla store) can never be
-  // selected here. Kept for reference; loadSystemCAs/systemCaFetch are dead
-  // code.
-  const effectiveFetch =
-    fetchImpl ?? (platform.id === 'astron' ? (systemCaFetch as typeof fetch) : fetch);
+  const effectiveFetch = fetchImpl ?? fetch;
   const res = await effectiveFetch(`${platform.baseUrl.replace(/\/+$/, '')}/models`, {
     headers: {
       ...parseKimiCodeCustomHeaders(),

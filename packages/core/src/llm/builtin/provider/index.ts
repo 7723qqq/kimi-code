@@ -9,5 +9,4 @@ export type ProviderType =
   | 'kimi'
   | 'google-genai'
   | 'openai_responses'
-  | 'vertexai'
-  | 'astron';
+  | 'vertexai';

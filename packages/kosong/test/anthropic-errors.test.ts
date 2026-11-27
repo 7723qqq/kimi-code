@@ -124,7 +124,7 @@ describe('convertAnthropicError', () => {
 
   it('AnthropicError "Engine Busy" → ChatProviderError (no longer mapped to 503)', () => {
     const err = new AnthropicError(
-      'Xunfei claude request failed with code: 10010, msg: RecvFromEngineError:Engine Busy',
+      'Backend claude request failed with code: 10010, msg: RecvFromEngineError:Engine Busy',
     );
     const result = convertAnthropicError(err);
     expect(result).toBeInstanceOf(ChatProviderError);
@@ -155,26 +155,6 @@ describe('convertAnthropicError', () => {
     expect(result).toBeInstanceOf(ChatProviderError);
     expect(result).not.toBeInstanceOf(APIStatusError);
     expect(result.message).toContain('rate limited');
-  });
-
-  it('AnthropicError "Xunfei rate-limit code 11210" → ChatProviderError (no longer mapped to rate limit)', () => {
-    const err = new AnthropicError(
-      '{"error":{"message":"Xunfei claude request failed with Sid: abc123 code: 11210, msg: internal error"}}',
-    );
-    const result = convertAnthropicError(err);
-    expect(result).toBeInstanceOf(ChatProviderError);
-    expect(result).not.toBeInstanceOf(APIProviderRateLimitError);
-    expect(result.message).toContain('Xunfei claude request failed');
-  });
-
-  it('AnthropicError "Xunfei auth failure" → ChatProviderError', () => {
-    const err = new AnthropicError(
-      '{"error":{"message":"Xunfei claude request failed with code: 10001, msg: invalid api key. Also saw code: 11210 earlier"}}',
-    );
-    const result = convertAnthropicError(err);
-    expect(result).toBeInstanceOf(ChatProviderError);
-    expect(result).not.toBeInstanceOf(APIStatusError);
-    expect(result.message).toContain('invalid api key');
   });
 
   it('plain Error -> ChatProviderError', () => {

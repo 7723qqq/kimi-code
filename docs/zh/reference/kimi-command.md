@@ -578,7 +578,7 @@ kimi provider create \
 | --- | --- |
 | `<providerId>` | 要修改的供应商 id |
 | `--new-id <id>` | 改名为该 id |
-| `--type <wire>` | 新的 API 协议；不给时沿用已存储的类型，包括六种取值之外的引擎类型（如 `astron`） |
+| `--type <wire>` | 新的 API 协议；不给时沿用已存储的类型，包括六种取值之外的 SDK 类型 |
 | `--api-key <key>` | 新 API key；不给时沿用已存密钥，没有清空密钥的选项 |
 | `--base-url <url>` | 新端点；不给时沿用已存储的值 |
 | `--model <model>` | 新增或覆盖一行模型；新模型 ID 需要 `--max-context-size` |

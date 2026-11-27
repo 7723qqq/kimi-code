@@ -113,7 +113,7 @@ Both modes ship the same panels, dialogs and key bindings; fullscreen mode only 
 | --- | --- |
 | Mouse wheel | Scroll the transcript; on a panel that scrolls itself, such as the help panel, scroll that panel |
 | Mouse drag | Select transcript text and copy it to the clipboard |
-| Mouse click | Pick a row in a list dialog (model, session, provider, theme, permission, workspace trust, experiment toggle, task list, plugins, …); switch tabs by clicking a tab strip (model providers, plugin marketplace, question tabs); in the question dialog a click picks an option (click again to toggle a multi-select), opens the Other editor, or runs Submit/Cancel; the model's thinking-effort segments are clickable too; in a form panel a click on an input line puts the caret where you clicked (API key, feedback, custom registry, provider form), and in the settings forms (Astron, Coding Plan) a click selects that field |
+| Mouse click | Pick a row in a list dialog (model, session, provider, theme, permission, workspace trust, experiment toggle, task list, plugins, …); switch tabs by clicking a tab strip (model providers, plugin marketplace, question tabs); in the question dialog a click picks an option (click again to toggle a multi-select), opens the Other editor, or runs Submit/Cancel; the model's thinking-effort segments are clickable too; in a form panel a click on an input line puts the caret where you clicked (API key, feedback, custom registry, provider form), and in the settings forms (Coding Plan) a click selects that field |
 | `Ctrl-Shift-F` | Search the transcript |
 | `Ctrl-Up` / `Ctrl-Down` | Jump between prompts |
 

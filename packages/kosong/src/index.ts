@@ -54,15 +54,6 @@ export { UNKNOWN_CAPABILITY } from './capability';
 export { isUnknownCapability } from './capability';
 export type { ModelCapability } from './capability';
 
-// Astron (xunfei coding plan) model definitions
-export {
-  ASTRON_DEFAULT_BASE_URL,
-  ASTRON_MODEL_DEFS,
-  ASTRON_PROVIDER_KEY,
-  ASTRON_REASONING_EFFORT_MODEL_IDS,
-} from './providers/astron-models';
-export type { AstronModelDef } from './providers/astron-models';
-
 // Model catalog (models.dev-style) metadata
 export {
   catalogBaseUrl,

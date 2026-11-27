@@ -48,7 +48,6 @@ export const ProviderTypeSchema = z.enum([
   'openai_responses',
   'bedrock',
   'vertexai',
-  'astron',
 ]);
 
 export type ProviderType = z.infer<typeof ProviderTypeSchema>;
@@ -75,13 +74,6 @@ export const ProviderConfigSchema = z.object({
   env: StringRecordSchema.optional(),
   customHeaders: StringRecordSchema.optional(),
   source: z.record(z.string(), z.unknown()).optional(),
-  // Astron (xunfei Coding Plan) runtime knobs, edited via the TUI Astron
-  // settings panel and forwarded to the OpenAI-legacy transport. Ignored by
-  // other provider types.
-  stream: z.boolean().optional(),
-  temperature: z.number().optional(),
-  maxTokens: z.number().int().min(1).optional(),
-  searchDisable: z.boolean().optional(),
 });
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;

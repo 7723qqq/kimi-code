@@ -358,7 +358,7 @@ describe('loadCuratedAdaptation', () => {
   });
 
   it('lets a versioned wire name fall back to the family file', async () => {
-    for (const name of ['deepseek-v4-pro', 'xopdeepseekv32', 'deepseek-flash']) {
+    for (const name of ['deepseek-v4-pro', 'deepseek-flash']) {
       const text = await loadCuratedAdaptation(name, silent);
       expect(text, name).toContain('# Model Adaptation:');
       expect(text, name).toContain('standing instructions for how to work');
@@ -367,7 +367,6 @@ describe('loadCuratedAdaptation', () => {
 
   it('gates on the family declaring curated guidance', () => {
     expect(hasCuratedAdaptation('deepseek-v4-pro')).toBe(true);
-    expect(hasCuratedAdaptation('xopdeepseekv4pro')).toBe(true);
     expect(hasCuratedAdaptation('gpt-4o')).toBe(false);
     expect(hasCuratedAdaptation('my-deepseek-clone')).toBe(false);
     expect(hasCuratedAdaptation('')).toBe(false);

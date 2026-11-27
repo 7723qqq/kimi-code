@@ -258,14 +258,6 @@ export const TuiConfigFileSchema = z.object({
       auto_install: z.boolean().optional(),
     })
     .optional(),
-  astron: z
-    .object({
-      stream: z.boolean().optional(),
-      temperature: z.number().optional(),
-      max_tokens: z.number().optional(),
-      search_disable: z.boolean().optional(),
-    })
-    .optional(),
   status_line: StatusLineFileConfigSchema.optional(),
   markdown: z
     .object({
@@ -440,11 +432,6 @@ export function normalizeTuiConfig(
     console.warn(message);
   },
 ): TuiConfig {
-  if (config.astron !== undefined) {
-    warn(
-      '[tui.toml] [astron] is ignored; the Astron panel writes [providers.astron] in config.toml',
-    );
-  }
   const command = config.editor?.command?.trim();
   const statusLineCommand = config.status_line?.command?.trim();
   const knownItems = new Set<string>(STATUS_LINE_ITEMS);

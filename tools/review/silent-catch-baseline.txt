@@ -159,7 +159,6 @@ packages/oauth/src/google-oauth.ts  2
 packages/oauth/src/identity.ts  2
 packages/oauth/src/oauth-manager.ts  3
 packages/oauth/src/oauth.ts  1
-packages/oauth/src/open-platform.ts  1
 packages/oauth/src/region-cache.ts  3
 packages/oauth/src/storage.ts  2
 packages/pi-tui/src/autocomplete.ts  1

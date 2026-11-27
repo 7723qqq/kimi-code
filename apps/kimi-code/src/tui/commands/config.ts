@@ -21,11 +21,6 @@ import {
 } from '#/utils/model-switch-confirm-config';
 
 import { formatTokenCount } from '../../utils/usage/usage-format';
-import {
-  AstronSettingsComponent,
-  ASTRON_DEFAULT_SETTINGS,
-  type AstronSettings,
-} from '../components/dialogs/astron-settings';
 import { EditorSelectorComponent } from '../components/dialogs/editor-selector';
 import { EffortSelectorComponent } from '../components/dialogs/effort-selector';
 import {
@@ -962,79 +957,6 @@ export async function showExperimentsPanel(host: SlashCommandHost): Promise<void
   mountExperimentsPanel(host, features);
 }
 
-export async function showAstronSettingsPanel(host: SlashCommandHost): Promise<void> {
-  const config = await host.harness.getConfig({ reload: true });
-  const astron = config.providers?.['astron'];
-  if (astron === undefined) {
-    host.showStatus(t('tui.dialogs.astronSettings.notConfigured'));
-    return;
-  }
-  const initial: AstronSettings = {
-    stream: typeof astron.stream === 'boolean' ? astron.stream : ASTRON_DEFAULT_SETTINGS.stream,
-    temperature:
-      typeof astron.temperature === 'number'
-        ? astron.temperature
-        : ASTRON_DEFAULT_SETTINGS.temperature,
-    maxTokens:
-      typeof astron.maxTokens === 'number' ? astron.maxTokens : ASTRON_DEFAULT_SETTINGS.maxTokens,
-    searchDisable:
-      typeof astron.searchDisable === 'boolean'
-        ? astron.searchDisable
-        : ASTRON_DEFAULT_SETTINGS.searchDisable,
-  };
-  host.mountEditorReplacement(
-    new AstronSettingsComponent({
-      initial,
-      onSave: (settings) => {
-        void saveAstronSettings(host, settings);
-      },
-      onCancel: () => {
-        host.restoreEditor();
-      },
-    }),
-  );
-}
-
-export async function saveAstronSettings(
-  host: SlashCommandHost,
-  settings: AstronSettings,
-): Promise<void> {
-  // Pre-save validation: bounds-check the values the TUI component already
-  // guards against, so a stale/invalid value never reaches the config layer.
-  if (settings.temperature < 0 || settings.temperature > 2) {
-    host.showStatus(t('tui.dialogs.astronSettings.temperatureOutOfRange'));
-    return;
-  }
-  if (settings.maxTokens < 1) {
-    host.showStatus(t('tui.dialogs.astronSettings.maxTokensOutOfRange'));
-    return;
-  }
-  try {
-    const config = await host.harness.getConfig({ reload: true });
-    const astron = config.providers?.['astron'];
-    if (astron === undefined) {
-      host.showStatus(t('tui.dialogs.astronSettings.notConfigured'));
-      return;
-    }
-    config.providers['astron'] = {
-      ...astron,
-      stream: settings.stream,
-      temperature: settings.temperature,
-      maxTokens: settings.maxTokens,
-      searchDisable: settings.searchDisable,
-    };
-    await host.harness.setConfig({
-      providers: config.providers,
-      models: config.models,
-      defaultModel: config.defaultModel,
-      thinking: config.thinking,
-    });
-    host.showStatus(t('tui.dialogs.astronSettings.saved'));
-  } catch (error) {
-    host.showError(formatErrorMessage(error));
-  }
-}
-
 export async function applyExperimentalFeatureChanges(
   host: SlashCommandHost,
   changes: readonly ExperimentalFeatureDraftChange[],
@@ -1635,9 +1557,6 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
       return;
     case 'github_token':
       void handleGitHubTokenInput(host);
-      return;
-    case 'astron':
-      void showAstronSettingsPanel(host);
       return;
     case 'survey':
       showSurveyPreferencePicker(host);

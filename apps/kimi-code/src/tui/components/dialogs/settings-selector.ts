@@ -27,7 +27,6 @@ const SETTINGS_SELECTION_MEMBERS = [
   'upgrade',
   'usage',
   'github_token',
-  'astron',
   'promptOptimizer',
 ] as const;
 
@@ -128,15 +127,6 @@ function getSettingsOptions(): readonly SettingsChoiceOption[] {
       description: t('tui.dialogs.settingsSelector.githubTokenDesc'),
     },
   ];
-  // Astron settings are gated behind the same experimental flag as the
-  // /login Astron platform option.
-  if (isExperimentalFlagEnabled('xunfei_coding_plan')) {
-    options.push({
-      value: 'astron',
-      label: t('tui.dialogs.settingsSelector.astron'),
-      description: t('tui.dialogs.settingsSelector.astronDesc'),
-    });
-  }
   if (isExperimentalFlagEnabled('prompt_optimizer')) {
     options.push({
       value: 'promptOptimizer',

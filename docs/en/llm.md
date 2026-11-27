@@ -44,7 +44,7 @@ Choosing the right home for a new rule is most of the design work. Three questio
 
 ## Model families
 
-`human/llm/modelFamily.ts` is a table of per-family constants, resolved by matching the normalized model name against declared prefixes. Longest prefix wins, so `xopdeepseek*` and `deepseek*` can coexist.
+`human/llm/modelFamily.ts` is a table of per-family constants, resolved by matching the normalized model name against declared prefixes (longest prefix wins).
 
 Each entry may carry:
 
@@ -81,7 +81,7 @@ The same rule also exists in `packages/kosong/src/providers/openai-common.ts`, b
 
 ## Model adaptations
 
-`app/agentProfileCatalog/model-adaptations/curated/` holds hand-authored family guidance, and every family resolves to it through the prefix the family table declares. A versioned or provider-qualified id (`deepseek-v4-pro`, `xopdeepseekv32`, `workbuddy/deepseek-v4.1-flash`) therefore needs no adaptation file of its own.
+`app/agentProfileCatalog/model-adaptations/curated/` holds hand-authored family guidance, and every family resolves to it through the prefix the family table declares. A versioned or provider-qualified id (`deepseek-v4-pro`, `deepseek-v3.2`, `workbuddy/deepseek-v4.1-flash`) therefore needs no adaptation file of its own.
 
 There is deliberately no second kind of adaptation file. A `measured/` directory existed and was removed with the mechanism that read it, because nothing in this repository writes such files: `scripts/prompt-optimizer probe` writes JSON into the gitignored `reports/` directory, and no code path targets `model-adaptations`. Every file that shipped there had hand-written numbers presented as probe output, for models that had already been retired or had never existed as wire ids. If a real producer is ever built, reintroduce the directory *together* with the code that writes it — a file without a producer is an unverifiable claim.
 

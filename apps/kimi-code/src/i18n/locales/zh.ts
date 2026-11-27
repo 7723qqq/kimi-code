@@ -1288,8 +1288,6 @@ export default {
         usageDesc: '查看会话令牌数、上下文窗口和计划配额。',
         githubToken: 'GitHub Token',
         githubTokenDesc: '设置内置 GitHub 工具的 Personal Access Token。',
-        astron: '讯飞 Coding Plan',
-        astronDesc: '配置 Astron 的 Stream、Temperature、Max tokens 和搜索。',
         promptOptimizer: '提示词优化',
         promptOptimizerDesc: 'Ctrl+P 重写的思考等级与时间预算。',
       },
@@ -1349,21 +1347,6 @@ export default {
         steerDesc: 'Enter 将后续消息注入正在运行的轮次。',
         steerDescCtrlEnter: 'Enter 将后续消息注入正在运行的轮次；Ctrl-Enter 改为排队。',
         steerDescCtrlQ: 'Enter 将后续消息注入正在运行的轮次；Ctrl-Q 改为排队。',
-      },
-      astronSettings: {
-        title: '讯飞 Coding Plan 设置',
-        hint: '↑↓选择 · Enter切换/编辑 · Ctrl+S保存 · Esc返回',
-        stream: 'Stream 流式输出',
-        temperature: 'Temperature 温度',
-        maxTokens: 'Max Tokens 最大输出',
-        searchDisable: '关闭搜索',
-        on: '开',
-        off: '关',
-        saved: '讯飞设置已保存',
-        notConfigured: '尚未配置讯飞 — 请先 /login 登录',
-        temperatureOutOfRange: 'Temperature 必须在 0-2 之间',
-        maxTokensOutOfRange: 'Max Tokens 必须大于 0',
-        invalidNumber: '不是有效的数字',
       },
       permissionSelector: {
         title: '选择权限模式',
@@ -1481,11 +1464,6 @@ export default {
             title: 'WaitFor 工具',
             description:
               '向模型提供 WaitFor 工具，使其能在当前轮内等待后台任务，而不必结束本轮后被重新调用。',
-          },
-          xunfei_coding_plan: {
-            title: 'Astron（讯飞编程套餐）',
-            description:
-              '在 /settings 中显示 Astron provider 设置并启用 Astron 登录流程。无论此开关如何，[providers] 下的 astron 条目都保持可用。',
           },
         },
       },

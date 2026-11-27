@@ -99,7 +99,7 @@ Saving writes `[providers.<id>]` and one alias per model in a single write, refr
 
 **Editing and renaming**: move the cursor to the provider's row in the manager list and press `E`. The form is prefilled from the last saved configuration, API key included. Saving **removes the old record first, then writes the new one** — that is what keeps a rename or a deleted row from leaving residue behind: the old model aliases and any dangling `default_model` / `default_provider` are cascaded away by the removal, and pointers that referenced this provider migrate to the new id as it is written. Fields outside the form (`env`, `custom_headers`, `source`, and per-row `overrides`, `reasoning_key`, `beta_api`, …) keep their values; a rename does not rewrite the references inside [`[secondary_model]`](./config-files.md#secondary_model).
 
-A write is refused, with a message and no change to the configuration file, when the new provider ID is already taken by another provider or when a new alias would take over another provider's model. The form only knows the six protocols: a provider whose stored type is outside them (the engine-only `astron`, for example) reports an unsupported protocol and cannot be edited here.
+A write is refused, with a message and no change to the configuration file, when the new provider ID is already taken by another provider or when a new alias would take over another provider's model. The form only knows the six protocols: a provider whose stored type is outside them reports an unsupported protocol and cannot be edited here.
 
 A provider with a non-empty `oauth` (a Kimi Code managed account) renders read-only, with the footer saying it is managed by Kimi Code and cannot be edited here; use `/login` and `/logout` for those.
 
@@ -185,7 +185,7 @@ kimi provider update demo --new-id demo2 --base-url https://api2.example.com/v1
 kimi provider update demo2 --model gpt-4.1-mini --max-context-size 128000 --default
 ```
 
-> `--type` accepts the six values above only; when it is omitted the stored type is kept as-is, including the engine-only `astron`.
+> `--type` accepts the six values above only; when it is omitted the stored type is kept as-is.
 
 ## `kimi`
 
@@ -247,7 +247,7 @@ A first-class provider for DeepSeek's own endpoint. It speaks the OpenAI Chat Co
 - Default `base_url`: `https://api.deepseek.com`
 - Credential key names: `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`
 - Definition selection: the provider **id** `deepseek` selects this entry, so `type` stays `openai`. Omitting `base_url` falls back to `DEEPSEEK_BASE_URL` in the env table, then to the declared default.
-- Family detection: any model id whose segment starts with `deepseek` or `xopdeepseek` (longest prefix wins), including provider-qualified and gateway shapes such as `deepseek/deepseek-v4` and `vendor/deepseek-proxy/foo`
+- Family detection: any model id whose segment starts with `deepseek` (longest prefix wins), including provider-qualified and gateway shapes such as `deepseek/deepseek-v4` and `vendor/deepseek-proxy/foo`
 
 ```toml
 [providers.deepseek]

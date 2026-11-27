@@ -1336,8 +1336,6 @@ export default {
         usageDesc: 'Show session tokens, context window, and plan quotas.',
         githubToken: 'GitHub Token',
         githubTokenDesc: 'Set the GitHub personal access token for built-in GitHub tools.',
-        astron: 'Xunfei Coding Plan',
-        astronDesc: 'Configure Stream, Temperature, Max tokens, and web search for Astron.',
         promptOptimizer: 'Prompt optimizer',
         promptOptimizerDesc: 'Thinking effort and time budget for the Ctrl+P rewrite.',
       },
@@ -1398,21 +1396,6 @@ export default {
         steerDesc: 'Enter steers follow-ups into the current turn.',
         steerDescCtrlEnter: 'Enter steers follow-ups into the current turn. Ctrl-Enter queues one.',
         steerDescCtrlQ: 'Enter steers follow-ups into the current turn. Ctrl-Q queues one.',
-      },
-      astronSettings: {
-        title: 'Astron Settings',
-        hint: '↑↓ navigate · Enter edit/toggle · Ctrl+S save · Esc back',
-        stream: 'Stream output',
-        temperature: 'Temperature',
-        maxTokens: 'Max tokens',
-        searchDisable: 'Disable web search',
-        on: 'ON',
-        off: 'OFF',
-        saved: 'Astron settings saved',
-        notConfigured: 'Astron is not configured — run /login to set it up first',
-        temperatureOutOfRange: 'Temperature must be between 0 and 2',
-        maxTokensOutOfRange: 'Max tokens must be at least 1',
-        invalidNumber: 'Not a valid number',
       },
       permissionSelector: {
         title: 'Select permission mode',
@@ -1526,11 +1509,6 @@ export default {
             title: 'WaitFor tool',
             description:
               'Give the model the WaitFor tool so it can wait for background tasks inside the current turn instead of ending the turn and being re-invoked.',
-          },
-          xunfei_coding_plan: {
-            title: 'Astron (Xunfei coding plan)',
-            description:
-              'Show the Astron provider settings in /settings and enable the Astron login flow. The astron entry under [providers] stays functional regardless of this flag.',
           },
         },
       },

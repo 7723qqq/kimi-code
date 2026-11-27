@@ -608,11 +608,8 @@ export function buildAddPatch(value: ProviderFormValue): KimiConfigPatch {
  * patch.
  *
  * The patch rebuilds the provider from the previous entry so fields the form
- * does not edit survive the removal (`source`, `oauth`, ...). That guarantee
- * holds for this pure-function layer only: which keys reach disk is the engine
- * section schema's decision — the SDK-only `stream`, `temperature`, `maxTokens`
- * and `searchDisable` are dropped there. An alias matched by model id is
- * rebuilt from its old object for the same reason.
+ * does not edit survive the removal (`source`, `oauth`, `searchUrl`, ...). An alias
+ * matched by model id is rebuilt from its old object for the same reason.
  *
  * Alias keys are NOT all rebuilt, because the removal this pairs with cascades
  * every alias whose `provider` names the previous id — including keys the form

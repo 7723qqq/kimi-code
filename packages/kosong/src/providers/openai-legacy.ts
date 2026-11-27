@@ -11,11 +11,6 @@ import OpenAI from 'openai';
  *
  * agent-core-v2 carries its own hook-based variant of this provider; do not
  * mirror changes between the two.
- *
- * Astron (iFlytek Coding Plan) options are injected at construction time by
- * the provider factory (providers/index.ts); the interface itself carries
- * the astron-specific fields directly (astronThinking,
- * astronReasoningEffortModelIds, astronSettings).
  */
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import { isToolDeclarationOnlyMessage } from '#/message';
@@ -116,16 +111,6 @@ export interface OpenAILegacyOptions {
    * `withGenerationKwargs` morph layers on top of both.
    */
   generationKwargs?: OpenAILegacyGenerationKwargs | undefined;
-  /** Encode thinking via top-level enable_thinking instead of reasoning_effort (astron only). */
-  astronThinking?: boolean | undefined;
-  /** Model IDs that also accept reasoning_effort alongside enable_thinking (astron only). */
-  astronReasoningEffortModelIds?: readonly string[] | undefined;
-  /** Astron runtime settings: search_disable. */
-  astronSettings?:
-    | {
-        searchDisable?: boolean;
-      }
-    | undefined;
 }
 
 export interface OpenAILegacyGenerationKwargs {
@@ -540,9 +525,6 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   private _httpClient: unknown;
   private _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
   private readonly _authClientLRU: AuthClientLRU<OpenAI>;
-  private _astronThinking: boolean;
-  private _astronReasoningEffortModelIds: readonly string[] | undefined;
-  private _astronSettings: OpenAILegacyOptions['astronSettings'] | undefined;
 
   constructor(options: OpenAILegacyOptions) {
     const apiKey = options.apiKey ?? process.env['OPENAI_API_KEY'];
@@ -571,9 +553,6 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     };
     this._toolMessageConversion = options.toolMessageConversion ?? null;
     this._httpClient = options.httpClient;
-    this._astronThinking = options.astronThinking ?? false;
-    this._astronReasoningEffortModelIds = options.astronReasoningEffortModelIds;
-    this._astronSettings = options.astronSettings;
     this._clientFactory = options.clientFactory;
     this._authClientLRU = new AuthClientLRU<OpenAI>();
 
@@ -686,26 +665,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
       createParams['stream_options'] = { include_usage: true };
     }
 
-    if (this._astronThinking) {
-      // Coding Plan (xfyun /v2, OpenAI-compatible): thinking and web-search
-      // are controlled by top-level body fields.
-      if (effort === 'off') {
-        createParams['enable_thinking'] = false;
-      } else if (effort !== undefined) {
-        createParams['enable_thinking'] = true;
-        const ids = this._astronReasoningEffortModelIds;
-        if (ids?.includes(this._model)) {
-          const re =
-            effort === 'low' || effort === 'medium' ? 'high' : effort === 'xhigh' ? 'max' : effort;
-          if (re === 'high' || re === 'max') {
-            createParams['reasoning_effort'] = re;
-          }
-        }
-      }
-      if (this._astronSettings?.searchDisable !== undefined) {
-        createParams['search_disable'] = this._astronSettings.searchDisable;
-      }
-    } else if (reasoningEffort !== undefined) {
+    if (reasoningEffort !== undefined) {
       createParams['reasoning_effort'] = reasoningEffort;
     }
 

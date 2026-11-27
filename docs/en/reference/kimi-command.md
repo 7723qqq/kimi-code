@@ -578,7 +578,7 @@ Change an existing provider. A field you do not pass keeps its stored value, and
 | --- | --- |
 | `<providerId>` | Provider id to change |
 | `--new-id <id>` | Rename the provider to this id |
-| `--type <wire>` | New API protocol; omitted, the stored one is kept — including types outside the six values, such as the engine-only `astron` |
+| `--type <wire>` | New API protocol; omitted, the stored one is kept — including SDK types outside the six values |
 | `--api-key <key>` | New API key; omitted, the stored credential is kept. There is no flag to clear it |
 | `--base-url <url>` | New endpoint; omitted, the stored value is kept |
 | `--model <model>` | Add or overwrite one model row; a new model ID needs `--max-context-size` |

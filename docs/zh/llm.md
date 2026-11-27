@@ -44,7 +44,7 @@ llm-adapter          v2 兼容边界
 
 ## 模型家族
 
-`human/llm/modelFamily.ts` 是一张按家族组织的常量表，通过把归一化后的模型名与声明的前缀匹配来解析。最长前缀优先，因此 `xopdeepseek*` 与 `deepseek*` 可以共存。
+`human/llm/modelFamily.ts` 是一张按家族组织的常量表，通过把归一化后的模型名与声明的前缀匹配来解析（最长前缀优先）。
 
 每个条目可以带：
 
@@ -81,7 +81,7 @@ effort 词表是多对一收敛而不是集合不匹配（`minimal`→low、`low
 
 ## 模型适配
 
-`app/agentProfileCatalog/model-adaptations/curated/` 存放手写的家族指引，每个家族通过家族表声明的前缀解析到它。因此带版本号或用供应商限定的 id（`deepseek-v4-pro`、`xopdeepseekv32`、`workbuddy/deepseek-v4.1-flash`）不需要自己的适配文件。
+`app/agentProfileCatalog/model-adaptations/curated/` 存放手写的家族指引，每个家族通过家族表声明的前缀解析到它。因此带版本号或用供应商限定的 id（`deepseek-v4-pro`、`deepseek-v3.2`、`workbuddy/deepseek-v4.1-flash`）不需要自己的适配文件。
 
 这里有意不设第二种适配文件。曾经存在一个 `measured/` 目录，它随读取它的机制一起被删除，因为本仓库没有任何东西会写这类文件：`scripts/prompt-optimizer probe` 把 JSON 写进被 gitignore 的 `reports/` 目录，而没有任何代码路径指向 `model-adaptations`。当时随它发布的每个文件都是把手工数字冒充成 probe 输出，且针对的是已经退役或从未存在过的 wire id。如果将来真的做出生产者，请把它与写出它的代码**一起**重新引入——没有生产者的文件是不可核验的断言。
 

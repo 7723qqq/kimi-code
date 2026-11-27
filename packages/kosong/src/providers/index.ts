@@ -1,7 +1,6 @@
 import { UNKNOWN_CAPABILITY, type ModelCapability } from '../capability';
 import type { ChatProvider } from '../provider';
 import { AnthropicChatProvider, type AnthropicOptions } from './anthropic';
-import { ASTRON_DEFAULT_BASE_URL, ASTRON_REASONING_EFFORT_MODEL_IDS } from './astron-models';
 import {
   getAnthropicModelCapability,
   getGoogleGenAIModelCapability,
@@ -19,8 +18,7 @@ export type ProviderConfig =
   | ({ type: 'kimi' } & KimiOptions)
   | ({ type: 'google-genai' } & GoogleGenAIOptions)
   | ({ type: 'openai_responses' } & OpenAIResponsesOptions)
-  | ({ type: 'vertexai' } & GoogleGenAIOptions)
-  | ({ type: 'astron' } & OpenAILegacyOptions);
+  | ({ type: 'vertexai' } & GoogleGenAIOptions);
 
 export type ProviderType = ProviderConfig['type'];
 
@@ -32,14 +30,6 @@ export function createProvider(config: ProviderConfig): ChatProvider {
       return new OpenAILegacyChatProvider(config);
     case 'kimi':
       return new KimiChatProvider(config);
-    case 'astron':
-      return new OpenAILegacyChatProvider({
-        ...config,
-        baseUrl: config.baseUrl ?? ASTRON_DEFAULT_BASE_URL,
-        maxTokens: config.maxTokens ?? 32768,
-        astronThinking: true,
-        astronReasoningEffortModelIds: ASTRON_REASONING_EFFORT_MODEL_IDS,
-      });
     case 'google-genai':
       return new GoogleGenAIChatProvider(config);
     case 'openai_responses':
@@ -73,7 +63,6 @@ export function getModelCapability(wire: ProviderType, modelName: string): Model
     case 'vertexai':
       return getGoogleGenAIModelCapability(modelName);
     case 'kimi':
-    case 'astron':
       return UNKNOWN_CAPABILITY;
     default: {
       const exhaustive: never = wire;

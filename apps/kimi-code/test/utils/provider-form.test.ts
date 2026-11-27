@@ -45,7 +45,7 @@ function makeCurrent(): KimiConfig {
         source: { kind: 'registry', url: 'https://registry.example.com/api.json' },
         customHeaders: { 'x-tenant': 'acme' },
         env: { REGION: 'cn' },
-        stream: true,
+        searchUrl: 'https://search.example.com',
         defaultModel: 'old/claude',
       },
       other: { type: 'openai', apiKey: 'sk-other', baseUrl: 'https://other.example.com' },
@@ -527,7 +527,7 @@ describe('planEditWrite', () => {
       source: { kind: 'registry', url: 'https://registry.example.com/api.json' },
       customHeaders: { 'x-tenant': 'acme' },
       env: { REGION: 'cn' },
-      stream: true,
+      searchUrl: 'https://search.example.com',
       defaultModel: 'new/claude',
     });
   });

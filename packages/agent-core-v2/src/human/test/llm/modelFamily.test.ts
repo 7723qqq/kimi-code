@@ -22,12 +22,6 @@ describe('resolveModelFamily', () => {
     expect(resolveModelFamily('workbuddy/deepseek-v4.1-flash')?.id).toBe('deepseek');
   });
 
-  it('resolves the astron-hosted deepseek ids', () => {
-    expect(resolveModelFamily('xopdeepseekv4pro')?.id).toBe('deepseek');
-    expect(resolveModelFamily('xopdeepseekv4flash')?.id).toBe('deepseek');
-    expect(resolveModelFamily('xopdeepseekv32')?.id).toBe('deepseek');
-  });
-
   it('is case-insensitive and returns the same profile object', () => {
     const lower = resolveModelFamily('deepseek-flash');
     const upper = resolveModelFamily('DEEPSEEK-FLASH');
