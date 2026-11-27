@@ -178,6 +178,8 @@ export const ERROR_CODE_UNION = [
   'wire.migration_missing',
   'wire.unknown_record',
   'wire.version_too_low',
+  'workspace.not_found',
+  'workspace.primary_immutable',
   'worktree.already_exists',
   'worktree.base_not_found',
   'worktree.cancelled',
@@ -191,6 +193,4 @@ export const ERROR_CODE_UNION = [
   'worktree.no_commits',
   'worktree.not_found',
   'worktree.not_git_repo',
-  'workspace.not_found',
-  'workspace.primary_immutable',
 ] as const;

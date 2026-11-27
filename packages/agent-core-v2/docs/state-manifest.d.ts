@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 2 keys · Session: 9 keys · Agent: 79 keys)
+// Index (App: 0 keys · Workspace: 2 keys · Session: 9 keys · Agent: 76 keys)
 //   App
 //   Workspace
 //     workspaceSkillCatalog.contributions  src/features/skill/project/projectSkillCatalogService.ts
@@ -64,12 +64,9 @@
 //     helloWorldRun                                   src/features/helloWorld/helloWorldOps.ts
 //     interruptionReminder                            src/agent/interruptionReminder/interruptionReminderOps.ts
 //     llm.requestTrace                                src/agent/loop/llmRequestOps.ts
-//     llmRequester.emittedThinkingEffortWarnings      src/agent/llmRequester/llmRequesterService.ts
-//     llmRequester.lastConfigLogSignature             src/agent/llmRequester/llmRequesterService.ts
+//     llmRequester.emittedThinkingEffortWarnings      src/agent/loop/requestObservation.ts
+//     llmRequester.lastConfigLogSignature             src/agent/loop/requestObservation.ts
 //     llmRequester.lastMeasuredRequest                src/agent/loop/requestObservation.ts
-//     llmRequester.lastTurnRequest                    src/agent/llmRequester/llmRequesterService.ts
-//     llmRequester.mediaRecovery                      src/agent/llmRequester/llmRequesterService.ts
-//     llmRequester.turnConfigs                        src/agent/llmRequester/llmRequesterService.ts
 //     loop.disposing                                  src/agent/loop/loopService.ts
 //     loop.lastRequestId                              src/agent/loop/turnProjection.ts
 //     mcp.discovery                                   src/agent/mcp/mcpDiscoveryOps.ts
@@ -1014,6 +1011,20 @@ export interface AgentStateSnapshot {
       parameters: Record<string, unknown>;
       deferred?: true;
     }[];
+    readonly attributes?: /* MessageAttributes — packages/agent-core-v2/src/human/llm/message.ts */ {
+      readonly promptId?: string;
+      readonly source?: string;
+      readonly key?: string;
+      readonly partial?: true;
+      readonly note?: string;
+      readonly durationMs?: number;
+      readonly isError?: true;
+      readonly llmTiming?: {
+        readonly llmFirstTokenLatencyMs?: number;
+        readonly llmStreamDurationMs?: number;
+      };
+      [key: string]: unknown;
+    };
   } & {
     readonly id?: string;
     readonly providerMessageId?: string;
@@ -1237,110 +1248,6 @@ export interface AgentStateSnapshot {
     } | undefined;
     readonly consumedTurnIds: readonly number[];
   };
-  // src/agent/llmRequester/llmRequesterService.ts
-  'llmRequester.emittedThinkingEffortWarnings': Set<string>;
-  'llmRequester.lastConfigLogSignature': string | undefined;
-  'llmRequester.lastTurnRequest': /* AgentLLMTurnRequestSnapshot — packages/agent-core-v2/src/agent/llmRequester/llmRequester.ts */ {
-    readonly modelAlias: string;
-    readonly contextRevision: number;
-    readonly toolsHash: string;
-    readonly systemPromptHash: string;
-    readonly messageCount: number;
-    readonly historyHash: string;
-    readonly inputTokens?: number;
-    readonly startedAt: number;
-    readonly finishedAt: number;
-    readonly observation?: /* CacheObservation — packages/agent-core-v2/src/agent/usage/cacheObservation.ts */ {
-      readonly modelAlias: string;
-      readonly protocol?: string;
-      readonly providerType?: string;
-      readonly messageCount: number;
-      readonly historyHash: string;
-      readonly projection?: 'strict' | 'media-degraded' | 'media-stripped' | 'strict-media-degraded' | 'strict-media-stripped';
-      readonly thinkingEffort?: 'off' | 'on' | (string & {});
-      readonly inputTokens?: number;
-      readonly cacheRead: number;
-      readonly cacheCreation: number;
-      readonly outputTokens: number;
-    };
-    readonly tools?: readonly /* ToolDescription — packages/agent-core-v2/src/human/llm/message.ts */ {
-      name: string;
-      description: string;
-      parameters: Record<string, unknown>;
-      deferred?: true;
-    }[];
-  } | undefined;
-  'llmRequester.mediaRecovery': /* MediaRecovery — packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts */ {
-    readonly modelAlias: string;
-    readonly contextRevision: number;
-    readonly media: /* MediaProjection — packages/agent-core-v2/src/agent/contextProjector/contextProjector.ts */ {
-      readonly degradeCount: number;
-    } | {
-      readonly strip: /* MediaStripSnapshot — packages/agent-core-v2/src/agent/contextProjector/contextProjector.ts */ {
-        readonly "__@mediaStripSnapshotBrand": undefined;
-      };
-    };
-  } | undefined;
-  'llmRequester.turnConfigs': Map<number, /* TurnRequestConfig — packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts */ {
-    readonly resolved: /* ProfileModelContext — packages/agent-core-v2/src/agent/profile/profile.ts */ {
-      readonly modelAlias: string;
-      readonly modelCapabilities: /* ModelCapability — packages/agent-core-v2/src/llm-adapter/contract/capability.ts */ {
-        readonly image_in: boolean;
-        readonly video_in: boolean;
-        readonly audio_in: boolean;
-        readonly thinking: boolean;
-        readonly tool_use: boolean;
-        readonly pdf_in?: boolean;
-        readonly max_context_tokens: number;
-        readonly max_input_tokens?: number;
-        readonly dynamically_loaded_tools?: boolean;
-      };
-      readonly maxOutputSize: number | undefined;
-      readonly alwaysThinking: boolean | undefined;
-      readonly thinkingLevel: /* ThinkingEffort — packages/agent-core-v2/src/human/llm/thinking.ts */ 'off' | 'on' | (string & {});
-      readonly reservedContextSize: number | undefined;
-      readonly compactionTriggerRatio: number | undefined;
-      readonly compactionMaxAttempts: number | undefined;
-    };
-    readonly params: /* ModelRequestParams — packages/agent-core-v2/src/llm-adapter/model/model-requester.ts */ {
-      readonly cacheKey?: string;
-      readonly sessionId?: string;
-      readonly headers?: Readonly<Record<string, string>>;
-      readonly sampling?: /* SamplingOptions — packages/agent-core-v2/src/llm-adapter/model/model-requester.ts */ {
-        readonly temperature?: number;
-        readonly topP?: number;
-      };
-      readonly thinkingEffort?: 'off' | 'on' | (string & {});
-      readonly thinkingKeep?: string;
-      readonly maxCompletionTokens?: number;
-      readonly usedContextTokens?: number;
-      readonly maxContextTokens?: number;
-      readonly onTraceId?: (traceId: string | null) => void;
-      readonly onAttemptFailure?: (failure: /* ModelRequestAttemptFailure — packages/agent-core-v2/src/llm-adapter/model/model-requester.ts */ {
-        readonly usage?: /* TokenUsage — packages/agent-core-v2/src/human/llm/usage.ts */ {
-          inputOther: number;
-          output: number;
-          inputCacheRead: number;
-          inputCacheCreation: number;
-          raw?: Record<string, unknown>;
-        };
-        readonly messageId?: string;
-        readonly timing?: /* ModelRequestTiming — packages/agent-core-v2/src/llm-adapter/model/model-requester.ts */ {
-          readonly firstTokenLatencyMs: number;
-          readonly streamDurationMs: number;
-          readonly requestBuildMs?: number;
-          readonly serverFirstTokenMs?: number;
-          readonly serverDecodeMs?: number;
-          readonly clientConsumeMs?: number;
-          readonly clientBlockedMs?: number;
-          readonly llmFirstTokenOffsetMs?: number;
-          readonly llmLastTokenOffsetMs?: number;
-          readonly llmWindowOnFrameClock?: boolean;
-        };
-      }) => void;
-    };
-    readonly systemPrompt: string;
-  }>;
   // src/agent/loop/llmRequestOps.ts
   // replayable · durable — folds: LlmToolsSnapshot, LlmRequest
   'llm.requestTrace': /* LlmRequestTraceState — packages/agent-core-v2/src/agent/loop/llmRequestOps.ts */ {
@@ -1349,8 +1256,11 @@ export interface AgentStateSnapshot {
   // src/agent/loop/loopService.ts
   'loop.disposing': boolean;
   // src/agent/loop/requestObservation.ts
+  'llmRequester.emittedThinkingEffortWarnings': Set<string>;
+  'llmRequester.lastConfigLogSignature': string | undefined;
   'llmRequester.lastMeasuredRequest': /* MeasuredRequest — packages/agent-core-v2/src/agent/loop/requestObservation.ts */ {
     readonly modelAlias: string;
+    readonly model: string;
     readonly contextRevision: number;
     readonly inputTokens: number;
     readonly startedAt: number;
@@ -1360,16 +1270,17 @@ export interface AgentStateSnapshot {
     readonly turnId?: number;
     readonly step?: number;
     readonly traceId?: string;
-    readonly usage: /* TokenUsage — packages/agent-core-v2/src/human/llm/usage.ts */ {
+    readonly usage: /* TokenUsage — packages/core/src/llm/usage.ts */ {
       inputOther: number;
       output: number;
-      inputCacheRead: number;
+      inputCacheRead?: number;
       inputCacheCreation: number;
       raw?: Record<string, unknown>;
     };
     readonly systemPromptHash: string;
     readonly toolsHash: string;
     readonly messageCount: number;
+    readonly projection?: 'strict' | 'media-degraded' | 'media-stripped' | 'strict-media-degraded' | 'strict-media-stripped';
     readonly historyHash: string;
   } | undefined;
   // src/agent/loop/turnOps.ts
@@ -1402,43 +1313,46 @@ export interface AgentStateSnapshot {
   'mcp.mcpToolsByServer': Map<string, string[]>;
   // src/agent/media/mediaResolverService.ts
   'media.budgetDropped': Set<string>;
-  'media.resolved': Map<string, /* ContentPart — packages/agent-core-v2/src/human/llm/message.ts */ /* TextPart — packages/agent-core-v2/src/human/llm/message.ts */ {
+  'media.resolved': Map<string, /* ContentPart — packages/core/src/llm/message.ts */ /* TextPart — packages/core/src/llm/message.ts */ {
     type: 'text';
     text: string;
-    meta?: /* TextPartMeta — packages/agent-core-v2/src/human/llm/message.ts */ {
-      source?: string;
-      contentType?: string;
-      activationId?: string;
+    contentType?: string;
+    meta?: /* ContentPartMeta — packages/core/src/llm/message.ts */ {
+      readonly kind?: string;
       [key: string]: unknown;
     };
-  } | /* ThinkPart — packages/agent-core-v2/src/human/llm/message.ts */ {
+  } | /* ThinkPart — packages/core/src/llm/message.ts */ {
     type: 'think';
     think: string;
     encrypted?: string;
     detailsIndex?: number;
     hidden?: boolean;
     reasoningKey?: string;
-  } | /* ImageURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
+    contentType?: string;
+    meta?: /* ContentPartMeta — packages/core/src/llm/message.ts */ {
+      readonly kind?: string;
+      [key: string]: unknown;
+    };
+  } | /* ImageURLPart — packages/core/src/llm/message.ts */ {
     type: 'image_url';
     imageUrl: {
       url: string;
       id?: string;
       name?: string;
-      dimensions?: /* ImageDimensions — packages/agent-core-v2/src/human/llm/message.ts */ {
+      dimensions?: {
         readonly width: number;
         readonly height: number;
       };
-      detail?: string;
     };
     omitted?: 'degraded' | 'stripped' | 'budget' | 'unsupported' | 'protocol_unsupported' | 'unavailable';
-  } | /* AudioURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
+  } | /* AudioURLPart — packages/core/src/llm/message.ts */ {
     type: 'audio_url';
     audioUrl: {
       url: string;
       id?: string;
     };
     omitted?: 'degraded' | 'stripped' | 'budget' | 'unsupported' | 'protocol_unsupported' | 'unavailable';
-  } | /* VideoURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
+  } | /* VideoURLPart — packages/core/src/llm/message.ts */ {
     type: 'video_url';
     videoUrl: {
       url: string;
@@ -1446,7 +1360,7 @@ export interface AgentStateSnapshot {
       name?: string;
     };
     omitted?: 'degraded' | 'stripped' | 'budget' | 'unsupported' | 'protocol_unsupported' | 'unavailable';
-  } | /* DocumentURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
+  } | /* DocumentURLPart — packages/core/src/llm/message.ts */ {
     type: 'document_url';
     documentUrl: {
       url: string;

@@ -162,8 +162,8 @@ function buildProtocolContent(msg: ContextMessage): MessageContent[] {
 
   const base = visibleContent.map((p) => mapContentPart(p));
 
-  if (msg.role === 'assistant' && msg.toolCalls.length > 0) {
-    for (const call of msg.toolCalls) {
+  if (msg.role === 'assistant' && (msg.toolCalls?.length ?? 0) > 0) {
+    for (const call of msg.toolCalls ?? []) {
       let parsedInput: unknown = call.arguments;
       if (typeof call.arguments === 'string') {
         try {

@@ -2,6 +2,7 @@ import type {
   AssistantMessage,
   ContentPart,
   Message as LlmMessage,
+  MessageAttributes,
   Role,
   ToolCall,
   ToolDescription,
@@ -48,6 +49,7 @@ export interface Message {
   readonly toolCallId?: string;
   readonly partial?: boolean;
   readonly tools?: readonly Tool[];
+  readonly attributes?: MessageAttributes;
 }
 
 export function isToolDeclarationOnlyMessage(message: Message): boolean {

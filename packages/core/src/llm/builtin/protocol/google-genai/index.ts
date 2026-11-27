@@ -60,7 +60,7 @@ function createClient(
     httpOptions: Object.keys(httpOptions).length > 0 ? httpOptions : undefined,
   });
   if (endpoint.fetch !== undefined) {
-    (client as unknown as { apiClient: { apiCall: typeof fetch } }).apiClient.apiCall = endpoint.fetch;
+    (client as unknown as { apiClient: { apiCall: typeof fetch } }).apiClient.apiCall = endpoint.fetch as typeof fetch;
   }
   return client;
 }

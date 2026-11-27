@@ -46,7 +46,12 @@ import { emptyUsage } from '#human/llm/usage';
 import { registerLogServices } from '../../_base/log/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { createTestAgent, execEnvServices, telemetryServices } from '../../harness';
+import {
+  createTestAgent,
+  execEnvServices,
+  permissionRulesServices,
+  telemetryServices,
+} from '../../harness';
 import { createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 import { registerTestAgentWireServices } from '../../wire/stubs';
 import { stubAgentContext } from '../agentContext/stubs';
@@ -1198,16 +1203,21 @@ describe('AgentToolDedupeService', () => {
   });
 
   describe('turn-level repeat breaker for rejected calls', () => {
-    function invalidBashCallWithId(id: string): ToolCall {
-      return { type: 'function', id, name: 'Bash', arguments: JSON.stringify({ timeout: 60 }) };
-    }
-
-    function malformedBashCallWithId(id: string, variant: number): ToolCall {
+    function rejectedBashCallWithId(id: string): ToolCall {
       return {
         type: 'function',
         id,
         name: 'Bash',
-        arguments: `{"command_${String(variant)}: "ls"`,
+        arguments: JSON.stringify({ command: "printf 'should-not-run'", timeout: 60 }),
+      };
+    }
+
+    function varyingBashCallWithId(id: string, variant: number): ToolCall {
+      return {
+        type: 'function',
+        id,
+        name: 'Bash',
+        arguments: JSON.stringify({ command: `printf 'variant-${String(variant)}'`, timeout: 60 }),
       };
     }
 
@@ -1236,6 +1246,7 @@ function rejectedBashAgent(
       try {
         ctx = createTestAgent(
           telemetryServices(recordingTelemetry(records)),
+          permissionRulesServices([{ decision: 'deny', scope: 'user', pattern: 'Bash' }]),
           execEnvServices({
             processRunner: createFakeProcessRunner({
               spawn: exec as unknown as IHostProcessService['spawn'],
@@ -1257,7 +1268,7 @@ function rejectedBashAgent(
       const { ctx, exec } = rejectedBashAgent(records);
 
       for (let i = 0; i < 12; i += 1) {
-        ctx.mockNextResponse(invalidBashCallWithId(`call_bad_${String(i)}`));
+        ctx.mockNextResponse(rejectedBashCallWithId(`call_bad_${String(i)}`));
       }
       ctx.mockNextResponse({
         type: 'text',
@@ -1301,7 +1312,7 @@ function rejectedBashAgent(
       const { ctx, exec } = rejectedBashAgent(records);
 
       for (let i = 0; i < 13; i += 1) {
-        ctx.mockNextResponse(invalidBashCallWithId(`call_bad_${String(i)}`));
+        ctx.mockNextResponse(rejectedBashCallWithId(`call_bad_${String(i)}`));
       }
       ctx.mockNextResponse({ type: 'text', text: 'must never be generated' });
 
@@ -1331,7 +1342,7 @@ function rejectedBashAgent(
       const { ctx, exec } = rejectedBashAgent(records, 12);
 
       for (let i = 0; i < 12; i += 1) {
-        ctx.mockNextResponse(invalidBashCallWithId(`call_bad_${String(i)}`));
+        ctx.mockNextResponse(rejectedBashCallWithId(`call_bad_${String(i)}`));
       }
       ctx.mockNextResponse({ type: 'text', text: 'Handoff: still blocked on the same call.' });
 
@@ -1353,7 +1364,7 @@ function rejectedBashAgent(
       const { ctx, exec } = rejectedBashAgent(records, 12);
 
       for (let i = 0; i < 12; i += 1) {
-        ctx.mockNextResponse(malformedBashCallWithId(`call_mal_${String(i)}`, i));
+        ctx.mockNextResponse(varyingBashCallWithId(`call_mal_${String(i)}`, i));
       }
       ctx.mockNextResponse({ type: 'text', text: 'must never be generated' });
 
@@ -1366,12 +1377,12 @@ function rejectedBashAgent(
       await expect(turn!.result).resolves.toMatchObject({ type: 'failed', steps: 12 });
     });
 
-    it('does not force-stop when the malformed argument text keeps changing', async () => {
+    it('does not force-stop when the rejected argument text keeps changing', async () => {
       const records: TelemetryRecord[] = [];
       const { ctx, exec } = rejectedBashAgent(records);
 
       for (let i = 0; i < 12; i += 1) {
-        ctx.mockNextResponse(malformedBashCallWithId(`call_mal_${String(i)}`, i));
+        ctx.mockNextResponse(varyingBashCallWithId(`call_mal_${String(i)}`, i));
       }
       ctx.mockNextResponse({ type: 'text', text: 'recovered' });
 

@@ -170,16 +170,21 @@ describe('GuardianService circuit breaker', () => {
     setVerdict: (text: string) => void;
   } {
     let verdictText = '';
-    const llm = {
-      start: () => ({
-        result: Promise.resolve({
-          message: {
-            content: [{ type: 'text', text: verdictText }],
-            toolCalls: [],
-          },
-          usage: { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
-        }),
+    const requester = {
+      with: () => requester,
+      generate: async () => ({
+        type: 'done',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: verdictText }],
+          toolCalls: [],
+        },
+        usage: { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
       }),
+    };
+    const llm = {
+      requester,
+      resolveMaxOutputTokens: (n?: number) => n,
     };
     const service = new GuardianService(
       llm as never,

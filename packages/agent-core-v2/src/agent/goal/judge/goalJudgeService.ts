@@ -3,14 +3,12 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import {
-  IAgentLLMRequesterService,
-  type AgentLLMRequestFinish,
-} from '#/agent/llmRequester/llmRequester';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { historyFromContext } from '#/agent/loop/history';
+import { runOperationRequest } from '#/agent/loop/operationRequest';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { Message } from '#/app/llmProtocol/message';
-import { createUserMessage, extractText } from '#/app/llmProtocol/message';
+import { createUserMessage, extractText, type Message } from '@moonshot-ai/core/llm/message';
 import { LifecycleScope } from '#/app/scopes';
 import type { GoalSnapshot } from '#/features/goal/types';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -38,7 +36,7 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
+    @IAgentLoopService private readonly loopService: IAgentLoopService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
@@ -78,7 +76,7 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
     goal: GoalSnapshot,
     signal?: AbortSignal,
   ): Promise<JudgeVerdict> {
-    const history = this.context.get();
+    const history = historyFromContext(this.context.get());
     const judgeUser = buildJudgeUserPrompt(goal.objective, goal.completionCriterion);
     const messages: Message[] = [...history, createUserMessage(judgeUser)];
 
@@ -90,21 +88,17 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
       messageCount: messages.length,
     });
 
-    let finish: AgentLLMRequestFinish;
+    let finish: Awaited<ReturnType<typeof runOperationRequest>>;
     try {
-      finish = await this.llmRequester.request(
+      finish = await runOperationRequest(
+        this.loopService.requester,
         {
           messages,
-          tools: [],
-          systemPrompt: JUDGE_SYSTEM_PROMPT,
-          maxOutputSize,
-          source: {
-            type: 'operation',
-            requestKind: 'goal_judge',
-          },
+          profile: { systemPrompt: JUDGE_SYSTEM_PROMPT, tools: [] },
+          maxOutputTokens: this.loopService.resolveMaxOutputTokens(maxOutputSize),
+          attributes: { kind: 'goal_judge' },
         },
-        undefined,
-        signal,
+        { signal },
       );
     } catch (error) {
       this.log.warn('goal.judge.transcript.error', {
@@ -140,19 +134,15 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
         `The goal objective is: ${goal.objective}\n` +
         (goal.completionCriterion ? `Completion criterion: ${goal.completionCriterion}\n` : '') +
         'Based on the conversation transcript above, is this goal complete? Return ONLY {"ok": true/false, "reason": "..."}';
-      const retryFinish = await this.llmRequester.request(
+      const retryFinish = await runOperationRequest(
+        this.loopService.requester,
         {
           messages: [...history, createUserMessage(retryUserPrompt)],
-          tools: [],
-          systemPrompt: RETRY_SYSTEM_PROMPT,
-          maxOutputSize: 512,
-          source: {
-            type: 'operation',
-            requestKind: 'goal_judge_retry',
-          },
+          profile: { systemPrompt: RETRY_SYSTEM_PROMPT, tools: [] },
+          maxOutputTokens: this.loopService.resolveMaxOutputTokens(512),
+          attributes: { kind: 'goal_judge_retry' },
         },
-        undefined,
-        signal,
+        { signal },
       );
       const retryText = extractText(retryFinish.message).trim();
       const retryVerdict = parseVerdict(retryText);

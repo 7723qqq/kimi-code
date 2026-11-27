@@ -1,10 +1,12 @@
 import type { LlmEndpoint } from '@moonshot-ai/core/llm/request';
 
+export type LlmFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
 export interface ResolvedEndpoint {
   readonly baseUrl?: string;
   readonly apiKey?: string;
   readonly headers?: Record<string, string>;
-  readonly fetch?: typeof fetch;
+  readonly fetch?: LlmFetch;
 }
 
 export type LlmEndpointEnvironment = Readonly<Record<string, string | undefined>>;

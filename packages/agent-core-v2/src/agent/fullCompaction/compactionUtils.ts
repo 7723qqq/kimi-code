@@ -1,6 +1,5 @@
 import { isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import type { AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import { APIEmptyResponseError, APIStatusError } from '#/app/llmProtocol/errors';
 import type { Message } from '#/app/llmProtocol/message';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
@@ -136,21 +135,26 @@ export function findAPIStatusError(error: unknown): APIStatusError | undefined {
   return undefined;
 }
 
-export function collectSummary(finish: AgentLLMRequestFinish): CompactionAttemptResult {
+export function collectSummary(finish: {
+  readonly message: { readonly content: readonly { readonly type: string; readonly text?: string }[] };
+  readonly usage?: unknown;
+  readonly traceId?: string;
+  readonly providerFinishReason?: string;
+}): CompactionAttemptResult {
   if (finish.providerFinishReason === 'truncated') {
     throw new CompactionTruncatedError();
   }
 
   const summary = finish.message.content
     .filter((part) => part.type === 'text')
-    .map((part) => part.text)
+    .map((part) => part.text ?? '')
     .join('')
     .trim();
   if (summary.length === 0) {
     throw new APIEmptyResponseError('The compaction response did not contain a non-empty summary.');
   }
 
-  return { summary, usage: finish.usage, traceId: finish.traceId };
+  return { summary, usage: (finish.usage ?? null) as TokenUsage | null, traceId: finish.traceId };
 }
 
 export function historySafeToCompact(

@@ -157,12 +157,29 @@ export function llmStartedEvent(request: LlmRequest): LlmRunStarted {
   };
 }
 
+function requestedKindOf(kind: string | undefined): LlmRunRequested['kind'] {
+  if (kind === 'loop' || kind === 'compaction' || kind === 'prediction') return kind;
+  return undefined;
+}
+
 export function llmRequestedEvent(request: LlmRequest, attempt: number): LlmRunRequested {
   const { maxOutputTokens, ...summary } = llmStartedEvent(request);
   const encoder = new TextEncoder();
+  const attributes = request.attributes;
+  const kind = requestedKindOf(attributes?.kind);
+  const turnStep = attributes?.turnId === undefined
+    ? undefined
+    : attributes.step === undefined
+      ? undefined
+      : `${String(attributes.turnId)}.${String(attributes.step)}`;
+  const droppedCount = attributes?.logFields?.['droppedCount'];
   return {
     ...summary,
     type: 'llm.requested',
+    ...(kind === undefined ? {} : { kind }),
+    ...(attributes?.modelAlias === undefined ? {} : { modelAlias: attributes.modelAlias }),
+    ...(turnStep === undefined ? {} : { turnStep }),
+    ...(typeof droppedCount === 'number' ? { droppedCount } : {}),
     maxTokens: typeof maxOutputTokens === 'number' ? maxOutputTokens : undefined,
     systemPromptHash: summary.systemPromptHash ?? sha256Hex(encoder.encode('')),
     toolsHash: summary.toolsHash ?? sha256Hex(encoder.encode('[]')),

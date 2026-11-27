@@ -32,6 +32,7 @@ export type LlmErrorKind =
   | 'connection'
   | 'timeout'
   | 'status'
+  | 'auth'
   | 'rate_limit'
   | 'quota_exhausted'
   | 'overloaded'
@@ -50,6 +51,7 @@ export type LlmSyntaxErrorCode = 'request_format' | 'thinking_config' | 'interna
 
 export type LlmStatusErrorKind =
   | 'status'
+  | 'auth'
   | 'rate_limit'
   | 'quota_exhausted'
   | 'overloaded'
@@ -87,6 +89,7 @@ export function llmStatusErrorMessage(
 ): LlmErrorMessage<LlmStatusErrorKind> | null {
   switch (error.kind) {
     case 'status':
+    case 'auth':
     case 'rate_limit':
     case 'quota_exhausted':
     case 'overloaded':

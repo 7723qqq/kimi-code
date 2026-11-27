@@ -1,35 +1,48 @@
 import { createHash } from 'node:crypto';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { abortable } from '#/_base/utils/abort';
-import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
-import { WarningIssued } from '#/agent/profile/profileOps';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { defineState } from '#/state/state';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentEnvironmentBindingService } from '#/agent/environmentBinding/environmentBinding';
+import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
+import { WarningIssued } from '#/agent/profile/profileOps';
 import { IFileService } from '#/app/file/fileService';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { LOCAL_ENVIRONMENT_ID } from '#/environment/environment';
-import { ImageUploadUnsupportedError } from '#/llm-adapter/contract/errors';
-import type { Message } from '#/llm-adapter/contract/message';
-import type { Model } from '#/llm-adapter/model/catalog';
-import { runWithCredentialRecovery } from '#/llm-adapter/model/credential-recovery';
-import type { ModelRequester } from '#/llm-adapter/model/model-requester';
-import { IBlobStore } from '#/persistence/interface/blobStore';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { defineState } from '#/state/state';
+import { ImageUploadUnsupportedError } from '#/provider-catalog/errors';
 import {
   mediaOmissionOf,
   mediaPlaceholderText,
+  type ContentPart,
   type MediaPlaceholderReason,
+  type Message,
 } from '@moonshot-ai/core/llm/message';
-import { mediaUrlOf } from '@moonshot-ai/core/llm/protocol/kit/media';
-import { MediaUploadFailedError } from '@moonshot-ai/core/llm/request';
-import type { ContentPart } from '#human/llm/message';
+import { mediaFileIdOf, mediaUrlOf } from '@moonshot-ai/core/llm/protocol/kit/media';
+import { MediaUploadFailedError, type LlmRequest } from '@moonshot-ai/core/llm/request';
+import { requestModelOf, type RequestModel } from '#/provider-catalog/requester';
+import { runWithCredentialRecovery } from '@moonshot-ai/core/llm/policy/credentials';
+import {
+  imageUploaderFor,
+  mediaAcceptsMime,
+  mediaAcceptsSource,
+  mediaCredentialProvider,
+  mediaSupportForRequest,
+  supportsLlmUpload,
+  uploadFailureCheckFor,
+  videoUploaderFor,
+  type ImageUploader,
+  type MediaKindSupport,
+  type MediaPosition,
+} from '#/provider-catalog/model/media';
+import { IBlobStore } from '#/persistence/interface/blobStore';
 
 import { detectFileType, MEDIA_SNIFF_BYTES } from './file-type';
 import { isDataUrl, isModelAcceptedImageMime, normalizeImageMime } from './image-format-policy';
-import { createVideoUploader } from './mediaReadContext';
 import {
+  buildDaemonFileUrl,
   buildMediaOpenTag,
   buildMediaTag,
   type DaemonFileRef,
@@ -38,8 +51,9 @@ import {
   type MediaLabel,
   mediaNameOf,
 } from './mediaRef';
-import { IAgentMediaResolverService } from './mediaResolver';
 import { ISessionMediaStore } from './sessionMediaStore';
+import { IAgentMediaResolverService } from './mediaResolver';
+import { createVideoUploader } from './registerMediaTools';
 import {
   inlineVideoPart,
   inlineVideoSupportedForProtocol,
@@ -52,8 +66,10 @@ const IMAGE_CACHE_SCOPE = 'image-upload-cache';
 const UPLOAD_STATUS_CHECK_CONCURRENCY = 4;
 const UPLOAD_STATUS_CHECK_TIMEOUT_MS = 5_000;
 const PROVIDER_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const VIDEO_UNAVAILABLE_TEXT = '[video omitted: the uploaded file is no longer available]';
-const IMAGE_UNAVAILABLE_TEXT = '[image omitted: the uploaded file is no longer available]';
+const VIDEO_UNAVAILABLE_TEXT =
+  '[video omitted: the uploaded file is no longer available]';
+const IMAGE_UNAVAILABLE_TEXT =
+  '[image omitted: the uploaded file is no longer available]';
 const IMAGE_MEMO_MAX_BYTES = 8 * 1024 * 1024;
 const IMAGE_MEMO_MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const REQUEST_MEDIA_BUDGET_BYTES = 20 * 1024 * 1024;
@@ -132,11 +148,10 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
 
   async resolve(
     messages: readonly Message[],
-    requester: ModelRequester,
+    request: LlmRequest,
     signal?: AbortSignal,
   ): Promise<readonly Message[]> {
-    const includeLocalPaths =
-      this.environmentBinding.current.environmentId === LOCAL_ENVIRONMENT_ID;
+    const includeLocalPaths = this.environmentBinding.current.environmentId === LOCAL_ENVIRONMENT_ID;
     const described = new Map<string, MediaLabel>();
     const describeMedia = async (fileId: string): Promise<MediaLabel> => {
       const cached = described.get(fileId);
@@ -158,6 +173,7 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
       const messageSlots: ContentPart[][] = [];
       slots.push(messageSlots);
       const user = message.role === 'user';
+      const position: MediaPosition = message.role === 'tool' ? 'tool_result' : 'content';
       for (const [partIndex, part] of message.content.entries()) {
         if (part.type !== 'image_url' && part.type !== 'video_url') {
           messageSlots.push([part]);
@@ -168,9 +184,9 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
         const explicitName = user ? mediaNameOf(part) : undefined;
         const needFile =
           daemonRef !== undefined && (includeLocalPaths || (user && explicitName === undefined));
-        const file: MediaLabel = needFile ? await describeMedia(daemonRef.fileId) : {};
+        const file = needFile ? await describeMedia(daemonRef.fileId) : {};
         const label: MediaLabel = {
-          name: user ? (explicitName ?? file.name) : undefined,
+          name: user ? explicitName ?? file.name : undefined,
           path: includeLocalPaths ? file.path : undefined,
         };
         const previous = message.content[partIndex - 1];
@@ -190,8 +206,8 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
         }
         const resolved =
           kind === 'video'
-            ? await this.resolveVideoPart(daemonRef, requester, label, signal)
-            : await this.resolveImagePart(daemonRef, requester, label, signal);
+            ? await this.resolveVideoPart(daemonRef, request, position, label, signal)
+            : await this.resolveImagePart(daemonRef, request, position, label, signal);
         budgetEntries.push({
           messageIndex,
           slotIndex: messageSlots.length,
@@ -200,9 +216,7 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
           label,
           bytes: inlinePartBytes(resolved),
         });
-        messageSlots.push(
-          user && resolved.type !== 'text' ? labelledMedia(resolved, kind, label, previous) : [resolved],
-        );
+        messageSlots.push(user && resolved.type !== 'text' ? labelledMedia(resolved, kind, label, previous) : [resolved]);
         changedMessages.add(messageIndex);
       }
     }
@@ -215,10 +229,10 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
 
   async recoverFailedUploads(
     messages: readonly Message[],
-    requester: ModelRequester,
+    request: LlmRequest,
     signal?: AbortSignal,
   ): Promise<boolean> {
-    const checkUpload = requester.checkUploadFailed?.bind(requester);
+    const checkUpload = uploadFailureCheckFor(request);
     if (checkUpload === undefined) return false;
     const uploads = new Map<string, Map<string, UploadCoords>>();
     for (const message of messages) {
@@ -242,10 +256,7 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
       Array.from({ length: Math.min(UPLOAD_STATUS_CHECK_CONCURRENCY, uploads.size) }, async () => {
         for (const [id, coordsByKey] of pending) {
           if (probeSignal.aborted) break;
-          const failed = await abortable(
-            checkUpload(id, { signal: probeSignal }),
-            probeSignal,
-          ).catch(() => false);
+          const failed = await abortable(checkUpload(id, probeSignal), probeSignal).catch(() => false);
           if (!failed) continue;
           for (const coords of coordsByKey.values()) await this.markUploadInlineOnly(coords);
           recovered = true;
@@ -259,9 +270,7 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
   private async isUploadInlineOnly(coords: UploadCoords): Promise<boolean> {
     const key = inlineOnlyUploadKey(coords);
     if (this.inlineOnlyUploads.has(key)) return true;
-    const inlineOnly = await this.blobs
-      .has(coords.scope, inlineOnlyUploadBlobKey(coords.cacheKey))
-      .catch(() => false);
+    const inlineOnly = await this.blobs.has(coords.scope, inlineOnlyUploadBlobKey(coords.cacheKey)).catch(() => false);
     if (inlineOnly) this.inlineOnlyUploads.add(key);
     return inlineOnly;
   }
@@ -269,8 +278,7 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
   private async markUploadInlineOnly(coords: UploadCoords): Promise<void> {
     this.inlineOnlyUploads.add(inlineOnlyUploadKey(coords));
     this.resolved.delete(coords.cacheKey);
-    await this.blobs
-      .put(coords.scope, inlineOnlyUploadBlobKey(coords.cacheKey), new Uint8Array([1]))
+    await this.blobs.put(coords.scope, inlineOnlyUploadBlobKey(coords.cacheKey), new Uint8Array([1]))
       .catch(() => undefined);
   }
 
@@ -287,9 +295,7 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
   ): void {
     if (entries.length === 0) return;
     const omit = (entry: MediaBudgetEntry): void => {
-      slots[entry.messageIndex]![entry.slotIndex] = [
-        omittedMediaText(entry.kind, 'budget', entry.label),
-      ];
+      slots[entry.messageIndex]![entry.slotIndex] = [omittedMediaText(entry.kind, 'budget', entry.label)];
       changedMessages.add(entry.messageIndex);
     };
     const dropped = this.budgetDropped;
@@ -330,66 +336,75 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
             (hasNoSavedPath ? '.' : ' and remain available at their saved paths.'),
         }),
       );
-    } catch {}
+    } catch {
+    }
   }
 
   private async resolveImagePart(
     ref: DaemonFileRef,
-    requester: ModelRequester,
+    request: LlmRequest,
+    position: MediaPosition,
     label: MediaLabel,
     signal: AbortSignal | undefined,
   ): Promise<ContentPart> {
-    const model = requester.model;
-    if (!model.capabilities.image_in) {
+    const model = requestModelOf(request);
+    const support = mediaSupportForRequest(request, 'image', position);
+    if (model.spec.capability?.image_in !== true || support === undefined) {
       this.telemetry.track2('media_resolve_fallback', {
         kind: 'image',
         reason: 'unsupported',
-        model: model.name,
+        model: model.spec.name,
       });
-      return degradedImage(label);
+      return model.spec.capability?.image_in === true ? degradedImage(label) : unsupportedMedia('image', label);
     }
     const providerKey = model.providerType ?? model.protocol;
-    const uploader = this.imageUploadUnsupported.has(providerKey)
-      ? undefined
-      : requester.uploadImage?.bind(requester);
+    const uploadSupported = support.sources.includes('file') || support.sources.includes('url');
+    const uploader =
+      !uploadSupported || this.imageUploadUnsupported.has(providerKey)
+        ? undefined
+        : imageUploaderFor(request);
     const inlineKey = `image\0${ref.fileId}`;
     if (uploader === undefined) {
-      const memoed = this.memoedImage(inlineKey, model.providerType);
+      const memoed = this.memoedImage(inlineKey, model.providerType, support);
       if (memoed !== undefined) return memoed;
-      return this.resolveImageUncached(ref, label, requester, inlineKey, undefined, signal);
+      return this.resolveImageUncached(ref, label, model, request, inlineKey, undefined, support, signal);
     }
     const coords: UploadCoords = {
       scope: IMAGE_CACHE_SCOPE,
-      cacheKey: `${inlineKey}\0${providerKey}\0${model.protocol}\0${model.baseUrl ?? ''}\0${await accountHashFor(model)}`,
+      cacheKey: `${inlineKey}\0${providerKey}\0${model.protocol}\0${model.endpoint.baseUrl ?? ''}\0${await accountHashFor(model)}`,
     };
     if (await this.isUploadInlineOnly(coords)) {
-      const memoed = this.memoedImage(inlineKey, model.providerType);
+      const memoed = this.memoedImage(inlineKey, model.providerType, support);
       if (memoed !== undefined) return memoed;
-      return this.resolveImageUncached(ref, label, requester, inlineKey, undefined, signal);
+      return this.resolveImageUncached(ref, label, model, request, inlineKey, undefined, support, signal);
     }
     const memoed = this.resolved.get(coords.cacheKey);
-    if (memoed !== undefined) return this.trackUploadedMedia(coords, memoed);
+    if (memoed?.type === 'image_url' && mediaAcceptsSource(support, memoed)) {
+      return this.trackUploadedMedia(coords, memoed);
+    }
     const cachedLlmFileId = await this.readCachedUpload(coords.scope, coords.cacheKey);
     if (cachedLlmFileId !== undefined) {
       const part: ContentPart = {
         type: 'image_url',
         imageUrl: { url: `ms://${cachedLlmFileId}`, id: cachedLlmFileId },
       };
-      return this.trackUploadedMedia(coords, part);
+      if (mediaAcceptsSource(support, part)) {
+        return this.trackUploadedMedia(coords, part);
+      }
     }
-    return this.resolveImageUncached(ref, label, requester, inlineKey, { uploader, coords }, signal);
+    return this.resolveImageUncached(ref, label, model, request, inlineKey, { uploader, coords }, support, signal);
   }
 
   private async resolveImageUncached(
     ref: DaemonFileRef,
     label: MediaLabel,
-    requester: ModelRequester,
+    model: RequestModel,
+    request: LlmRequest,
     inlineKey: string,
     upload: { readonly uploader: ImageUploader; readonly coords: UploadCoords } | undefined,
+    support: MediaKindSupport,
     signal: AbortSignal | undefined,
   ): Promise<ContentPart> {
-    const model = requester.model;
-
     let source: { readonly bytes: Buffer; readonly filename: string };
     try {
       source = await this.readMedia(ref, signal);
@@ -398,7 +413,7 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
       this.telemetry.track2('media_resolve_fallback', {
         kind: 'image',
         reason: 'read_failed',
-        model: model.name,
+        model: model.spec.name,
       });
       return degradedImage(label);
     }
@@ -409,19 +424,24 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
       'media',
     );
     const mimeType = normalizeImageMime(fileType.mimeType);
-    if (fileType.kind !== 'image' || !isModelAcceptedImageMime(mimeType, model.providerType)) {
+    if (
+      fileType.kind !== 'image' ||
+      !isModelAcceptedImageMime(mimeType, model.providerType) ||
+      !mediaAcceptsMime(support, mimeType)
+    ) {
       this.telemetry.track2('media_resolve_fallback', {
         kind: 'image',
         reason: 'invalid',
-        model: model.name,
+        model: model.spec.name,
       });
       return degradedImage(label);
     }
 
     if (upload !== undefined) {
-      const uploaded = await this.uploadImagePart(requester, source, mimeType, upload, signal);
+      const uploaded = await this.uploadImagePart(model, request, source, mimeType, upload, support, signal);
       if (uploaded !== undefined) return uploaded;
     }
+    if (!support.sources.includes('inline')) return degradedImage(label);
 
     const part: ContentPart = {
       type: 'image_url',
@@ -434,22 +454,34 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
   }
 
   private async uploadImagePart(
-    requester: ModelRequester,
+    model: RequestModel,
+    request: LlmRequest,
     source: { readonly bytes: Buffer; readonly filename: string },
     mimeType: string,
     upload: { readonly uploader: ImageUploader; readonly coords: UploadCoords },
+    support: MediaKindSupport,
     signal: AbortSignal | undefined,
   ): Promise<ContentPart | undefined> {
-    const model = requester.model;
     try {
       const uploaded = await runWithCredentialRecovery(
-        model.credentialProvider,
+        mediaCredentialProvider(request),
         () =>
-          upload.uploader({ data: source.bytes, mimeType, filename: source.filename }, { signal }),
+          upload.uploader(
+            { data: source.bytes, mimeType, filename: source.filename },
+            { signal },
+          ),
         signal,
       );
+      if (!mediaAcceptsSource(support, uploaded)) {
+        this.telemetry.track2('media_resolve_fallback', {
+          kind: 'image',
+          reason: 'upload_failed',
+          model: model.spec.name,
+        });
+        return undefined;
+      }
       if (await this.isUploadInlineOnly(upload.coords)) return undefined;
-      const llmFileId = uploaded.imageUrl.id ?? msFileIdFromUrl(uploaded.imageUrl.url);
+      const llmFileId = mediaFileIdOf(uploaded) ?? msFileIdFromUrl(mediaUrlOf(uploaded));
       if (llmFileId !== undefined) {
         await this.writeCachedUpload(upload.coords.scope, upload.coords.cacheKey, llmFileId);
       }
@@ -465,22 +497,32 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
       this.telemetry.track2('media_resolve_fallback', {
         kind: 'image',
         reason: 'upload_failed',
-        model: model.name,
+        model: model.spec.name,
       });
       return undefined;
     }
   }
 
-  private memoedImage(cacheKey: string, providerType: string | undefined): ContentPart | undefined {
+  private memoedImage(
+    cacheKey: string,
+    providerType: string | undefined,
+    support: MediaKindSupport,
+  ): ContentPart | undefined {
     const entry = this.imageMemo.get(cacheKey);
     if (entry === undefined) return undefined;
     if (!isModelAcceptedImageMime(entry.mimeType, providerType)) return undefined;
+    if (!mediaAcceptsSource(support, entry.part)) return undefined;
     this.imageMemo.delete(cacheKey);
     this.imageMemo.set(cacheKey, entry);
     return entry.part;
   }
 
-  private memoizeImage(cacheKey: string, part: ContentPart, bytes: number, mimeType: string): void {
+  private memoizeImage(
+    cacheKey: string,
+    part: ContentPart,
+    bytes: number,
+    mimeType: string,
+  ): void {
     const previous = this.imageMemo.get(cacheKey);
     if (previous !== undefined) {
       this.imageMemo.delete(cacheKey);
@@ -497,24 +539,29 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
 
   private async resolveVideoPart(
     ref: DaemonFileRef,
-    requester: ModelRequester,
+    request: LlmRequest,
+    position: MediaPosition,
     label: MediaLabel,
     signal: AbortSignal | undefined,
   ): Promise<ContentPart> {
-    const model = requester.model;
-    if (!model.capabilities.video_in) return videoTag(label);
+    const model = requestModelOf(request);
+    const support = mediaSupportForRequest(request, 'video', position);
+    if (model.spec.capability?.video_in !== true || support === undefined) {
+      return model.spec.capability?.video_in === true ? videoTag(label) : unsupportedMedia('video', label);
+    }
     const providerKey = model.providerType ?? model.protocol;
-    const uploadable = requester.uploadVideo !== undefined;
+    const uploadSupported = support.sources.includes('file') || support.sources.includes('url');
+    const uploadable = uploadSupported && supportsLlmUpload(request, 'video');
     const coords: UploadCoords = {
       scope: VIDEO_CACHE_SCOPE,
       cacheKey: uploadable
-        ? `${ref.fileId}\0${providerKey}\0${model.protocol}\0${model.baseUrl ?? ''}\0${await accountHashFor(model)}`
+        ? `${ref.fileId}\0${providerKey}\0${model.protocol}\0${model.endpoint.baseUrl ?? ''}\0${await accountHashFor(model)}`
         : `${ref.fileId}\0${providerKey}`,
     };
     const uploadCache = uploadable && !(await this.isUploadInlineOnly(coords));
 
     const memoed = this.resolved.get(coords.cacheKey);
-    if (memoed !== undefined) {
+    if (memoed !== undefined && (memoed.type === 'text' || mediaAcceptsSource(support, memoed))) {
       if (memoed.type === 'text') return videoTag(label);
       if (memoed.type !== 'video_url') return memoed;
       if (msFileIdFromUrl(memoed.videoUrl.url) === undefined) return memoed;
@@ -524,8 +571,10 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
     const { part, memoize } = await this.resolveVideoUncached(
       ref,
       label,
-      requester,
+      model,
+      request,
       coords,
+      support,
       signal,
       uploadCache,
     );
@@ -536,24 +585,25 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
   private async resolveVideoUncached(
     ref: DaemonFileRef,
     label: MediaLabel,
-    requester: ModelRequester,
+    model: RequestModel,
+    request: LlmRequest,
     coords: UploadCoords,
+    support: MediaKindSupport,
     signal: AbortSignal | undefined,
     uploadCache: boolean,
   ): Promise<{ part: ContentPart; memoize: boolean }> {
     if (uploadCache) {
       const cachedLlmFileId = await this.readCachedUpload(coords.scope, coords.cacheKey);
       if (cachedLlmFileId !== undefined) {
-        return {
-          part: this.trackUploadedMedia(coords, {
-            type: 'video_url',
-            videoUrl: { url: `ms://${cachedLlmFileId}`, id: cachedLlmFileId },
-          }),
-          memoize: true,
+        const part: ContentPart = {
+          type: 'video_url',
+          videoUrl: { url: `ms://${cachedLlmFileId}`, id: cachedLlmFileId },
         };
+        if (mediaAcceptsSource(support, part)) {
+          return { part: this.trackUploadedMedia(coords, part), memoize: true };
+        }
       }
     }
-
     let source: { readonly bytes: Buffer; readonly filename: string };
     try {
       source = await this.readMedia(ref, signal);
@@ -564,17 +614,18 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
 
     const { bytes, filename } = source;
     const fileType = detectFileType(filename, bytes.subarray(0, MEDIA_SNIFF_BYTES), 'media');
-    if (fileType.kind !== 'video') return { part: videoTag(label), memoize: true };
+    if (fileType.kind !== 'video' || !mediaAcceptsMime(support, fileType.mimeType)) {
+      return { part: videoTag(label), memoize: true };
+    }
     const mimeType = fileType.mimeType;
 
-    const model = requester.model;
-    const inlineSupported = inlineVideoSupportedForProtocol(model.protocol);
-
+    const inlineSupported =
+      inlineVideoSupportedForProtocol(model.protocol) && support.sources.includes('inline');
     const uploader = uploadCache
-      ? createVideoUploader(requester, {
+      ? createVideoUploader(videoUploaderFor(request), {
           client: this.telemetry,
           props: {
-            model: model.name,
+            model: model.spec.name,
             provider_type: model.providerType ?? model.protocol,
             protocol: model.protocol,
           },
@@ -589,13 +640,23 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
 
     try {
       const uploaded = await runWithCredentialRecovery(
-        requester.model.credentialProvider,
+        mediaCredentialProvider(request),
         () => uploader({ data: bytes, mimeType, filename }, { signal }),
         signal,
       );
-      const llmFileId = uploaded.videoUrl.id ?? msFileIdFromUrl(uploaded.videoUrl.url);
-      if (llmFileId !== undefined)
-        await this.writeCachedUpload(coords.scope, coords.cacheKey, llmFileId);
+      if (!mediaAcceptsSource(support, uploaded)) {
+        this.telemetry.track2('media_resolve_fallback', {
+          kind: 'video',
+          reason: 'upload_failed',
+          model: model.spec.name,
+        });
+        return {
+          part: inlineSupported ? inlineVideoPart(bytes, mimeType) : videoTag(label),
+          memoize: true,
+        };
+      }
+      const llmFileId = mediaFileIdOf(uploaded) ?? msFileIdFromUrl(mediaUrlOf(uploaded));
+      if (llmFileId !== undefined) await this.writeCachedUpload(coords.scope, coords.cacheKey, llmFileId);
       return { part: this.trackUploadedMedia(coords, uploaded), memoize: true };
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -604,7 +665,7 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
       this.telemetry.track2('media_resolve_fallback', {
         kind: 'video',
         reason: 'upload_failed',
-        model: model.name,
+        model: model.spec.name,
       });
       if (error instanceof MediaUploadFailedError || isVideoUploadUnsupportedError(error)) {
         return {
@@ -627,6 +688,10 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
       return { bytes, filename: file.meta.name };
     } catch {
       signal?.throwIfAborted();
+      const stored = await this.mediaStore.get(buildDaemonFileUrl(ref.fileId), signal);
+      if (stored !== undefined) {
+        return { bytes: Buffer.from(stored.bytes), filename: stored.filename };
+      }
       const canonical = await this.mediaStore.read(ref.fileId);
       if (canonical === undefined) throw new Error(`media ${ref.fileId} is unavailable`);
       return { bytes: Buffer.from(canonical.data), filename: canonical.name };
@@ -646,22 +711,20 @@ export class AgentMediaResolverService implements IAgentMediaResolverService {
     llmFileId: string,
   ): Promise<void> {
     if (!PROVIDER_ID_RE.test(llmFileId)) return;
-    await this.blobs
-      .put(scope, blobKey(cacheKey), textEncoder.encode(llmFileId))
-      .catch(() => undefined);
+    await this.blobs.put(scope, blobKey(cacheKey), textEncoder.encode(llmFileId)).catch(
+      () => undefined,
+    );
   }
 }
 
-type ImageUploader = NonNullable<ModelRequester['uploadImage']>;
-
-async function accountHashFor(model: Model): Promise<string> {
+async function accountHashFor(model: RequestModel): Promise<string> {
   let identity: string | undefined;
-  const authorization = model.headers['Authorization'];
+  const authorization = model.endpoint.headers?.['Authorization'];
   if (authorization !== undefined) {
     identity = `authorization\0${authorization.trim()}`;
   } else {
     try {
-      const apiKey = (await model.credentialProvider?.resolve())?.apiKey;
+      const apiKey = (await model.endpoint.credentials?.resolve())?.apiKey;
       if (apiKey !== undefined && apiKey.length > 0) {
         identity = `api-key\0${stableJwtSubject(apiKey) ?? apiKey}`;
       }
@@ -731,20 +794,26 @@ function inlineMediaBudgetEntry(
   slotIndex: number,
 ): MediaBudgetEntry | undefined {
   if (part.type !== 'image_url' && part.type !== 'video_url') return undefined;
-  const url = part.type === 'image_url' ? part.imageUrl.url : part.videoUrl.url;
+  const url = mediaUrlOf(part);
   if (!isDataUrl(url)) return undefined;
   const hash = createHash('sha256').update(kind).update('\0').update(url).digest('hex');
   return { messageIndex, slotIndex, key: `inline\0${hash}`, kind, label, bytes: url.length };
 }
 
 function inlinePartBytes(part: ContentPart): number {
-  if (part.type === 'image_url') {
-    return isDataUrl(part.imageUrl.url) ? part.imageUrl.url.length : 0;
-  }
-  if (part.type === 'video_url') {
-    return isDataUrl(part.videoUrl.url) ? part.videoUrl.url.length : 0;
-  }
-  return 0;
+  if (part.type !== 'image_url' && part.type !== 'video_url') return 0;
+  const url = mediaUrlOf(part);
+  return isDataUrl(url) ? url.length : 0;
+}
+
+function unsupportedMedia(kind: ResolvedMediaKind, label: MediaLabel): ContentPart {
+  const capability = `${kind} input`;
+  return withMediaTag(
+    `[${kind} omitted: the current model does not support ${capability}; ` +
+      `use a model with ${capability} capability or convert the file to text]`,
+    kind,
+    label,
+  );
 }
 
 function degradedImage(label: MediaLabel): ContentPart {

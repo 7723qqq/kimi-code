@@ -1,5 +1,5 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { LlmRequestProjection } from '#/agent/loop/llmRequestOps';
+import type { LlmRequestProjection } from '@moonshot-ai/core/llm/response';
 import type { TokenUsage } from '#human/llm/usage';
 
 import type { CacheObservation } from './cacheObservation';

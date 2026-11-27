@@ -220,8 +220,10 @@ function resolveCatalogModel(
   modelId: string,
 ): CatalogModelDefinition | undefined {
   if (entry === undefined) return undefined;
-  const override = entry.override[modelId];
-  if (override !== undefined) return mergeModel(override, entry.discovered[modelId]);
+  const override =
+    entry.override[modelId] ??
+    Object.values(entry.override).find((model) => model.model === modelId);
+  if (override !== undefined) return mergeModel(override, entry.discovered[override.model]);
   const discovered = entry.discovered[modelId];
   if (discovered === undefined) return undefined;
   return mergeModel({ ...discovered }, undefined);
@@ -235,8 +237,9 @@ function mergeEntryModels(entry: CatalogProviderEntry): CatalogModel[] {
   const merged = Object.values(entry.override).map((record) =>
     attach(mergeModel(record, entry.discovered[record.model])),
   );
+  const overrideModels = new Set(Object.values(entry.override).map((model) => model.model));
   const discoveredOnly = Object.values(entry.discovered)
-    .filter((model) => entry.override[model.model] === undefined)
+    .filter((model) => !overrideModels.has(model.model))
     .map((model) => attach(mergeModel({ ...model }, undefined)));
   return [...merged, ...discoveredOnly].toSorted((a, b) => a.model.localeCompare(b.model));
 }
@@ -447,7 +450,7 @@ export function createProviderCatalogMachine() {
                   info: event.info,
                   discovered: {},
                   override: Object.fromEntries(
-                    (event.models ?? []).map((model) => [model.model, model]),
+                    (event.models ?? []).map((model) => [model.id ?? model.model, model]),
                   ),
                 },
               },
@@ -760,6 +763,9 @@ function mergeModel(
   discovered: LlmModel | undefined,
 ): CatalogModelDefinition {
   const merged = {
+    id: record.id,
+    spec: record.spec,
+    endpoint: record.endpoint,
     provider: record.provider,
     model: record.model,
     capability: mergeCapability(discovered?.capability, record.capability),

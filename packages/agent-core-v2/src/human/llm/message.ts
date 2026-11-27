@@ -106,6 +106,16 @@ export interface SystemMessage {
 
 export interface MessageAttributes {
   readonly promptId?: string;
+  readonly source?: string;
+  readonly key?: string;
+  readonly partial?: true;
+  readonly note?: string;
+  readonly durationMs?: number;
+  readonly isError?: true;
+  readonly llmTiming?: {
+    readonly llmFirstTokenLatencyMs?: number;
+    readonly llmStreamDurationMs?: number;
+  };
   readonly [key: string]: unknown;
 }
 

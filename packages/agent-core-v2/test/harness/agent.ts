@@ -6,7 +6,7 @@ import { Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
 
-import type { IInstantiationService } from '#/_base/di/instantiation';
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { toDisposable } from '#/_base/di/lifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { drainSessionMetadataWrites } from '#/session/sessionMetadata/sessionMetadataService';
@@ -21,7 +21,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { AgentContextData } from '#/agent/contextMemory/types';
 import type { PromptLaunchResult, PromptPayload, SteerPayload, SteerResult } from '#/agent/loop/loop';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
+import type { AgentLLMRequestSource } from '#/agent/usage/usage';
 import { IEventService } from '#/app/event/event';
 import { IAgentPromptChannel } from '#/agent/loop/promptChannel';
 import type { PermissionData, PermissionMode } from '#/agent/permissionPolicy/types';
@@ -165,7 +165,6 @@ import {
   IAgentExternalHooksService,
   IExternalHooksRunnerService,
   IAgentFullCompactionService,
-  IAgentLLMRequesterService,
   ILogService,
   IAgentPermissionGate,
   IAgentPermissionModeService,
@@ -218,6 +217,17 @@ import {
 } from '#/llm-adapter/contract/message';
 import { type Tool as KosongTool } from '#/llm-adapter/contract/message';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
+import {
+  IProviderCatalogService,
+  ProviderCatalogService,
+} from '#/provider-catalog/providerCatalogService';
+import type { Model as ProviderModel } from '#/provider-catalog/model/catalog';
+import type { Protocol as ProviderProtocol } from '#/provider-catalog/protocol/protocol';
+import {
+  withLegacyLlmRequester,
+  withMockProvider,
+  type MockProvider,
+} from './scripted-generate';
 import { IProviderCatalogRuntime } from '#/llm-adapter/model/catalog-runtime';
 import { ModelCatalog } from '#/llm-adapter/model/catalog-service';
 import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
@@ -252,10 +262,6 @@ import { stubClientIdentity } from '../app/bootstrap/stubs';
 import { recordAgentEvents, type RecordedEventEntry } from '../snapshot/events';
 import { stubSessionRunGate } from '../stubs';
 import { createFakeHostFs, createFakeProcessRunner } from '../tools/fixtures/fake-exec';
-import {
-  guardPromptCachePrefix,
-  PromptCacheGuardedLLMRequesterService,
-} from './prompt-cache-guard';
 import { createScriptedGenerate } from './scripted-generate';
 import {
   DEFAULT_TEST_SYSTEM_PROMPT,
@@ -272,6 +278,11 @@ const MOCK_PROVIDER = {
   baseUrl: 'https://api.example.test/v1',
   model: 'mock-model',
 } as const;
+
+interface TestProviderCatalogOptions {
+  readonly generate?: LlmRequester;
+  readonly scriptedProvider?: MockProvider;
+}
 
 interface TestModelProviderOptions {
   readonly promptCacheKey?: string;
@@ -698,7 +709,7 @@ export function logServices(logger: Logger): TestAgentServiceOverride {
 }
 
 export function llmGenerateServices(requester: LlmRequester): TestAgentServiceOverride {
-  return appService(IProtocolAdapterRegistry, createGenerateBackedGateway(requester));
+  return appService(IProtocolAdapterRegistry, createGenerateBackedGateway(requester, true));
 }
 
 export function telemetryServices(telemetry: ITelemetryService): TestAgentServiceOverride {
@@ -1068,6 +1079,67 @@ class PersistenceAppendLogStore implements IAppendLogStore {
   }
 }
 
+function toProviderModel(model: Model): ProviderModel {
+  return {
+    id: model.id,
+    aliases: model.aliases,
+    protocol: model.protocol as unknown as ProviderProtocol,
+    spec: {
+      provider: model.providerType ?? model.protocol,
+      name: model.name,
+      capability: model.capabilities,
+      thinking: {
+        supportEfforts: model.supportEfforts,
+        defaultEffort: model.defaultEffort,
+        alwaysThinking: model.alwaysThinking,
+        adaptiveThinking: model.adaptiveThinking,
+      },
+      maxContextSize: model.maxContextSize,
+      maxInputSize: model.maxInputSize,
+    },
+    endpoint: {
+      ...(model.baseUrl === undefined ? {} : { baseUrl: model.baseUrl }),
+      headers: model.headers,
+      ...(model.credentialProvider === undefined ? {} : { credentials: model.credentialProvider }),
+    },
+    ...(model.maxOutputSize === undefined ? {} : { maxOutputSize: model.maxOutputSize }),
+    ...(model.displayName === undefined ? {} : { displayName: model.displayName }),
+    ...(model.reasoningKey === undefined ? {} : { reasoningKey: model.reasoningKey }),
+    ...(model.providerType === undefined ? {} : { providerType: model.providerType }),
+    providerName: model.providerName,
+    ...(model.providerOptions === undefined ? {} : { providerOptions: model.providerOptions }),
+  };
+}
+
+class ConfigBackedProviderCatalog extends ProviderCatalogService {
+  constructor(
+    private readonly options: TestProviderCatalogOptions = {},
+    @IModelCatalog private readonly legacy: IModelCatalog,
+    @IProtocolAdapterRegistry private readonly adapters?: IProtocolAdapterRegistry,
+    @IInstantiationService instantiation?: IInstantiationService,
+  ) {
+    super(instantiation);
+  }
+
+  override get(id: string): ProviderModel {
+    return toProviderModel(this.legacy.get(id));
+  }
+
+  override createRequester(
+    ...args: Parameters<ProviderCatalogService['createRequester']>
+  ): ReturnType<ProviderCatalogService['createRequester']> {
+    const initialized = super.createRequester(...args);
+    const legacyRequester =
+      this.options.generate ?? legacyGatewayRequester(this.adapters);
+    if (legacyRequester !== undefined) {
+      return withLegacyLlmRequester(initialized, legacyRequester);
+    }
+    return this.options.scriptedProvider === undefined
+      ? initialized
+      : withMockProvider(initialized, this.options.scriptedProvider);
+  }
+}
+
 class ConfigBackedModelCatalog extends ModelCatalog {
   constructor(
     private readonly options: TestModelProviderOptions = {},
@@ -1236,10 +1308,8 @@ export class AgentTestContext {
           reg.defineInstance(
             IProtocolAdapterRegistry,
             createGenerateBackedGateway(
-              guardPromptCachePrefix(
-                options.generate ??
-                  (this.testkitModel ? createOpenAIRequester() : this.scriptedGenerate.requester),
-              ),
+              options.generate ??
+                (this.testkitModel ? createOpenAIRequester() : this.scriptedGenerate.requester),
             ),
           );
           reg.defineInstance(IModelOAuthTokens, {
@@ -1251,6 +1321,13 @@ export class AgentTestContext {
               ),
           } satisfies IModelOAuthTokens);
           reg.defineDescriptor(IModelCatalog, new SyncDescriptor(ConfigBackedModelCatalog, [{}]));
+          reg.defineDescriptor(
+            IProviderCatalogService,
+            new SyncDescriptor(ConfigBackedProviderCatalog, [{
+              generate: options.generate,
+              scriptedProvider: this.testkitModel ? undefined : this.scriptedGenerate.provider,
+            }]),
+          );
           reg.defineDescriptor(
             IGoalDeadlineScheduler,
             new SyncDescriptor(GoalDeadlineSchedulerService),
@@ -1455,10 +1532,6 @@ export class AgentTestContext {
             reg.defineDescriptor(IEventDispatcher, new SyncDescriptor(EventDispatcherService));
             reg.defineDescriptor(IAgentBlobService, new SyncDescriptor(AgentBlobServiceImpl));
             reg.defineDescriptor(IAgentProfileService, new SyncDescriptor(AgentProfileService));
-            reg.defineDescriptor(
-              IAgentLLMRequesterService,
-              new SyncDescriptor(PromptCacheGuardedLLMRequesterService),
-            );
             reg.defineDescriptor(
               IAgentExternalHooksService,
               new SyncDescriptor(AgentExternalHooksService),
@@ -1744,7 +1817,6 @@ export class AgentTestContext {
     void plan.status();
 
     this.get(IAgentUserToolService);
-    this.get(IAgentLLMRequesterService);
     this.get(IAgentFullCompactionService);
     this.get(IAgentProfileService);
     const agentState = this.get(IAgentStateService);
@@ -2891,10 +2963,21 @@ function createLogService(logger: Logger | undefined, bindings: LogContext = {})
   };
 }
 
-function createGenerateBackedGateway(requester: LlmRequester): IProtocolAdapterRegistry {
+const LEGACY_GATEWAY_REQUESTER = Symbol('legacyGatewayRequester');
+
+function legacyGatewayRequester(registry: IProtocolAdapterRegistry | undefined): LlmRequester | undefined {
+  if (registry === undefined) return undefined;
+  return (registry as { [LEGACY_GATEWAY_REQUESTER]?: LlmRequester })[LEGACY_GATEWAY_REQUESTER];
+}
+
+function createGenerateBackedGateway(
+  requester: LlmRequester,
+  markLegacyOverride = false,
+): IProtocolAdapterRegistry {
   const real = new ProtocolAdapterRegistry();
   return {
     _serviceBrand: undefined,
+    ...(markLegacyOverride ? { [LEGACY_GATEWAY_REQUESTER]: requester } : {}),
     supportedProtocols: () => real.supportedProtocols(),
     resolveAdapterIdentity: (protocol, providerType) =>
       real.resolveAdapterIdentity(protocol, providerType),
@@ -2903,7 +2986,7 @@ function createGenerateBackedGateway(requester: LlmRequester): IProtocolAdapterR
     resolveCapability: (protocol, modelName, providerType) =>
       real.resolveCapability(protocol, modelName, providerType),
     resolve: (model) => ({ ...real.resolve(model), requester }),
-  };
+  } as IProtocolAdapterRegistry;
 }
 
 function writeLog(

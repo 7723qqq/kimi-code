@@ -106,6 +106,7 @@ export function stubToolExecutorEvents(): ToolExecutorEventStubs {
         : { executionMetadata: decisionContext.context.metadata };
     },
     fireWillExecute: async (data, signal) => {
+      await willEmitter.fireAsync(data, signal);
       await toolExecutorHook(hooks).beforeExecute?.(decisionContextOf({
         ...data,
         toolCalls: [data.toolCall],

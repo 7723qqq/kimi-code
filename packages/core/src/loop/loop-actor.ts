@@ -333,6 +333,7 @@ class LoopActor implements Loop {
   private readonly decorateTurnRequester?: CreateLoopOptions['decorateTurnRequester'];
   private readonly completionFactory?: CreateLoopOptions['completionMessage'];
   private readonly shouldQueueTaskNotification?: CreateLoopOptions['shouldQueueTaskNotification'];
+  private readonly llmObserver?: CreateLoopOptions['llmObserver'];
   private readonly abortGraceMs: number;
   private readonly onListenerError?: CreateLoopOptions['onListenerError'];
   private phase: 'idle' | 'running' | 'closed' = 'idle';
@@ -382,6 +383,7 @@ class LoopActor implements Loop {
     this.decorateTurnRequester = options.decorateTurnRequester;
     this.completionFactory = options.completionMessage;
     this.shouldQueueTaskNotification = options.shouldQueueTaskNotification;
+    this.llmObserver = options.llmObserver;
     this.abortGraceMs = options.abortGraceMs ?? 2_500;
     this.onListenerError = options.onListenerError;
     this.hook = options.hook ?? {};
@@ -457,7 +459,7 @@ class LoopActor implements Loop {
       event: event as LoopRecord,
     });
     this.seq += 1;
-    if (event.type === 'context.settled') this.revision += 1;
+    if (event.type === 'context.settled' && event.reason !== 'append') this.revision += 1;
     this.events.push(event);
     return event;
   }
@@ -861,7 +863,10 @@ class LoopActor implements Loop {
       this.kick();
       return ack;
     }
-    const promptIds = input as readonly string[];
+    this.sendNowQueued(input as readonly string[]);
+  }
+
+  sendNowQueued(promptIds: readonly string[]): void {
     this.check({ type: 'input.steer', promptIds });
     if (!this.open()) return;
     const ids = new Set(promptIds);
@@ -1522,10 +1527,13 @@ class LoopActor implements Loop {
     const outcome = runLoopRequest(
       requester,
       {
+        turnId: turn.id,
+        step: turn.step,
         messages: [...this.durable.messages],
         profile,
         policy: this.policy.asPolicy(),
         signal: step.scope.signal,
+        ...(this.llmObserver === undefined ? {} : { observer: this.llmObserver }),
       },
       (event) => {
         this.post({ type: 'llm.progress', turn, step, event });
@@ -1537,7 +1545,6 @@ class LoopActor implements Loop {
 
   private requestProgress(turn: LiveTurn, step: StepState, event: LoopRequestProgress): void {
     if (!this.isCurrentStep(turn, step, 'requesting')) return;
-    if (turn.outcome?.type === 'aborted') return;
     if (event.type === 'llm.delta.request_id') this.requestId = event.requestId;
     if (event.type === 'llm.delta.part') {
       if (event.part.type === 'function' || event.part.type === 'tool_call_part') {
@@ -1548,6 +1555,10 @@ class LoopActor implements Loop {
           ? { role: 'assistant', content: [part], toolCalls: [], attributes: { partial: true } }
           : { ...step.partialMessage, content: [...step.partialMessage.content, part] };
       }
+    }
+    if (turn.outcome?.type === 'aborted') {
+      if (event.type === 'llm.delta.part') this.record(event);
+      return;
     }
     if (event.type === 'llm.retry') {
       const message = event.message;
@@ -1570,7 +1581,7 @@ class LoopActor implements Loop {
     this.record({ type: 'llm.ended', outcome });
     const message = outcome.message;
     if (outcome.type === 'aborted') {
-      const preserved = step.partialMessage;
+      const preserved = step.partialMessage ?? message;
       if (preserved !== undefined && preserved !== null) {
         const content = preserved.content.filter(meaningfulPart);
         if (content.length > 0) {
@@ -2064,7 +2075,11 @@ class LoopActor implements Loop {
       : draft;
     const stopsTurn = draft.type === 'done' && draft.cause?.reason === 'stop_turn';
     if (stopsTurn) {
-      this.mailbox.dropPendingNotify();
+      for (const message of this.mailbox.takeNotify()) {
+        if (message.attributes?.bypassMaxSteps === true) {
+          turn.pending.push({ kind: 'notify', message });
+        }
+      }
       turn.pending = turn.pending.filter(
         (item) => item.kind !== 'notify' || item.message.attributes?.bypassMaxSteps === true,
       );

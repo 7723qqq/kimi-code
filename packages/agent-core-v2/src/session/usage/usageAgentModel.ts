@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
-import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import type { UsageStatus } from '#/agent/usage/usage';
+import type { AgentLLMRequestSource, UsageStatus } from '#/agent/usage/usage';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import {
   copyUsage,
@@ -9,8 +8,8 @@ import {
   type UsageModelState,
   type UsageRecordScope,
 } from '#/agent/usage/usageOps';
+import { addUsage, type TokenUsage } from '#human/llm/usage';
 import { AgentModel, defineAgentModel, type AgentModelContext } from '#/state/agentModel';
-import { addUsage, type TokenUsage } from '#/agent/usage/usage';
 
 export interface UsageRecordInput {
   readonly model: string;
@@ -33,7 +32,11 @@ export class UsageAgentModel extends AgentModel<UsageModelState> {
 
   record(input: UsageRecordInput): Promise<boolean> {
     const firstRecord = Object.keys(this.state.byModel).length === 0;
-    const usageScope: UsageRecordScope = input.source?.type === 'turn' ? 'turn' : 'session';
+    const usageScope: UsageRecordScope = input.source?.type === 'turn'
+      ? 'turn'
+      : input.source?.type === 'operation' && input.source.requestKind === 'prompt_prediction'
+        ? 'prediction'
+        : 'session';
     const recorded = this.emit(
       new UsageRecord({
         agentId: this.agent.agentId,

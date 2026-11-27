@@ -177,7 +177,9 @@ export {
   createUserMessage,
   isToolDeclarationOnlyMessage,
   mergeInPlace,
+  fromCoreMessage,
   normalizeThinkingTags,
+  toLlmMessage,
   type Message,
 } from '#/llm-adapter/contract/message';
 export {
@@ -821,10 +823,7 @@ export * from '#/agent/progressTrack/progressTrackerService';
 export * from '#/agent/goal/judge/goalJudgeService';
 export * from '#/agent/fullCompaction/contextRecovery';
 export * from '#/agent/fullCompaction/compactionInstruction';
-export * from '#/agent/llmRequester/llmRequester';
-export * from '#/agent/llmRequester/llmRequesterService';
 export * from '#/agent/loop/llmRequestOps';
-import '#/agent/llmRequester/configSection';
 export * from '#/_base/utils/errorMessage';
 export * from '#/_base/utils/promise';
 export * from '#/_base/utils/retry';

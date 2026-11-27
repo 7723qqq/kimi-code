@@ -1,6 +1,7 @@
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Emitter, type Event } from '#/_base/event';
 import { ILogService, type ILogger } from '#/_base/log/log';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
@@ -153,6 +154,11 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   declare readonly _serviceBrand: undefined;
 
   private optionsValue: ProfileServiceOptions = {};
+  private readonly _onDidDispatchChange = this._register(
+    new Emitter<ProfileBind | ConfigUpdate | ToolsSetActiveTools>('profileDispatchChange'),
+  );
+  readonly onDidDispatchChange: Event<ProfileBind | ConfigUpdate | ToolsSetActiveTools> =
+    this._onDidDispatchChange.event;
 
   private get activeToolNames(): ActiveToolsState {
     return (
@@ -282,7 +288,9 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       this.activeProfile = undefined;
     }
     if (Object.keys(configChanged).length > 0) {
-      void this.dispatcher.dispatch(new ConfigUpdate(this.resolveConfigPayload(configChanged)));
+      const event = new ConfigUpdate(this.resolveConfigPayload(configChanged));
+      void this.dispatcher.dispatch(event);
+      this._onDidDispatchChange.fire(event);
       this.afterConfigDispatchInternal(configChanged);
     }
     if (activeToolNames !== undefined) {
@@ -295,21 +303,21 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     this.activeToolNamesOverlay = undefined;
     const agentsMdPaths =
       snapshot.agentsMdPaths ?? extractAgentsMdPathsFromSystemPrompt(snapshot.systemPrompt);
-    void this.dispatcher.dispatch(
-      new ProfileBind({
-        agentId: this.scopeContext.agentId,
-        modelAlias: snapshot.modelAlias,
-        profileName: snapshot.profileName,
-        thinkingEffort: snapshot.thinkingLevel,
-        systemPrompt: snapshot.systemPrompt,
-        environmentDisclosure: snapshot.environmentDisclosure,
-        renderGeneration: snapshot.renderGeneration,
-        agentsMdPaths,
-        activeToolNames: snapshot.activeToolNames,
-        disallowedTools: snapshot.disallowedTools ?? [],
-        subagents: snapshot.subagents,
-      }),
-    );
+    const event = new ProfileBind({
+      agentId: this.scopeContext.agentId,
+      modelAlias: snapshot.modelAlias,
+      profileName: snapshot.profileName,
+      thinkingEffort: snapshot.thinkingLevel,
+      systemPrompt: snapshot.systemPrompt,
+      environmentDisclosure: snapshot.environmentDisclosure,
+      renderGeneration: snapshot.renderGeneration,
+      agentsMdPaths,
+      activeToolNames: snapshot.activeToolNames,
+      disallowedTools: snapshot.disallowedTools ?? [],
+      subagents: snapshot.subagents,
+    });
+    void this.dispatcher.dispatch(event);
+    this._onDidDispatchChange.fire(event);
     this.afterConfigDispatchInternal({
       modelAlias: snapshot.modelAlias,
       profileName: snapshot.profileName,
@@ -662,7 +670,10 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   }
 
   getModelWireName(): string | undefined {
-    return this.tryResolveRawModel()?.name;
+    const model = this.tryResolveRawModel();
+    return model === undefined
+      ? undefined
+      : (model.name ?? (model as { readonly spec?: { readonly name?: string } }).spec?.name);
   }
 
   async refreshActiveTools(): Promise<void> {
@@ -773,9 +784,9 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       );
       return;
     }
-    void this.dispatcher.dispatch(
-      new ToolsSetActiveTools({ agentId: this.scopeContext.agentId, names: [...names] }),
-    );
+    const event = new ToolsSetActiveTools({ agentId: this.scopeContext.agentId, names: [...names] });
+    void this.dispatcher.dispatch(event);
+    this._onDidDispatchChange.fire(event);
   }
 
   private emitStatusUpdated(includeThinkingEffort = false): void {
@@ -786,8 +797,9 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     }
     const modelAlias = this.modelAlias;
     if (modelAlias === undefined) return;
-    const capabilities = this.tryResolveRawModel()?.capabilities;
-    const maxContextTokens = capabilities?.max_input_tokens ?? capabilities?.max_context_tokens;
+    const model = this.tryResolveRawModel();
+    const spec = model === undefined ? undefined : toLlmModelSpec(model);
+    const maxContextTokens = spec?.maxInputSize ?? spec?.maxContextSize;
     void this.dispatcher.dispatch(
       new AgentStatusUpdated({
         agentId: this.scopeContext.agentId,
@@ -1211,25 +1223,33 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
 function capabilityOf(model: Model | undefined): ModelCapability {
   if (model === undefined) return UNKNOWN_CAPABILITY;
-  const capability = fromLlmModelSpec(toLlmModelSpec(model));
-  return model.capabilities.pdf_in === undefined
-    ? capability
-    : { ...capability, pdf_in: model.capabilities.pdf_in };
+  const spec = toLlmModelSpec(model);
+  const capability = fromLlmModelSpec(spec);
+  const pdfIn = model.capabilities?.pdf_in;
+  return pdfIn === undefined ? capability : { ...capability, pdf_in: pdfIn };
 }
 
 function toLlmModelSpec(model: Model): LlmModelSpec {
+  const spec = (model as { readonly spec?: LlmModelSpec }).spec;
+  if (spec !== undefined) {
+    return {
+      ...spec,
+      provider: spec.provider || model.providerType || '',
+    };
+  }
+  const capabilities = model.capabilities ?? UNKNOWN_CAPABILITY;
   return {
     provider: model.providerType ?? '',
-    name: model.name,
-    capability: toLlmCapability(model.capabilities),
+    name: model.name ?? '',
+    capability: toLlmCapability(capabilities),
     thinking: {
       supportEfforts: model.supportEfforts,
       defaultEffort: model.defaultEffort,
       alwaysThinking: model.alwaysThinking,
       adaptiveThinking: model.adaptiveThinking,
     },
-    maxContextSize: model.capabilities.max_context_tokens,
-    maxInputSize: model.capabilities.max_input_tokens,
+    maxContextSize: capabilities.max_context_tokens,
+    maxInputSize: capabilities.max_input_tokens,
   };
 }
 

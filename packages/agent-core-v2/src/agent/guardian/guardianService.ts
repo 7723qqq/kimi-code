@@ -3,12 +3,13 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { runOperationRequest } from '#/agent/loop/operationRequest';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
-import type { Message } from '#/llm-adapter/contract/message';
+import type { Message } from '@moonshot-ai/core/llm/message';
 
 export const GUARDIAN_REVIEW_MAX_TOKENS = 256;
 export const GUARDIAN_CIRCUIT_CONSECUTIVE_DENIALS = 3;
@@ -75,7 +76,7 @@ export class GuardianService extends Disposable implements IAgentGuardianService
   private circuitReason = '';
 
   constructor(
-    @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
+    @IAgentLoopService private readonly loopService: IAgentLoopService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IEventBus private readonly eventBus: IEventBus,
   ) {
@@ -100,21 +101,15 @@ export class GuardianService extends Disposable implements IAgentGuardianService
     const messages = this.buildReviewMessages(ctx);
     let text: string;
     try {
-      const request = this.llmRequester.start(
+      const finish = await runOperationRequest(
+        this.loopService.requester,
         {
           messages,
-          maxOutputSize: GUARDIAN_REVIEW_MAX_TOKENS,
-          source: {
-            type: 'operation',
-            turnId: ctx.turnId,
-            requestKind: 'guardian_review',
-            logFields: {},
-          },
+          maxOutputTokens: this.loopService.resolveMaxOutputTokens(GUARDIAN_REVIEW_MAX_TOKENS),
+          attributes: { kind: 'guardian_review', turnId: ctx.turnId },
         },
-        undefined,
-        signal,
+        { signal },
       );
-      const finish = await request.result;
       text = finish.message.content
         .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
         .map((part) => part.text)
@@ -179,8 +174,8 @@ export class GuardianService extends Disposable implements IAgentGuardianService
       'Assess this action now. Output ONLY the JSON verdict.',
     ].join('\n');
     return [
-      { role: 'system', content: [{ type: 'text', text: GUARDIAN_SYSTEM_PROMPT }], toolCalls: [] },
-      { role: 'user', content: [{ type: 'text', text: userText }], toolCalls: [] },
+      { role: 'system', content: [{ type: 'text', text: GUARDIAN_SYSTEM_PROMPT }] },
+      { role: 'user', content: [{ type: 'text', text: userText }] },
     ];
   }
 

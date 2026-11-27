@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (42 sections · 3 overlay(s))
+# Index (41 sections · 3 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
@@ -25,7 +25,6 @@
 #   hosts                    src/app/hostsConfig/configSection.ts
 #   identity                 src/app/agentIdentity/configSection.ts
 #   image                    src/agent/media/configSection.ts
-#   llmRequester             src/agent/llmRequester/configSection.ts
 #   loopControl              src/agent/loop/configSection.ts
 #   lsp                      src/features/lsp/configSection.ts
 #   mcp                      src/app/mcpConfig/configSection.ts
@@ -268,18 +267,6 @@ extra_skill_dirs = []
 [image]
 # max_edge_px: integer
 # read_byte_budget: integer
-
-# ##########################################################################
-# llmRequester (config.toml: llm_requester)
-#   owner: src/agent/llmRequester/configSection.ts
-#   scope: core
-#   hooks: stripEnv
-#   env:
-#     request_byte_budget <- KIMI_LLM_REQUEST_BYTE_BUDGET (custom parse)
-# ##########################################################################
-
-[llm_requester]
-# request_byte_budget: integer
 
 # ##########################################################################
 # loopControl (config.toml: loop_control)

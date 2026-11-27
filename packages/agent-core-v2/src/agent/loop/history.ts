@@ -34,9 +34,9 @@ function historyEntryFromContextWithOptions(
       return {
         role: 'system',
         content: entry.content,
-        ...(entry.tools === undefined ? {} : { tools: entry.tools }),
+        ...(entry.tools === undefined ? {} : { tools: [...entry.tools] }),
         ...(attributes === undefined ? {} : { attributes }),
-      } as any;
+      };
     }
     case 'user': {
       const attributes = compactAttributes<UserMessageAttributes>({
@@ -47,20 +47,20 @@ function historyEntryFromContextWithOptions(
         role: 'user',
         content: entry.content,
         ...(attributes === undefined ? {} : { attributes }),
-      } as any;
+      };
     }
     case 'assistant': {
       const attributes = compactAttributes<AssistantMessageAttributes>({
         ...base,
         messageId: entry.providerMessageId,
-        usage: (entry.usage ?? (entry.partial === true ? undefined : emptyUsage())) as any,
+        usage: entry.usage ?? (entry.partial === true ? undefined : emptyUsage()),
       });
       return {
         role: 'assistant',
         content: entry.content,
         toolCalls: entry.toolCalls,
         ...(attributes === undefined ? {} : { attributes }),
-      } as any;
+      };
     }
     case 'tool': {
       const attributes = compactAttributes<ToolMessageAttributes>({
@@ -77,9 +77,9 @@ function historyEntryFromContextWithOptions(
       return {
         role: 'tool',
         content,
-        toolCallId: entry.toolCallId,
+        toolCallId: entry.toolCallId ?? '',
         ...(attributes === undefined ? {} : { attributes }),
-      } as any;
+      };
     }
   }
 }
@@ -133,7 +133,6 @@ export function contextFromHistoryEntry(
     Object.entries({
       ...coreMessage,
       content,
-      toolCalls: entry.role === 'assistant' ? entry.toolCalls : [],
       id: attributes?.promptId ?? legacy.id,
       origin: attributes?.origin ?? legacy.origin,
       providerMessageId: attributes?.messageId ?? legacy.providerMessageId,
@@ -145,5 +144,5 @@ export function contextFromHistoryEntry(
       durationMs: attributes?.durationMs ?? legacy.durationMs,
       toolCallDisplays: displays,
     }).filter(([, value]) => value !== undefined),
-  ) as unknown as ContextMessage;
+  ) as ContextMessage;
 }

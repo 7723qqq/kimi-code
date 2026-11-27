@@ -2,6 +2,7 @@ import {
   agentContextOf,
   Error2,
   ErrorCodes,
+  fromCoreMessage,
   getOrRestoreAgent,
   IAgentLoopService,
   IAgentProfileService,
@@ -11,7 +12,7 @@ import {
   type PromptOrigin,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import type { ContentPart, Message } from '@moonshot-ai/core/llm/message';
+import type { ContentPart, Message, ToolCall } from '@moonshot-ai/core/llm/message';
 import { z } from 'zod';
 
 import { okEnvelope } from '../envelope';
@@ -216,12 +217,19 @@ interface MessageSegment {
   readonly source: SegmentSource;
 }
 
+interface FlatAssistantMessage {
+  readonly role: 'assistant';
+  readonly content: ContentPart[];
+  readonly toolCalls: ToolCall[];
+}
+
 function assistantSegments(
-  message: Extract<Message, { role: 'assistant' }>,
+  source: Extract<Message, { role: 'assistant' }>,
   index: number,
   estimator: Pick<ISessionTokenCountingService, 'estimateMessage'>,
 ): MessageSegment[] {
-  const bare: Extract<Message, { role: 'assistant' }> = { role: 'assistant', content: [], toolCalls: [] };
+  const message = fromCoreMessage(source) as FlatAssistantMessage;
+  const bare: FlatAssistantMessage = { role: 'assistant', content: [], toolCalls: [] };
   const overhead = estimator.estimateMessage(bare);
   const segments = [
     ...message.content.map((part, partIndex): MessageSegment => ({

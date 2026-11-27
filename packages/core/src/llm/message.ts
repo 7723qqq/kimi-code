@@ -504,8 +504,8 @@ export function mergeInPlace(target: StreamedMessagePart, source: StreamedMessag
     }
     if (!samePartIdentity(target, source)) return false;
     target.text += source.text;
-    target.contentType ??= source.contentType;
-    target.meta ??= source.meta;
+    if (source.contentType !== undefined) target.contentType ??= source.contentType;
+    if (source.meta !== undefined) target.meta ??= source.meta;
     return true;
   }
 
@@ -517,8 +517,8 @@ export function mergeInPlace(target: StreamedMessagePart, source: StreamedMessag
     if (!samePartIdentity(target, source)) return false;
     target.think += source.think;
     if (source.encrypted !== undefined) target.encrypted = source.encrypted;
-    target.contentType ??= source.contentType;
-    target.meta ??= source.meta;
+    if (source.contentType !== undefined) target.contentType ??= source.contentType;
+    if (source.meta !== undefined) target.meta ??= source.meta;
     return true;
   }
 

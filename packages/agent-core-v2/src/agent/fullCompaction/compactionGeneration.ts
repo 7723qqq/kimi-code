@@ -3,10 +3,15 @@ import {
   APIEmptyResponseError,
   isRetryableGenerateError,
 } from '#/llm-adapter/contract/errors';
-import { createUserMessage, type Message, type ToolDescription } from '#/llm-adapter/contract/message';
+import { createUserMessage, type Message } from '#/app/llmProtocol/message';
+import type { ToolDescription as CoreToolDescription } from '@moonshot-ai/core/llm/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import type { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
+import type { FullLoopLlmRequester } from '@moonshot-ai/core/loop/index';
+import type { LlmRequestModel } from '@moonshot-ai/core/llm/request';
+import { historyFromContext } from '#/agent/loop/history';
+import { runOperationRequest } from '#/agent/loop/operationRequest';
 import { unwrapErrorCause } from '#/errors';
+import { usageFromCore } from '#human/llm/usage';
 
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
@@ -34,9 +39,10 @@ export interface CompactionGenerationDeps {
   readonly compactionMaxOutputSize: number | undefined;
   readonly originTurnId: number | undefined;
   readonly tokenProfile: HistoryTokenProfile;
-  readonly tools?: readonly ToolDescription[];
+  readonly tools?: readonly CoreToolDescription[];
   readonly getEffectiveMaxContextTokens: () => number;
-  readonly llmRequester: IAgentLLMRequesterService;
+  readonly llmRequester: FullLoopLlmRequester;
+  readonly resolveMaxOutputTokens: (maxOutputSize?: number) => LlmRequestModel['maxOutputTokens'];
   readonly shouldRecoverFromContextOverflow: (error: unknown, estimatedTokens: number) => boolean;
   readonly observeContextOverflow: (estimatedTokens: number) => void;
   readonly setTrace: (trace: LLMRequestTrace) => void;
@@ -62,6 +68,7 @@ export async function generateCompactionSummary(
     tools,
     getEffectiveMaxContextTokens,
     llmRequester,
+    resolveMaxOutputTokens,
     shouldRecoverFromContextOverflow,
     observeContextOverflow,
     setTrace,
@@ -92,25 +99,30 @@ export async function generateCompactionSummary(
 
     try {
       const runRequest = async () => {
-        const request = llmRequester.start(
+        const outcome = await runOperationRequest(
+          llmRequester,
           {
-            messages,
-            tools,
-            maxOutputSize: compactionMaxOutputSize,
+            messages: historyFromContext(messages),
+            profile: tools === undefined
+              ? undefined
+              : { tools },
+            maxOutputTokens: resolveMaxOutputTokens(compactionMaxOutputSize),
             usedContextTokens,
-            promptCacheProbe: cacheProbePending ? 'compaction' : undefined,
-            source: {
-              type: 'operation',
-              turnId: originTurnId,
-              requestKind: 'full_compaction',
+            attributes: {
+              kind: 'compaction',
+              ...(originTurnId === undefined ? {} : { turnId: originTurnId }),
               logFields: { droppedCount },
+              ...(cacheProbePending ? { promptCacheProbe: 'compaction' as const } : {}),
             },
           },
-          undefined,
-          signal,
+          { signal, onRequestId: (requestId) => setTrace({ requestId }) },
         );
-        setTrace(request.trace);
-        return request.result;
+        return {
+          message: outcome.message,
+          usage: usageFromCore(outcome.usage),
+          traceId: outcome.requestId,
+          providerFinishReason: outcome.finish?.finishReason ?? undefined,
+        };
       };
       const result = await runRequest();
       cacheProbePending = false;

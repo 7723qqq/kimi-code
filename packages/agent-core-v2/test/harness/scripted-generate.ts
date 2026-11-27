@@ -1,7 +1,10 @@
 import {
   isContentPart,
+  isMediaPart,
   isToolCall,
   isToolCallPart,
+  mediaOmissionOf,
+  mediaPlaceholderText,
   type AssistantMessage,
   type Message,
   type StreamedMessagePart,
@@ -24,11 +27,16 @@ import {
   type InitializedLlmRequester,
   type LlmRequestPart,
 } from '@moonshot-ai/core/llm/requester';
-import type { FinishReason } from '@moonshot-ai/core/llm/response';
+import type {
+  FinishReason,
+  LlmRemoteErrorMessage,
+  LlmRunEvent,
+} from '@moonshot-ai/core/llm/response';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
+import type { Protocol as CoreProtocol, LlmModule as CoreLlmModule } from '@moonshot-ai/core/llm/protocol/protocol';
 import { isError2 } from '#/_base/errors/errors';
 import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
-import { ChatProviderError, errorFromLlmMessage, llmMessageFromError } from '#/llm-adapter/contract/errors';
+import { APIStatusError, ChatProviderError, errorFromLlmMessage, isImageFormatError, llmMessageFromError } from '#/llm-adapter/contract/errors';
 
 import {
   generateInputSnapshot,
@@ -45,6 +53,7 @@ import type {
   LlmRequestConfig,
   LlmRequestContent,
   LlmRequestControl,
+  LlmRequestEvent,
   LlmRequester,
 } from '#human/llm/requester/requester';
 import type { ThinkingRequestOptions } from '#human/llm/thinking';
@@ -101,6 +110,19 @@ export interface MockProvider {
   readonly fetch: typeof fetch;
 }
 
+function materializeOmittedMedia(messages: readonly CoreLlmModule['content']['messages'][number][]) {
+  return messages.map(({ attributes: _attributes, ...message }) => ({
+    ...message,
+    content: message.content.map((part) => {
+      if (!isMediaPart(part)) return part;
+      const omitted = mediaOmissionOf(part);
+      if (omitted === undefined) return part;
+      const kind = part.type === 'image_url' ? 'image' : part.type === 'video_url' ? 'video' : 'audio';
+      return { type: 'text' as const, text: mediaPlaceholderText(kind, omitted) };
+    }),
+  }));
+}
+
 export function generateCallFromRequest(request: LlmRequest): GenerateCall {
   return normalizeGenerateInput({
     systemPrompt: request.profile?.systemPrompt ?? '',
@@ -109,9 +131,7 @@ export function generateCallFromRequest(request: LlmRequest): GenerateCall {
       description,
       parameters,
     })),
-    history: structuredClone(
-      request.content.messages.map(({ attributes: _attributes, ...message }) => message),
-    ) as unknown as GenerateCall['history'],
+    history: structuredClone(materializeOmittedMedia(request.content.messages)) as unknown as GenerateCall['history'],
   });
 }
 
@@ -142,6 +162,12 @@ export function providerHttpError(
   return { httpError: { statusCode, message, ...options } };
 }
 
+function wrapDirectUnretryableError(error: Error): Error {
+  return Object.assign(error, { [DIRECT_UNRETRYABLE]: true });
+}
+
+const DIRECT_UNRETRYABLE = Symbol('directUnretryable');
+
 export function createMockProviderRequester(
   input: MockProviderHandler | readonly (MockProviderResponse | Error)[],
 ): InitializedLlmRequester {
@@ -150,7 +176,7 @@ export function createMockProviderRequester(
     if (responses === undefined) return (input as MockProviderHandler)(request, signal);
     const response = responses.shift();
     if (response instanceof Error) throw response;
-    if (response === undefined) throw new Error('Unexpected provider request');
+    if (response === undefined) throw wrapDirectUnretryableError(new Error('Unexpected provider request'));
     return response;
   });
   return withMockProvider(
@@ -223,6 +249,229 @@ function mockAttemptResolver(provider: MockProvider): LlmResolver {
   };
 }
 
+export function withLegacyLlmRequester(
+  initial: InitializedLlmRequester,
+  legacy: LlmRequester,
+): InitializedLlmRequester {
+  return {
+    [requesterContents]: contentsOf(initial),
+    with: ((part: LlmRequestPart) =>
+      withLegacyLlmRequester(initial.with(part as never), legacy)) as InitializedLlmRequester['with'],
+    request: (rest): LlmRequest => initial.request(rest),
+    generate: async (rest, control) => {
+      const prepared = initial.with(rest);
+      const req = prepared.request({});
+      const origBase = req.protocol.base as CoreProtocol;
+      const protocolName = req.protocol.name ?? '';
+      const base = createLegacyProtocolBase(protocolName, origBase, legacy, control.onEvent);
+      return prepared.with({ protocol: { base } }).generate({}, control);
+    },
+  };
+}
+
+interface EncodedLegacyRequest {
+  readonly config: LlmRequestConfig;
+  readonly content: LlmRequestContent;
+}
+
+function createLegacyProtocolBase(
+  protocolName: string,
+  origBase: CoreProtocol,
+  legacy: LlmRequester,
+  onRunEvent?: (event: LlmRunEvent) => void,
+): CoreProtocol {
+  return {
+    media: origBase.media,
+    toolCallId: origBase.toolCallId,
+    capability: origBase.capability,
+    encode: (module: CoreLlmModule): EncodedLegacyRequest => {
+      const sampling = module.model.sampling;
+      const extraParams: ExtraParams | undefined =
+        sampling === undefined
+          ? undefined
+          : {
+              openai: { temperature: sampling.temperature, top_p: sampling.topP },
+              anthropic: { temperature: sampling.temperature, top_p: sampling.topP },
+            };
+      const maxOutput = module.model.maxOutputTokens;
+      const capOverride = (module.options as { readonly maxCompletionTokensCap?: number } | undefined)
+        ?.maxCompletionTokensCap;
+      const cacheKey = (module.options as { readonly prompt_cache_key?: string } | undefined)
+        ?.prompt_cache_key;
+      const config: LlmRequestConfig = {
+        model: {
+          provider: protocolName === 'anthropic' ? 'anthropic' : module.model.spec.provider,
+          model: module.model.spec.name,
+        } as unknown as LlmRequestConfig['model'],
+        systemPrompt: module.profile.systemPrompt,
+        tools: module.profile.tools as unknown as readonly Tool[] | undefined,
+        maxCompletionTokens:
+          typeof maxOutput === 'number'
+            ? maxOutput
+            : maxOutput === 'none'
+              ? capOverride
+              : undefined,
+        maxContextTokens: module.model.spec.maxContextSize,
+        thinking: module.model.thinking as ThinkingRequestOptions | undefined,
+        extraParams,
+        cacheKey,
+      };
+      const content: LlmRequestContent = {
+        messages: materializeOmittedMedia(module.content.messages) as unknown as LlmRequestContent['messages'],
+        usedContextTokens: module.content.usedTokens,
+      };
+      return { config, content };
+    },
+    requestId: origBase.requestId ?? ((headers) => {
+      for (const target of ['x-request-id', 'x-trace-id']) {
+        for (const [key, value] of Object.entries(headers)) {
+          if (key.toLowerCase() === target && value.length > 0) return value;
+        }
+      }
+      return undefined;
+    }),
+    client: (resolvedEndpoint) => resolvedEndpoint,
+    send: async () => {
+      throw new Error('non-streaming send is not used by test legacy bridge');
+    },
+    replay: () => [],
+    sendStream: async (client, encoded: EncodedLegacyRequest, signal) => {
+      const apiKey = (client as { readonly apiKey?: string } | undefined)?.apiKey;
+      const config: LlmRequestConfig =
+        apiKey === undefined
+          ? encoded.config
+          : { ...encoded.config, model: { ...encoded.config.model, apiKey } };
+      const queue: LlmRequestEvent[] = [];
+      let receivedHeaders: Record<string, string> | undefined;
+      let headersSettled = false;
+      let ended = false;
+      let failure: unknown;
+      let hasFailure = false;
+      let notify: (() => void) | undefined;
+      let notifyHeaders: (() => void) | undefined;
+      const wake = (): void => {
+        const current = notify;
+        notify = undefined;
+        current?.();
+        const headerWaiter = notifyHeaders;
+        notifyHeaders = undefined;
+        headerWaiter?.();
+      };
+      void legacy
+        .generate(config, encoded.content, {
+          signal,
+          onEvent: (event) => {
+            if (event.type === 'llm.streaming.headers') {
+              receivedHeaders = event.headers;
+              headersSettled = true;
+              const reqId =
+                event.headers['x-trace-id'] ??
+                event.headers['x-request-id'] ??
+                Object.entries(event.headers).find(
+                  ([key]) => key.toLowerCase() === 'x-trace-id' || key.toLowerCase() === 'x-request-id',
+                )?.[1];
+              if (reqId !== undefined && reqId.length > 0) {
+                onRunEvent?.({ type: 'llm.delta.request_id', requestId: reqId });
+              }
+              wake();
+              return;
+            }
+            headersSettled = true;
+            queue.push(event);
+            wake();
+          },
+        })
+        .then(
+          () => {
+            headersSettled = true;
+            ended = true;
+            wake();
+          },
+          (error: unknown) => {
+            headersSettled = true;
+            hasFailure = true;
+            failure = error;
+            ended = true;
+            const errorMsg = llmMessageFromError(error);
+            const traceId =
+              errorMsg !== undefined && 'headers' in errorMsg
+                ? errorMsg.headers?.['x-trace-id'] ?? errorMsg.headers?.['x-request-id']
+                : undefined;
+            const reqId =
+              (errorMsg !== undefined && 'requestId' in errorMsg ? errorMsg.requestId : undefined) ??
+              traceId;
+            if (typeof reqId === 'string' && reqId.length > 0) {
+              onRunEvent?.({ type: 'llm.delta.request_id', requestId: reqId });
+            }
+            wake();
+          },
+        );
+      while (!headersSettled && !ended && queue.length === 0) {
+        await new Promise<void>((resolve) => {
+          notifyHeaders = resolve;
+        });
+      }
+      if (hasFailure && queue.length === 0) {
+        throw failure;
+      }
+      const stream: AsyncIterable<LlmRequestEvent> = {
+        [Symbol.asyncIterator]: () => ({
+          next: async () => {
+            for (;;) {
+              if (queue.length > 0) {
+                return { value: queue.shift()!, done: false };
+              }
+              if (hasFailure) throw failure;
+              if (ended) return { value: undefined, done: true };
+              await new Promise<void>((resolve) => {
+                notify = resolve;
+              });
+            }
+          },
+        }),
+      };
+      return { headers: receivedHeaders, body: stream };
+    },
+    decoder: (_module, sink) => ({
+      push: (chunk: LlmRequestEvent) => {
+        switch (chunk.type) {
+          case 'llm.streaming.part':
+            sink.onDelta(chunk.part);
+            break;
+          case 'llm.streaming.usage':
+            sink.onUsage(chunk.usage as Partial<TokenUsage>);
+            break;
+          case 'llm.streaming.finish':
+            sink.onFinish(chunk.finish as never);
+            break;
+          case 'llm.streaming.message_id':
+            sink.onMessageId(chunk.messageId);
+            break;
+          case 'llm.failed.remote':
+            sink.onError(chunk.error as LlmRemoteErrorMessage);
+            break;
+          default:
+            break;
+        }
+      },
+      end: () => {},
+    }),
+    decodeError: (error, source): LlmRemoteErrorMessage => {
+      const legacyMsg = llmMessageFromError(error);
+      if (legacyMsg !== undefined) {
+        if (legacyMsg.kind === 'status' && isImageFormatError(error)) {
+          return { ...legacyMsg, kind: 'image_format' } as LlmRemoteErrorMessage;
+        }
+        return legacyMsg as LlmRemoteErrorMessage;
+      }
+      if (error instanceof Error && !(error instanceof ChatProviderError)) {
+        return { kind: 'provider', message: error.message, retryable: false };
+      }
+      return origBase.decodeError(error, source);
+    },
+  };
+}
+
 export function withMockProvider(
   initial: InitializedLlmRequester,
   provider: MockProvider,
@@ -253,14 +502,31 @@ export function withMockProvider(
         try {
           return await provider.fetch(input, init);
         } catch (error) {
-          if (isError2(error) && !(error instanceof ChatProviderError)) {
+          if (
+            (isError2(error) && !(error instanceof ChatProviderError)) ||
+            (error instanceof Error && DIRECT_UNRETRYABLE in error)
+          ) {
             directError = error;
             directAbort.abort(error);
           }
           throw error;
         }
       }) as unknown as typeof fetch;
-      const outcome = await initial.with(rest).with({ endpoint: { fetch: interceptFetch } }).generate({}, {
+      const origBase = initial.with(rest).request({}).protocol.base as CoreProtocol;
+      const base: CoreProtocol = {
+        ...origBase,
+        decodeError: (error, source) => {
+          if (error instanceof Error && !(error instanceof ChatProviderError)) {
+            const msg = llmMessageFromError(error);
+            if (msg !== undefined) return msg as LlmRemoteErrorMessage;
+            if (error.constructor === Error) {
+              return { kind: 'provider', message: error.message, retryable: false };
+            }
+          }
+          return origBase.decodeError(error, source);
+        },
+      };
+      const outcome = await initial.with(rest).with({ endpoint: { fetch: interceptFetch }, protocol: { base } }).generate({}, {
         ...control,
         signal,
         onEvent: (event) => {
@@ -326,6 +592,28 @@ function mockProviderFetch(pending: Promise<PreparedAttempt>[]): typeof fetch {
         resolvedError = await Promise.resolve(attempt.error);
       } catch (caught) {
         resolvedError = caught;
+      }
+      if (resolvedError instanceof Error && DIRECT_UNRETRYABLE in resolvedError) {
+        throw resolvedError;
+      }
+      if (resolvedError instanceof APIStatusError) {
+        if (resolvedError.traceId !== null) headers.set('x-trace-id', resolvedError.traceId);
+        if (resolvedError.requestId !== null) headers.set('x-request-id', resolvedError.requestId);
+        if (resolvedError.retryAfterMs !== null) {
+          headers.set('retry-after-ms', String(resolvedError.retryAfterMs));
+        }
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: resolvedError.message,
+              type: 'provider_error',
+              code: resolvedError.statusCode,
+              status: googleErrorStatus(resolvedError.statusCode ?? 500),
+              requestId: resolvedError.requestId,
+            },
+          }),
+          { status: resolvedError.statusCode, headers },
+        );
       }
       throw mockProviderError(resolvedError);
     }
@@ -1067,6 +1355,24 @@ export function createScriptedGenerate() {
   const responses: ScriptedResponse[] = [];
   let assertedCallCount = 0;
 
+  const provider: MockProvider = createMockProvider((request) => {
+    const response = responses.shift();
+    if (response === undefined) {
+      throw wrapDirectUnretryableError(new Error(`Unexpected generate call #${String(calls.length + 1)}`));
+    }
+    calls.push(generateCallFromRequest(request));
+    return {
+      ...(response.parts === undefined ? {} : { parts: [...response.parts] }),
+      ...(response.traceId === undefined || response.traceId === null ? {} : { requestId: response.traceId }),
+      ...(response.usage === undefined ? {} : { usage: response.usage as Partial<TokenUsage> }),
+      ...(response.finishReason === undefined || response.finishReason === null ? {} : { finishReason: response.finishReason }),
+      ...(response.rawFinishReason === undefined || response.rawFinishReason === null ? {} : { rawFinishReason: response.rawFinishReason }),
+      ...(response.messageId === undefined ? {} : { id: response.messageId }),
+      ...(response.error === undefined ? {} : { error: response.error }),
+      ...(response.httpError === undefined ? {} : { httpError: response.httpError }),
+    };
+  });
+
   function mockNextResponse(...response: StreamedMessagePart[]) {
     responses.push({ parts: structuredClone(response) });
   }
@@ -1179,6 +1485,7 @@ export function createScriptedGenerate() {
 
   return {
     requester,
+    provider,
     calls,
     lastInput() {
       const pendingCount = calls.length - assertedCallCount;

@@ -2,6 +2,7 @@ import type { LlmRecovery, LlmRecoveryRecord } from '@moonshot-ai/core/llm/polic
 import type { LlmResolver } from '@moonshot-ai/core/llm/policy/resolver';
 import type { LlmRequest } from '@moonshot-ai/core/llm/request';
 
+import { contextFromHistoryEntry } from './history';
 import type { AgentLoopProjector } from './projector';
 
 export const STRUCTURE_RECOVERY_STRATEGY = 'structure';
@@ -24,7 +25,10 @@ function projectRequest(
     ...request,
     content: {
       ...request.content,
-      messages: projector.project(request.content.messages as never, strict) as never,
+      messages: projector.project(
+        request.content.messages.map((message) => contextFromHistoryEntry(message)),
+        strict,
+      ),
     },
   };
 }

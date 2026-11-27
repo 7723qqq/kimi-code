@@ -3,6 +3,8 @@ import type { MediaKind, Message, ToolDescription } from '@moonshot-ai/core/llm/
 import type { LlmPolicy } from '#/llm/policy/policy';
 import type { Protocol, ProtocolName } from '#/llm/protocol/protocol';
 
+export type LlmFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
 export interface ModelCapability {
   readonly image_in?: boolean;
   readonly video_in?: boolean;
@@ -127,7 +129,7 @@ export interface LlmEndpoint {
   readonly credentials?: LlmCredentialProvider;
   readonly defaultBaseUrl?: string;
   readonly clientFactory?: (endpoint: ResolvedEndpoint) => unknown;
-  readonly fetch?: typeof fetch;
+  readonly fetch?: LlmFetch;
   readonly files?: LlmFiles;
 }
 

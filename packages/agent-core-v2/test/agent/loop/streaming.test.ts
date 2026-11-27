@@ -85,7 +85,7 @@ describe('Agent loop — streaming callbacks', () => {
     const history = ctx.contextData().history;
     const assistant = history.find((message) => message.role === 'assistant');
     expect(assistant?.content).toEqual([
-      { type: 'think', think: 'pondering' },
+      { type: 'think', think: 'pondering', reasoningKey: 'reasoning_content' },
       { type: 'text', text: 'first second' },
     ]);
   });

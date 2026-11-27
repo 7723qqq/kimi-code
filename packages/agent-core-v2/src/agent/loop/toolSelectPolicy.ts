@@ -3,6 +3,7 @@ import type { ToolDescription } from '@moonshot-ai/core/llm/message';
 import { withProtocolCapabilities } from '@moonshot-ai/core/llm/protocol/rules/model';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
+import { contextFromHistoryEntry, historyFromContextPreservingToolNotes } from './history';
 
 function shapeToolSelectRequest(
   toolSelect: IAgentToolSelectService,
@@ -13,15 +14,10 @@ function shapeToolSelectRequest(
   const deferred = disclosure
     ? (base ?? []).filter((tool) => tool.deferred === true)
     : undefined;
-  const tools = toolSelect.requestTools(base as never, disclosure) as unknown as readonly ToolDescription[];
+  const tools = toolSelect.requestTools(base, disclosure);
   return {
     tools,
-    messages: toolSelect.shapeHistory(
-      messages as never,
-      disclosure,
-      tools as never,
-      deferred as never,
-    ) as unknown as readonly ContextMessage[],
+    messages: toolSelect.shapeHistory(messages, disclosure, tools, deferred),
   };
 }
 
@@ -29,7 +25,7 @@ export function createToolSelectResolver(toolSelect: IAgentToolSelectService): L
   return {
     id: 'tool-select',
     recoveryRequest: 'resolved',
-    resolve: async (request, ctl): Promise<any> => {
+    resolve: async (request, ctl) => {
       await toolSelect.prepareForRequest(ctl.signal);
       const capabilities =
         withProtocolCapabilities(request.model.spec, request.protocol.base).capability ?? {};
@@ -37,7 +33,7 @@ export function createToolSelectResolver(toolSelect: IAgentToolSelectService): L
       const view = shapeToolSelectRequest(
         toolSelect,
         request.profile?.tools,
-        request.content.messages as never,
+        request.content.messages.map((message) => contextFromHistoryEntry(message)),
         disclosure,
       );
       return {
@@ -48,7 +44,7 @@ export function createToolSelectResolver(toolSelect: IAgentToolSelectService): L
         },
         content: {
           ...request.content,
-          messages: view.messages,
+          messages: historyFromContextPreservingToolNotes(view.messages),
         },
       };
     },

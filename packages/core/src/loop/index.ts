@@ -4,11 +4,15 @@ export * from './contract/inbox';
 export * from './contract/outcome';
 export * from './contract/profile';
 export { createMaxStepsHook, MAX_STEPS_REASON } from '#/hook/loop/builtin';
-export type {
-  FullLoopLlmRequester,
-  LoopLlmRequester,
-  LoopRequester,
-  LoopRequestRuntime,
+export {
+  normalizeLlmOutcome,
+  outcomeForError,
+  type FullLoopLlmRequester,
+  type LoopLlmRequester,
+  type LoopLlmRunObservation,
+  type LoopLlmRunObserver,
+  type LoopRequester,
+  type LoopRequestRuntime,
 } from './request';
 export type { PolicyRegistry } from '@moonshot-ai/core/llm/policy/registry';
 export type { LoopInput, UnfinishedTurn } from './contract/command';

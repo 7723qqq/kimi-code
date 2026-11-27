@@ -8,7 +8,6 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
 import { closeTrailingOpenToolExchange } from '#/agent/contextMemory/openToolExchange';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
 import { historyFromContextPreservingToolNotes } from '#/agent/loop/history';
 import { TurnStarted } from '#/agent/loop/turnEvents';
@@ -33,7 +32,11 @@ import { IAgentTodoService } from '#/features/todo/todoService';
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAssociativeMemoryService } from '#/features/associativeMemory/service';
 import { OrderedHookSlot } from '#/hooks';
-import { APIContextOverflowError } from '#/llm-adapter/contract/errors';
+import {
+  APIContextOverflowError,
+  errorFromLlmMessage,
+  isLlmErrorMessage,
+} from '#/llm-adapter/contract/errors';
 import { toLlmMessage, type Message } from '#/llm-adapter/contract/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
@@ -122,7 +125,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @ISessionTokenCountingService private readonly tokenCounting: ISessionTokenCountingService,
-    @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
     @IAgentScopeContext private readonly agent: IAgentScopeContext,
@@ -287,11 +289,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   }
 
   private defaultTools(): readonly Tool[] {
-    const last = this.llmRequester.lastTurnRequest()?.tools;
-    if (last !== undefined) return last;
     const baseline = this.loopService.baselineTools();
     if (baseline.length > 0) return baseline;
-    return this.toolSelect.initialTools();
+    return this.toolSelect.defaultTools().length > 0 ? this.toolSelect.defaultTools() : this.toolSelect.initialTools();
   }
 
   private shouldRecoverFromContextOverflow(
@@ -300,7 +300,10 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   ): boolean {
     if (isCodedError(error) && error.code === ErrorCodes.CONTEXT_OVERFLOW) return true;
     if (isContextOverflowPayload(error)) return true;
-    const statusError = findAPIStatusError(error);
+    const normalized = isLlmErrorMessage(error as never)
+      ? errorFromLlmMessage(error as Parameters<typeof errorFromLlmMessage>[0])
+      : error;
+    const statusError = findAPIStatusError(normalized);
     if (statusError instanceof APIContextOverflowError) return true;
     if (statusError === undefined || statusError.statusCode !== 413) return false;
     const effectiveMax = this.getEffectiveMaxContextTokens();
@@ -489,6 +492,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
   private async beforeStep(signal: AbortSignal, turnId?: number): Promise<void> {
     this.activeTurnId = turnId;
+    if (!this.profile.hasModel()) return;
     this.checkAutoCompaction();
     if (this.strategy.shouldBlock(this.tokenCountWithPending())) {
       await this.block(signal, turnId);
@@ -497,6 +501,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
   private async afterStep(): Promise<void> {
     this.consecutiveOverflowCompactions = 0;
+    if (!this.profile.hasModel()) return;
     if (this.strategy.checkAfterStep) {
       this.checkAutoCompaction(false);
     }
@@ -504,6 +509,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
   private checkAutoCompaction(throwOnLimit = true): boolean {
     if (this._compacting) return true;
+    if (!this.profile.hasModel()) return false;
     if (
       this.lastCompactedTokenCount !== null &&
       this.tokenCountWithPending() <= this.lastCompactedTokenCount
@@ -665,7 +671,8 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         tokenProfile,
         tools: this.defaultTools().filter((tool) => tool.deferred !== true),
         getEffectiveMaxContextTokens: () => this.getEffectiveMaxContextTokens(),
-        llmRequester: this.llmRequester,
+        llmRequester: this.loopService.requester,
+        resolveMaxOutputTokens: (maxOutputSize) => this.loopService.resolveMaxOutputTokens(maxOutputSize),
         shouldRecoverFromContextOverflow: (error, estimatedTokens) =>
           this.shouldRecoverFromContextOverflow(error, estimatedTokens),
         observeContextOverflow: (estimatedTokens) => this.observeContextOverflow(estimatedTokens),

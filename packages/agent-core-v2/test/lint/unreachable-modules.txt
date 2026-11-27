@@ -3,12 +3,7 @@ src/_base/di/testInstantiationService.ts  test-helper  instantiation service use
 src/_base/lifecycle/keyedResource.ts  test-only  reached only by upstream and local session todo tests
 src/_base/lifecycle/lifecycleMachine.ts  test-only  reached only by its upstream and local unit tests
 src/_base/utils/types.ts  test-only  type helpers reached only by upstream and local test harnesses
-src/agent/loop/mediaPolicy.ts  upstream-dead  upstream 2.7.0 media policy; only the dead upstream loop cluster imports it
-src/agent/loop/projection.ts  upstream-dead  upstream 2.7.0 loop projection; the fork reaches it only through type-only imports
-src/agent/loop/projectionPolicy.ts  upstream-dead  upstream 2.7.0 projection policy; only the dead upstream loop cluster imports it
-src/agent/loop/projector.ts  upstream-dead  upstream 2.7.0 projector; only the dead upstream loop cluster imports it
-src/agent/loop/requestObservation.ts  upstream-dead  upstream 2.7.0 request observation; the fork loop keeps its own projection
-src/agent/loop/toolSelectPolicy.ts  upstream-dead  upstream 2.7.0 tool-select policy; only the dead upstream loop cluster imports it
+src/app/sessionManager/sessionProject.ts  fork-dead  project-grouping primitives pending session integration (#5204)
 src/environment/fakeEnvironment.ts  test-helper  fake host used by the workspace suites
 src/features/associativeMemory/eval.ts  harness  fork-only recall evaluation driven by its eval tests and bench; absent upstream
 src/features/swarm/session/swarmMemberTask.ts  upstream-dead  upstream 2.7.0 swarm member task; the fork swarm never starts it
@@ -31,14 +26,12 @@ src/human/media/image-formats.ts  upstream-dead  upstream 2.7.0 kernel media hel
 src/human/media/imageCompressionCaption.ts  upstream-dead  upstream 2.7.0 kernel media helper; the fork keeps its own llm/media tree
 src/human/media/index.ts  upstream-dead  upstream 2.7.0 kernel media barrel; nothing imports it
 src/human/media/pathTag.ts  upstream-dead  upstream 2.7.0 kernel media helper; the fork keeps its own llm/media tree
-src/human/media/upload.ts  upstream-dead  upstream 2.7.0 kernel media upload; the fork keeps its own llm/media tree
 src/human/persist/open.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); retained for local fold parity and migration tests
 src/human/persist/v2/convert.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); retained for local fold parity and migration tests
 src/human/persist/v2/fold.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); pinned by v2FoldCompactionParity.test.ts
 src/human/persist/v2/migrate.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); retained for the local migrate-v2 test
 src/human/persist/v2/wire.ts  upstream-deleted  removed upstream in 805f4beb1b (#4706); types imported by the fold parity test
 src/human/plugin.ts  test-only  kernel plugin seam exercised directly by upstream and local tests
-src/human/provider-catalog/catalog.ts  test-only  kernel provider catalog reached only by the provider-catalog test
 src/human/session/events.ts  test-only  reached by upstream and local session store tests
 src/human/session/slices.ts  test-only  reached through session/stores.ts in upstream and local tests
 src/human/session/stores.ts  test-only  reached by upstream and local session store tests
@@ -67,6 +60,7 @@ src/human/eventStore/journal.ts  fork-dead  machine-loop cluster retired with th
 src/human/eventStore/slice.ts  fork-dead  machine-loop cluster retired with the 2.7.0 loop runtime; no product path imports it
 src/human/llm/requester/actor.ts  fork-dead  machine-loop requester cluster retired with the 2.7.0 loop runtime; no product path imports it
 src/human/llm/requester/retry.ts  fork-dead  machine-loop requester cluster retired with the 2.7.0 loop runtime; no product path imports it
+src/human/llm/toolCallIdNormalizer.ts  fork-dead  imported only by the retired 2.7.0 machine-loop turn module and its human test
 src/human/session/machine.ts  fork-dead  machine-loop cluster retired with the 2.7.0 loop runtime; no product path imports it
 src/human/store/backend/backend.ts  fork-dead  machine-loop store cluster retired with the 2.7.0 loop runtime; no product path imports it
 src/human/store/branch.ts  fork-dead  machine-loop store cluster retired with the 2.7.0 loop runtime; no product path imports it

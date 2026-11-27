@@ -1,14 +1,15 @@
-import { Error2 } from '#/_base/errors/errors';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
-import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import { type ErrorCode } from '#/errors';
+import type { LogContext } from '#/_base/log/log';
 import type { TokenUsage } from '#human/llm/usage';
+
+import { type ErrorCode } from '#/errors';
+import { Error2 } from '#/_base/errors/errors';
 
 import { UsageErrors } from './errors';
 
+export { UsageErrors } from './errors';
 export type { TokenUsage } from '#human/llm/usage';
 export { addUsage, chargeableTokens } from '#human/llm/usage';
-export { UsageErrors } from './errors';
 
 export type UsageErrorCode = (typeof UsageErrors.codes)[keyof typeof UsageErrors.codes];
 
@@ -18,6 +19,22 @@ export class UsageError extends Error2 {
     this.name = 'UsageError';
   }
 }
+
+export type AgentLLMRequestLogFields = Readonly<LogContext>;
+
+export type AgentLLMRequestSource =
+  | {
+      readonly type: 'turn';
+      readonly turnId: number;
+      readonly step?: number;
+      readonly logFields?: AgentLLMRequestLogFields;
+    }
+  | {
+      readonly type: 'operation';
+      readonly turnId?: number;
+      readonly requestKind?: string;
+      readonly logFields?: AgentLLMRequestLogFields;
+    };
 
 export interface UsageStatus {
   readonly byModel?: Record<string, TokenUsage>;
@@ -29,7 +46,7 @@ export interface UsageRecordedContext {
   readonly agent: AgentContext;
   readonly model: string;
   readonly usage: Readonly<TokenUsage>;
+  readonly usageReported: boolean;
   readonly source?: AgentLLMRequestSource;
   readonly firstRecord: boolean;
-  readonly usageReported?: boolean;
 }

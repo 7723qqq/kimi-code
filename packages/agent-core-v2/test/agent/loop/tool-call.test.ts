@@ -118,7 +118,7 @@ describe('Agent loop — tool-call behaviour', () => {
     expect(expectTextOutput(results[0]?.['output']).toLowerCase()).toContain('not found');
   });
 
-  it('records an error tool.result when args fail tool parameter validation', async () => {
+  it('retries via turn.step.retrying without executing the tool when args fail schema validation', async () => {
     let executed = false;
     const strict = makeTool('strict', {
       parameters: {
@@ -148,10 +148,10 @@ describe('Agent loop — tool-call behaviour', () => {
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     expect(executed).toBe(false);
-    const results = rpcEvents(ctx, 'tool.result');
-    expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ isError: true });
-    expect(expectTextOutput(results[0]?.['output']).toLowerCase()).toContain('invalid args');
+    expect(rpcEvents(ctx, 'tool.result')).toHaveLength(0);
+    const retries = rpcEvents(ctx, 'turn.step.retrying');
+    expect(retries).toHaveLength(1);
+    expect(String(retries[0]?.['errorMessage']).toLowerCase()).toContain('arguments were invalid');
   });
 
   it('captures tool execution failures as error results', async () => {

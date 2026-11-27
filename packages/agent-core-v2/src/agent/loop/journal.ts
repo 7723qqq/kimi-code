@@ -657,7 +657,7 @@ export class LoopJournal {
   private turnId = 0;
 
   private settleContext(messages: readonly Message[], reason: string | undefined): void {
-    if (reason === 'compaction') return;
+    if (reason === 'compaction' || reason === 'append') return;
     if (reason === 'clear' || reason === 'context.clear') {
       this.write({ type: 'context.clear', agentId: this.agentId });
       return;

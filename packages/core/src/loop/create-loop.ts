@@ -8,7 +8,7 @@ import type { LoopAck, LoopEmitted } from './contract/emitted';
 import type { LoopHooks } from './contract/hook';
 import type { RemindMessage } from './contract/inbox';
 import type { TurnOutcome } from './contract/outcome';
-import type { FullLoopLlmRequester, LoopRequester, LoopRequestRuntime } from './request';
+import type { FullLoopLlmRequester, LoopLlmRunObserver, LoopRequester, LoopRequestRuntime } from './request';
 import type { LoopState } from './state';
 import type { WaitForTasks } from './tool/tasks';
 import type { ToolCompletionFactory } from './tool/outcome';
@@ -31,6 +31,7 @@ export interface LoopToolExecutor {
 export interface CreateLoopOptions {
   readonly requester?: LoopRequester;
   readonly decorateTurnRequester?: (requester: FullLoopLlmRequester) => FullLoopLlmRequester;
+  readonly llmObserver?: LoopLlmRunObserver;
   readonly executor: LoopToolExecutor;
   readonly toolContext?: (turnId: number) => Omit<LoopToolContext, 'origin' | 'turnId'>;
   readonly hook?: Partial<LoopHooks>;
@@ -58,6 +59,7 @@ export interface Loop {
   steer(promptIds: readonly string[], merged?: UserMessage): LoopAck<'prompt.steered'> | undefined;
   sendNow(message: UserMessage): LoopAck<'prompt.notified'> | undefined;
   sendNow(promptIds: readonly string[]): void;
+  sendNowQueued(promptIds: readonly string[]): void;
   cancel(
     promptId: string,
     options?: { readonly includeStarting?: boolean },

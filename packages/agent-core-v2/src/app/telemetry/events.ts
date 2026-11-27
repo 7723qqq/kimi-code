@@ -114,7 +114,7 @@ export interface PromptCacheProbeEvent {
 export interface CacheBreakDetectedEvent {
   turn_id?: number;
   step_no?: number;
-  cause: CacheBreakCause;
+  cause?: CacheBreakCause;
   prev_model: string;
   curr_model: string;
   prev_effort: string;
@@ -131,7 +131,7 @@ export interface CacheBreakDetectedEvent {
   curr_output: number;
   prev_input_cache_creation: number;
   curr_input_cache_creation: number;
-  cache_read_drop_ratio: number;
+  cache_read_drop_ratio?: number;
   interval_ms: number;
   request_kind?: string;
   prev_request_kind?: string;

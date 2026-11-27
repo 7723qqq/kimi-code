@@ -14,7 +14,9 @@ import { IEventService } from '#/app/event/event';
 import { LifecycleScope } from '#/app/scopes';
 import type { SessionTitleGenerationFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { runOperationRequest } from '#/agent/loop/operationRequest';
+import { createUserMessage, extractText } from '@moonshot-ai/core/llm/message';
 import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
 import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/provider';
 import { isOAuthCatalogVendor } from '#/llm-adapter/provider/provider-definition';
@@ -215,32 +217,27 @@ export class SessionTitleService implements ISessionTitleService {
   ): Promise<TitleGenerationResult> {
     const agent = this.agentLifecycle.handleOf(MAIN_AGENT_ID);
     if (agent === undefined) return { reason: 'no_agent' };
-    const requester = agent.accessor.get(IAgentLLMRequesterService);
-    if (requester === undefined) return { reason: 'provider_unavailable' };
+    const loopService = agent.accessor.get(IAgentLoopService);
+    if (loopService === undefined) return { reason: 'provider_unavailable' };
     const prompt = [
       'Write a short title for this conversation, at most 40 characters. Reply with the title only: no quotes, no preamble, no trailing period.',
       '',
       chatContent,
     ].join('\n');
-    const parts: string[] = [];
+    let titleText: string;
     try {
-      await requester.request(
-        {
-          messages: [{ role: 'user', content: [{ type: 'text', text: prompt }], toolCalls: [] }],
-          source: { type: 'operation', requestKind: 'session_title' },
-        },
-        (part) => {
-          if (part.type === 'text') parts.push(part.text);
-        },
-      );
+      const outcome = await runOperationRequest(loopService.requester, {
+        messages: [createUserMessage(prompt)],
+        attributes: { kind: 'session_title' },
+      });
+      titleText = extractText(outcome.message);
     } catch (error) {
       this.log.debug(
         `chat_title local generation failed: ${error instanceof Error ? error.message : String(error)}`,
       );
       return { reason: 'request_failed' };
     }
-    const title = parts
-      .join('')
+    const title = titleText
       .trim()
       .replace(/^["'“”]|["'“”]$/g, '');
     if (title.length === 0) return { reason: 'request_failed' };

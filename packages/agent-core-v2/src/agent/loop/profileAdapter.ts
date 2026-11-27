@@ -34,6 +34,7 @@ import type { LoopJournalSnapshot } from './journal';
 export class AgentLoopProfileAdapter implements EffectiveProfileReader {
   private state: { readonly profile?: ProfileBindingSnapshot; readonly bound: boolean } = { bound: false };
   private activeToolNamesOverlay: readonly string[] | undefined;
+  private readonly ownEvents = new WeakSet<object>();
 
   constructor(
     private readonly profile: IAgentProfileService,
@@ -43,6 +44,7 @@ export class AgentLoopProfileAdapter implements EffectiveProfileReader {
     private readonly catalog: ISessionAgentProfileCatalog,
     private readonly telemetry: ITelemetryService,
     private readonly systemPromptChanged: (value: string) => void,
+    private readonly requesterInvalidated: () => void,
   ) {}
 
   snapshot(): ProfileBindingSnapshot {
@@ -121,9 +123,11 @@ export class AgentLoopProfileAdapter implements EffectiveProfileReader {
       disallowedTools: profile.disallowedTools ?? [],
       subagents: profile.subagents,
     });
+    this.ownEvents.add(event);
     const dispatched = this.dispatcher.dispatch(event);
     this.state = { profile: reduceLoopProfileBind(this.state.profile, event), bound: true };
     this.systemPromptChanged(this.getSystemPrompt());
+    this.requesterInvalidated();
     this.profile.afterConfigDispatch({
       modelAlias: profile.modelAlias,
       profileName: profile.profileName,
@@ -162,10 +166,13 @@ export class AgentLoopProfileAdapter implements EffectiveProfileReader {
 
   private applyUpdate(changed: ProfileUpdateData, plan: ReturnType<IAgentProfileService['prepareUpdate']>): void {
     if (plan.config !== undefined) {
-      void this.dispatcher.dispatch(new ConfigUpdate(plan.config));
+      const event = new ConfigUpdate(plan.config);
+      this.ownEvents.add(event);
+      void this.dispatcher.dispatch(event);
       this.state = { ...this.state, profile: reduceLoopConfigUpdate(this.snapshot(), plan.config) };
     }
     if (plan.tools !== undefined) {
+      this.ownEvents.add(plan.tools);
       void this.dispatcher.dispatch(plan.tools);
       this.activeToolNamesOverlay = undefined;
       this.state = {
@@ -174,10 +181,25 @@ export class AgentLoopProfileAdapter implements EffectiveProfileReader {
       };
     }
     this.systemPromptChanged(this.getSystemPrompt());
+    this.requesterInvalidated();
     if (plan.config !== undefined) {
       const { activeToolNames: _activeToolNames, ...configChanged } = changed;
       this.profile.afterConfigDispatch(configChanged, this.snapshot());
     }
+  }
+
+  applyExternalEvent(event: ProfileBind | ConfigUpdate | ToolsSetActiveTools): void {
+    if (this.ownEvents.has(event)) return;
+    if (event instanceof ProfileBind) {
+      this.state = { profile: reduceLoopProfileBind(this.state.profile, event), bound: true };
+    } else if (event instanceof ConfigUpdate) {
+      this.state = { ...this.state, profile: reduceLoopConfigUpdate(this.snapshot(), event) };
+    } else {
+      this.activeToolNamesOverlay = undefined;
+      this.state = { ...this.state, profile: reduceLoopActiveTools(this.snapshot(), event.names) };
+    }
+    this.systemPromptChanged(this.getSystemPrompt());
+    this.requesterInvalidated();
   }
 
   async setModel(alias: string): Promise<ProfileSetModelResult> {
@@ -225,6 +247,7 @@ export class AgentLoopProfileAdapter implements EffectiveProfileReader {
 
   restore(snapshot: LoopJournalSnapshot): void {
     this.state = { profile: snapshot.profile, bound: snapshot.profileBound };
+    this.requesterInvalidated();
   }
 
   async afterRestore(): Promise<void> {

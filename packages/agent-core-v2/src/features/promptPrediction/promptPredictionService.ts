@@ -2,18 +2,15 @@ import { Disposable } from '#/_base/di/lifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { abortable, abortError, createDeadlineAbortSignal, type DeadlineAbortSignal } from '#/_base/utils/abort';
-import type { ContextMessage } from '#/agent/contextMemory/types';
-import { historyFromContext } from '#/agent/loop/history';
 import { IAgentLoopService, type LoopSnapshot } from '#/agent/loop/loop';
 import { turnKey } from '#/agent/loop/turnOps';
-import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import { errorFromLlmMessage } from '#/llm-adapter/contract/errors';
+import { errorFromLlmMessage } from '#/provider-catalog/errors';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IFlagService } from '#/app/flag/flag';
 import type { PredictionGeneratedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentPlanService } from '#/features/plan/plan';
-import { createUserMessage } from '@moonshot-ai/core/llm/message';
+import { createUserMessage, type Message } from '@moonshot-ai/core/llm/message';
 import type { LlmOutcome, LlmTiming } from '@moonshot-ai/core/llm/response';
 import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
@@ -114,7 +111,7 @@ export class SessionPromptPredictionService extends Disposable implements ISessi
     if (this.attemptedTurnIds.has(input.expectedTurnId)) return null;
     if (!this.idle(scope.loop.snapshot(), this.activity.state())) return null;
 
-    const contextSnapshot = scope.loop.history();
+    const contextSnapshot = scope.loop.rawHistory();
     this.attemptedTurnIds.add(input.expectedTurnId);
     const controller = new AbortController();
     const active: ActivePrediction = {
@@ -139,36 +136,33 @@ export class SessionPromptPredictionService extends Disposable implements ISessi
         prediction_id: active.predictionId,
         turn_id: active.expectedTurnId,
       });
-      const source = {
-        type: 'operation',
-        turnId: active.expectedTurnId,
-        requestKind: 'prompt_prediction',
-      } as const;
-      let trace: LLMRequestTrace | undefined;
-      const requester = await scope.loop.requester.prepareOperation({
-        maxOutputSize: PROMPT_PREDICTION_MAX_OUTPUT_TOKENS,
-        source: () => source,
-        onTrace: (value) => {
-          trace = value;
+      let requestId: string | undefined;
+      const outcome = await abortable(scope.loop.requester.with({
+        model: {
+          maxOutputTokens: scope.loop.resolveMaxOutputTokens(PROMPT_PREDICTION_MAX_OUTPUT_TOKENS),
+          responseFormat: PROMPT_PREDICTION_RESPONSE_FORMAT,
         },
-      }, active.deadline.signal);
-      const outcome = await abortable(requester.generate(
+        content: {
+          messages: [...contextSnapshot, createUserMessage(PROMPT_PREDICTION_INSTRUCTION)],
+        },
+        attributes: { kind: 'prediction', turnId: active.expectedTurnId },
+        policy: { retry: { maxAttemptsPerStep: 1 } },
+      }).generate(
+        {},
         {
-          content: {
-            messages: historyFromContext([...contextSnapshot, createUserMessage(PROMPT_PREDICTION_INSTRUCTION)] as never),
+          signal: active.deadline.signal,
+          onEvent: (event) => {
+            if (event.type === 'llm.delta.request_id') requestId = event.requestId;
           },
-          model: { responseFormat: PROMPT_PREDICTION_RESPONSE_FORMAT },
-          profile: {},
         },
-        { signal: active.deadline.signal },
       ), active.deadline.signal);
-      if (outcome.type === 'failed') throw errorFromLlmMessage(outcome.error as never);
+      if (outcome.type === 'failed') throw errorFromLlmMessage(outcome.error as Parameters<typeof errorFromLlmMessage>[0]);
       if (outcome.type === 'aborted') {
         const message = outcome.reason instanceof Error ? outcome.reason.message : 'The operation was aborted.';
         throw new DOMException(message, 'AbortError');
       }
       active.usage = outcome.usage;
-      active.requestId = outcome.requestId ?? trace?.requestId;
+      active.requestId = outcome.requestId ?? requestId;
       active.timing = outcome.timing;
       const prediction = parsePrediction(outcome);
       if (prediction.text === null) {
@@ -299,7 +293,7 @@ export class SessionPromptPredictionService extends Disposable implements ISessi
   private stillCurrent(
     active: ActivePrediction,
     scope: PredictionScope,
-    contextSnapshot: readonly ContextMessage[],
+    contextSnapshot: readonly Message[],
   ): boolean {
     return (
       this.active === active &&
@@ -307,7 +301,7 @@ export class SessionPromptPredictionService extends Disposable implements ISessi
       !active.deadline.signal.aborted &&
       this.flags.enabled(PROMPT_PREDICTION_FLAG_ID) &&
       this.agents.handleOf(MAIN_AGENT_ID) === scope.handle &&
-      scope.loop.history() === contextSnapshot &&
+      scope.loop.rawHistory() === contextSnapshot &&
       this.sourceTurnMatches(scope, active.expectedTurnId) &&
       this.idle(scope.loop.snapshot(), this.activity.state())
     );

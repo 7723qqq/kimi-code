@@ -92,11 +92,8 @@ describe('dynamic active tools', () => {
 
     userTools.unregister('UserMid');
     const signal = new AbortController().signal;
-    const requester = await loop.requester.prepareOperation(
-      { source: () => ({ type: 'operation', requestKind: 'verify_active_tools' }) },
-      signal,
-    );
-    await requester.generate(
+    const requester = loop.requester;
+    await requester.with({ attributes: { kind: 'verify_active_tools' } }).generate(
       { content: { messages: [{ role: 'user', content: [{ type: 'text', text: 'summarize' }] }] }, profile: {} },
       { signal },
     );
@@ -143,11 +140,8 @@ describe('dynamic active tools', () => {
     const instruction = createUserMessage('Compact the conversation.');
     const messages = historyFromContext([...loop.history(), contextFromHistoryEntry(instruction)]);
     const signal = new AbortController().signal;
-    const requester = await loop.requester.prepareOperation(
-      { source: () => ({ type: 'operation', requestKind: 'full_compaction' }) },
-      signal,
-    );
-    await requester.generate({ content: { messages }, profile: {} }, { signal });
+    const requester = loop.requester;
+    await requester.with({ attributes: { kind: 'compaction' } }).generate({ content: { messages }, profile: {} }, { signal });
 
     expect(agent.llmCalls).toHaveLength(3);
     const operation = agent.llmCalls[2]!;

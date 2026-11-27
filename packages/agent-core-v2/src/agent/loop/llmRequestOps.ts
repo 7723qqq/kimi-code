@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';

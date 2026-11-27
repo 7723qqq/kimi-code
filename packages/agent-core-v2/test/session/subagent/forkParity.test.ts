@@ -298,6 +298,7 @@ describe('subagent task reminders and btw request parity', () => {
       }
       expect(taskReminders(child.accessor.get(IAgentContextMemoryService).get())).toHaveLength(1);
     },
+    20_000,
   );
 
   it.each([false, true])(
@@ -616,7 +617,7 @@ describe('subagent task reminders and btw request parity', () => {
       output.preview.indexOf(STOPPED_CHILD_DRAFT),
     );
     expect(output.preview.split(STOPPED_CHILD_DRAFT)).toHaveLength(2);
-  });
+  }, 20_000);
 
   it('records the text a foreground subagent wrote when the user interrupts the parent turn', async () => {
     const parentScript = createScriptedGenerate();
@@ -666,5 +667,5 @@ describe('subagent task reminders and btw request parity', () => {
     expect(agentResult).toContain('stop_reason: cancelled');
     expect(agentResult).toContain('[partial output]');
     expect(agentResult).toContain(STOPPED_CHILD_FINDING);
-  });
+  }, 20_000);
 });

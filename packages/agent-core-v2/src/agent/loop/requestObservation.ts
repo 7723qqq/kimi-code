@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-
 import { isManagedKimiCodeBaseUrl } from '@moonshot-ai/kimi-code-oauth';
 
 import { ILogService, type LogContext } from '#/_base/log/log';
@@ -9,28 +8,25 @@ import { WarningIssued } from '#/agent/profile/profileOps';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { cacheProbeUsage } from '#/agent/usage/cacheProbe';
+import { buildCacheObservation, type CacheObservation } from '#/agent/usage/cacheObservation';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ApiErrorEvent, CacheBreakDetectedEvent } from '#/app/telemetry/events';
 import { unwrapErrorCause } from '#/errors';
 import { countMediaParts } from '@moonshot-ai/core/llm/builtin/policy/media-degrade';
-import type { Message, ToolDescription as Tool } from '#human/llm/message';
+import type { Message, ToolDescription as Tool } from '@moonshot-ai/core/llm/message';
 import type { LlmRequest, ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import type { LlmRecoveryRecord } from '@moonshot-ai/core/llm/policy/recovery';
 import { llmErrorRequestId, type LlmOutcome, type LlmRunEvent, type LlmTiming } from '@moonshot-ai/core/llm/response';
-import { emptyUsage, grandTotal, inputTotal, usageFromCore, type TokenUsage } from '#human/llm/usage';
-import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
+import { emptyUsage, grandTotal, inputTotal, type TokenUsage } from '@moonshot-ai/core/llm/usage';
+import { usageFromCore } from '#human/llm/usage';
+import { fromCoreMessage } from '#/llm-adapter/contract/message';
 import {
   APIStatusError,
   classifyApiError,
   errorDiagnostics,
   isLlmErrorMessage,
   isRetryableGenerateError,
-} from '#/llm-adapter/contract/errors';
-import { contextProjectorLastRepairSignatureKey } from '#/agent/contextProjector/contextProjectorService';
-import {
-  llmRequesterEmittedThinkingEffortWarningsKey,
-  llmRequesterLastConfigLogSignatureKey,
-} from '#/agent/llmRequester/llmRequesterService';
+} from '#/provider-catalog/errors';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
@@ -38,18 +34,47 @@ import { ISessionRequestAttributionService } from '#/session/requestAttribution/
 import { defineState } from '#/state/state';
 import { summarizeProjectionRepairs, type ProjectionAnomaly } from './projection';
 import { hasStrictStructureRecovery } from './projectionPolicy';
+import { contextProjectorLastRepairSignatureKey } from '#/agent/contextProjector/contextProjectorService';
 import {
+  LlmRequest as LlmRequestEvent,
   llmRequestTraceKey,
   LlmToolsSnapshot,
   llmToolsSnapshotPayload,
-} from '#/agent/loop/llmRequestOps';
+  type LlmRequestPayload,
+} from './llmRequestOps';
+import type { AgentLLMRequestLogFields, AgentLLMRequestSource } from '#/agent/usage/usage';
+import type { LoopLlmRunObservation, LoopLlmRunObserver, LoopRequestRuntime } from '@moonshot-ai/core/loop/index';
+import { requestModelOf, type RequestModel } from '#/provider-catalog/requester';
 import {
   agentLLMRequestLogFields,
-  type AgentLLMRequestLogFields,
-  type AgentLLMRequestSource,
-  type RequestConfigSnapshot,
-  type ResolvedRequestContext,
+  requestSourceOf,
 } from './requesterContract';
+
+export interface LLMRequestTrace {
+  readonly requestId: string | undefined;
+}
+
+export interface ResolvedRequestContext {
+  readonly model: RequestModel;
+  readonly modelAlias: string;
+  readonly thinkingEffort: ThinkingEffort;
+  readonly systemPrompt: string;
+  readonly tools?: readonly Tool[];
+  readonly messages: Message[];
+  readonly usedContextTokens?: number;
+  readonly contextRevision: number;
+  readonly promptCacheProbe: 'compaction' | undefined;
+  readonly source: AgentLLMRequestSource;
+  readonly logFields: AgentLLMRequestLogFields;
+  readonly runtime: LoopRequestRuntime;
+}
+
+interface ObserverLoopContext {
+  readonly historyRevision: number;
+  readonly infiniteRetry: boolean;
+  readonly toolSelectEnabled?: () => boolean;
+  readonly profileSystemPrompt?: () => string;
+}
 
 const CACHE_BREAK_MIN_DROP_TOKENS = 2000;
 const CACHE_BREAK_DROP_RATIO = 0.95;
@@ -60,10 +85,12 @@ interface RecordedRequestSnapshot {
   readonly messageCount: number;
   readonly historyHash: string;
   readonly messages: readonly Message[];
+  readonly projection?: RequestProjection;
 }
 
-interface MeasuredRequest extends Omit<RecordedRequestSnapshot, 'messages'> {
+export interface MeasuredRequest extends Omit<RecordedRequestSnapshot, 'messages'> {
   readonly modelAlias: string;
+  readonly model: string;
   readonly contextRevision: number;
   readonly inputTokens: number;
   readonly startedAt: number;
@@ -90,12 +117,31 @@ interface RequestLogInput {
 
 type RequestProjection = 'strict' | 'media-degraded' | 'media-stripped' | 'strict-media-degraded' | 'strict-media-stripped';
 
+export const llmRequesterLastConfigLogSignatureKey = defineState<string | undefined>(
+  'llmRequester.lastConfigLogSignature',
+  () => undefined as string | undefined,
+);
 export const llmRequesterLastMeasuredRequestKey = defineState<MeasuredRequest | undefined>(
   'llmRequester.lastMeasuredRequest',
   () => undefined as MeasuredRequest | undefined,
 );
+export const llmRequesterEmittedThinkingEffortWarningsKey = defineState<Set<string>>(
+  'llmRequester.emittedThinkingEffortWarnings',
+  () => new Set(),
+);
 
-export class AgentLoopRequestObserver {
+export class AgentLoopRequestObserver implements LoopLlmRunObserver {
+  private lastTurnCacheObservation: CacheObservation | undefined;
+  private lastTurnMeasuredRequest: MeasuredRequest | undefined;
+  private loopContext: () => ObserverLoopContext = () => ({
+    historyRevision: 0,
+    infiniteRetry: false,
+  });
+
+  lastTurnCache(): CacheObservation | undefined {
+    return this.lastTurnCacheObservation;
+  }
+
   constructor(
     @ILogService private readonly log: ILogService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
@@ -106,21 +152,45 @@ export class AgentLoopRequestObserver {
     @IAgentStateService private readonly states: IAgentStateService,
     @ISessionRequestAttributionService private readonly attribution: ISessionRequestAttributionService,
   ) {
-    this.states.get(llmRequestTraceKey);
+    if (!this.states.has(llmRequestTraceKey)) this.states.contributeState(llmRequestTraceKey);
+    this.states.contributeState(llmRequesterLastConfigLogSignatureKey);
     this.states.contributeState(llmRequesterLastMeasuredRequestKey);
+    this.states.contributeState(llmRequesterEmittedThinkingEffortWarningsKey);
   }
 
-  start(
-    source: AgentLLMRequestSource,
-    config: RequestConfigSnapshot,
-    onTrace?: (trace: LLMRequestTrace) => void,
-  ): AgentRequestObservation {
-    return new AgentRequestObservation(this, source, config, onTrace);
+  bindLoop(context: () => ObserverLoopContext): void {
+    this.loopContext = context;
+  }
+
+  start(request: LlmRequest): AgentRequestObservation {
+    const { historyRevision, infiniteRetry } = this.loopContext();
+    const source = requestSourceOf(request.attributes);
+    const modelAlias = request.attributes?.modelAlias;
+    if (modelAlias === undefined) throw new Error('llm request has no bound model');
+    const context: ResolvedRequestContext = {
+      model: requestModelOf(request),
+      modelAlias,
+      thinkingEffort: request.model.thinking?.effort ?? 'off',
+      systemPrompt: request.profile?.systemPrompt ?? '',
+      tools: request.profile?.tools === undefined ? undefined : [...request.profile.tools],
+      messages: [...request.content.messages],
+      usedContextTokens: request.content.usedTokens,
+      contextRevision: historyRevision,
+      promptCacheProbe: request.attributes?.promptCacheProbe,
+      source,
+      logFields: agentLLMRequestLogFields(source),
+      runtime: { historyRevision: () => this.loopContext().historyRevision },
+    };
+    this.noteModel(context);
+    return new AgentRequestObservation(this, source, context, infiniteRetry);
   }
 
   setRequestId(source: AgentLLMRequestSource, requestId: string | undefined, active = true): void {
     if (source.type !== 'turn') return;
-    this.telemetry.setContext({ request_id: active ? requestId : undefined });
+    this.telemetry.setContext({
+      trace_id: active ? requestId : undefined,
+      request_id: active ? requestId : undefined,
+    });
     this.attribution.noteActiveRequest(this.scopeContext.agentId, requestId, active, source);
   }
 
@@ -128,9 +198,7 @@ export class AgentLoopRequestObserver {
     const { source, model } = request;
     if (source.type !== 'turn' || source.step === undefined) return;
     this.attribution.noteModel(this.scopeContext.agentId, source.turnId, source.step, {
-      model: model.name,
-      provider: model.protocol,
-      isKfc: isManagedKimiCodeBaseUrl(model.baseUrl),
+      model: model.spec.name, provider: model.protocol, isKfc: isManagedKimiCodeBaseUrl(model.endpoint.baseUrl),
     });
   }
 
@@ -185,6 +253,7 @@ export class AgentLoopRequestObserver {
       messages: attemptInput.messages,
       fields,
     };
+    observation.attemptCount += 1;
     const toolsSnapshot = llmToolsSnapshotPayload(logInput.tools);
     if (!this.states.get(llmRequestTraceKey).seenToolsHashes.includes(toolsSnapshot.hash)) {
       void this.dispatcher.dispatch(new LlmToolsSnapshot({
@@ -193,6 +262,40 @@ export class AgentLoopRequestObserver {
         tools: toolsSnapshot.tools,
       }));
     }
+    const loopContext = this.loopContext();
+    const requestKind = fields['requestKind'];
+    const kind: LlmRequestPayload['kind'] =
+      requestKind === 'full_compaction'
+        ? 'compaction'
+        : requestKind === 'prompt_prediction'
+          ? 'prediction'
+          : 'loop';
+    const profileSystemPrompt = loopContext.profileSystemPrompt?.();
+    const payload: LlmRequestPayload = {
+      agentId: this.scopeContext.agentId,
+      kind,
+      provider: request.model.protocol,
+      model: request.model.spec.name,
+      modelAlias: request.modelAlias,
+      thinkingEffort: request.thinkingEffort,
+      ...(attemptRequest.model.thinking?.keep === undefined ? {} : { thinkingKeep: attemptRequest.model.thinking.keep }),
+      ...(attemptRequest.model.sampling?.temperature === undefined ? {} : { temperature: attemptRequest.model.sampling.temperature }),
+      ...(attemptRequest.model.sampling?.topP === undefined ? {} : { topP: attemptRequest.model.sampling.topP }),
+      ...(typeof attemptRequest.model.maxOutputTokens === 'number' ? { maxTokens: attemptRequest.model.maxOutputTokens } : {}),
+      ...(typeof (attemptRequest.protocol.options as { readonly betaApi?: unknown } | undefined)?.betaApi === 'boolean'
+        ? { betaApi: (attemptRequest.protocol.options as { readonly betaApi: boolean }).betaApi }
+        : {}),
+      toolSelect: loopContext.toolSelectEnabled?.() ?? false,
+      systemPromptHash: fingerprint(attemptInput.systemPrompt),
+      ...(profileSystemPrompt !== undefined && attemptInput.systemPrompt === profileSystemPrompt ? {} : { systemPrompt: attemptInput.systemPrompt }),
+      toolsHash: toolsSnapshot.hash,
+      messageCount: attemptInput.messages.length,
+      ...(typeof fields['turnStep'] === 'string' ? { turnStep: fields['turnStep'] } : {}),
+      ...(observation.attemptCount > 1 ? { attempt: String(observation.attemptCount) } : {}),
+      ...(projection === undefined ? {} : { projection }),
+      ...(typeof fields['droppedCount'] === 'number' ? { droppedCount: fields['droppedCount'] } : {}),
+    };
+    void this.dispatcher.dispatch(new LlmRequestEvent(payload));
     this.logRequest(request, logInput);
     observation.recorded = {
       toolsHash: toolsSnapshot.hash,
@@ -200,6 +303,7 @@ export class AgentLoopRequestObserver {
       messageCount: logInput.messages.length,
       historyHash: fingerprint(JSON.stringify(logInput.messages)),
       messages: logInput.messages,
+      projection,
     };
   }
 
@@ -218,7 +322,7 @@ export class AgentLoopRequestObserver {
     if (event.reason === 'backoff') {
       if (infiniteRetry) {
         this.log.warn('llm request failed; retrying indefinitely (KIMI_CODE_INFINITE_RETRY)', {
-          model: request.model.name,
+          model: request.model.spec.name,
           ...request.logFields,
           attempt: event.failedAttempt,
           delayMs: event.delayMs,
@@ -229,7 +333,7 @@ export class AgentLoopRequestObserver {
     }
     if (event.reason === 'invalid_tool_arguments') {
       this.log.warn('tool call arguments invalid; requesting a corrected tool call', {
-        model: request.model.name,
+        model: request.model.spec.name,
         ...request.logFields,
         attempt: event.failedAttempt,
         ...retryErrorFields(event.error),
@@ -239,7 +343,7 @@ export class AgentLoopRequestObserver {
     if (event.reason !== 'recovery') return;
     if (event.strategy === 'structure') {
       this.log.warn('provider rejected request structure; resending with strict projection', {
-        model: request.model.name,
+        model: request.model.spec.name,
         ...request.logFields,
       });
       this.telemetry.track2('llm_request_projection_fallback', {
@@ -259,7 +363,7 @@ export class AgentLoopRequestObserver {
           ? 'provider rejected request as too large; resending with rejected media stripped'
           : 'provider rejected an image in the request; resending with rejected media stripped',
       {
-        model: request.model.name,
+        model: request.model.spec.name,
         ...request.logFields,
       },
     );
@@ -277,22 +381,50 @@ export class AgentLoopRequestObserver {
   ): void {
     const request = observation.requireContext();
     observation.setRequestId(outcome.requestId);
-    const { message, timing } = outcome;
-    const usage = usageFromCore(outcome.usage);
+    const { message, usage, timing } = outcome;
+    const normalizedUsage = usageFromCore(usage);
+    const recorded = observation.recorded;
     if (request.promptCacheProbe === 'compaction') {
+      const baseline = this.lastTurnMeasuredRequest;
+      const modelMatch =
+        baseline === undefined
+          ? undefined
+          : baseline.modelAlias === request.modelAlias && baseline.model === request.model.spec.name;
+      const compared =
+        baseline !== undefined &&
+        modelMatch === true &&
+        baseline.contextRevision === request.contextRevision;
       this.telemetry.track2('prompt_cache_probe', {
         source: 'compaction',
         turn_id: request.source.turnId,
         provider_type: request.model.providerType ?? request.model.protocol,
         protocol: request.model.protocol,
-        ...cacheProbeUsage(usage),
+        ...cacheProbeUsage(normalizedUsage),
+        model_match: modelMatch,
+        tools_match: compared && recorded !== undefined ? recorded.toolsHash === baseline.toolsHash : undefined,
+        system_prompt_match: compared && recorded !== undefined ? recorded.systemPromptHash === baseline.systemPromptHash : undefined,
+        history_prefix_match: compared && recorded !== undefined ? historyPrefixMatches(baseline, recorded.messages) : undefined,
+        parent_input_tokens: compared ? baseline.inputTokens : undefined,
+        parent_request_gap_ms: compared ? observation.startedAt - baseline.finishedAt : undefined,
       });
     }
     const inputTokens = usage === undefined ? undefined : inputTotal(usage);
-    const recorded = observation.recorded;
+    if (request.source.type === 'turn' && recorded !== undefined) {
+      this.lastTurnCacheObservation = buildCacheObservation({
+        modelAlias: request.modelAlias,
+        protocol: request.model.protocol,
+        providerType: request.model.providerType,
+        messageCount: recorded.messageCount,
+        historyHash: recorded.historyHash,
+        projection: recorded.projection,
+        thinkingEffort: request.thinkingEffort,
+        usage: normalizedUsage,
+      });
+    }
     if (recorded !== undefined && usage !== undefined && inputTokens !== undefined && inputTokens + usage.output > 0) {
       const measured: MeasuredRequest = {
         modelAlias: request.modelAlias,
+        model: request.model.spec.name,
         contextRevision: request.contextRevision,
         toolsHash: recorded.toolsHash,
         systemPromptHash: recorded.systemPromptHash,
@@ -310,15 +442,20 @@ export class AgentLoopRequestObserver {
       };
       this.trackCacheBreak(measured, recorded.messages);
       this.states.set(llmRequesterLastMeasuredRequestKey, measured);
+      if (request.source.type === 'turn') {
+        this.lastTurnMeasuredRequest = measured;
+      }
     }
-    void this.usage.record(this.scopeContext.agentContext, request.modelAlias, usage, request.source);
-    if (usage !== undefined) {
+    void this.usage.record(this.scopeContext.agentContext, request.modelAlias, normalizedUsage, request.source);
+    if (normalizedUsage !== undefined) {
       const { attributes: _attributes, ...responseMessage } = message;
       this.tokenCounting.measured(
         this.scopeContext.agentContext,
-        (recorded?.messages ?? request.messages) as never,
-        [responseMessage],
-        usage,
+        (observation.media.previousMediaRecovery === undefined
+          ? request.messages
+          : (recorded?.messages ?? request.messages)).map(fromCoreMessage),
+        [fromCoreMessage(responseMessage)],
+        normalizedUsage,
       );
     }
     this.logResponse(request.logFields, usage ?? emptyUsage(), timing);
@@ -402,7 +539,7 @@ export class AgentLoopRequestObserver {
     const snapshot = llmToolsSnapshotPayload(input.tools);
     const config = {
       provider: request.model.protocol,
-      model: request.model.name,
+      model: request.model.spec.name,
       modelAlias: request.modelAlias,
       thinkingEffort: request.thinkingEffort,
       systemPromptChars: input.systemPrompt.length,
@@ -447,7 +584,7 @@ export class AgentLoopRequestObserver {
   }
 
   private logRequestFailure(observation: AgentRequestObservation, error: unknown): void {
-    const modelAlias = observation.context?.modelAlias ?? observation.config.resolved.modelAlias;
+    const modelAlias = observation.context?.modelAlias ?? 'unknown';
     this.log.warn('llm request failed', {
       ...agentLLMRequestLogFields(observation.source),
       model: modelAlias,
@@ -458,7 +595,7 @@ export class AgentLoopRequestObserver {
 
   private trackApiError(observation: AgentRequestObservation, error: unknown, requestId?: string): void {
     const model = observation.context?.model;
-    const modelAlias = observation.context?.modelAlias ?? observation.config.resolved.modelAlias;
+    const modelAlias = observation.context?.modelAlias ?? 'unknown';
     const source = observation.source;
     const classification = classifyApiError(unwrapErrorCause(error));
     const properties: ApiErrorEvent = {
@@ -471,6 +608,7 @@ export class AgentLoopRequestObserver {
       duration_ms: Math.max(0, Date.now() - observation.startedAt),
       turn_id: source.turnId,
       request_kind: requestKindForTelemetry(source),
+      trace_id: requestId,
       request_id: requestId,
     };
     if (source.type === 'turn' && source.step !== undefined) properties['step_no'] = source.step;
@@ -487,7 +625,6 @@ export class AgentLoopRequestObserver {
     const prevRead = prev.usage.inputCacheRead;
     const currRead = curr.usage.inputCacheRead;
     const prevTotal = grandTotal(prev.usage);
-    const currTotal = grandTotal(curr.usage);
     if (prevRead === undefined || currRead === undefined || prevTotal === undefined) return;
     const readDrop = prevRead - currRead;
     const reusableDrop = prevTotal - currRead;
@@ -495,12 +632,6 @@ export class AgentLoopRequestObserver {
     const reuseBreak = currRead < prevTotal * CACHE_BREAK_DROP_RATIO && reusableDrop > CACHE_BREAK_MIN_DROP_TOKENS;
     if (!readBreak && !reuseBreak) return;
     const properties: CacheBreakDetectedEvent = {
-      cause:
-        prev.modelAlias !== curr.modelAlias
-          ? 'model_switch'
-          : prev.thinkingEffort !== curr.thinkingEffort
-            ? 'effort_switch'
-            : 'unexplained',
       request_kind: curr.requestKind,
       turn_id: curr.turnId,
       step_no: curr.step,
@@ -519,12 +650,11 @@ export class AgentLoopRequestObserver {
       curr_input_other: curr.usage.inputOther,
       prev_output: prev.usage.output,
       curr_output: curr.usage.output,
-      prev_input_cache_creation: prev.usage.inputCacheCreation ?? 0,
-      curr_input_cache_creation: curr.usage.inputCacheCreation ?? 0,
+      prev_input_cache_creation: prev.usage.inputCacheCreation,
+      curr_input_cache_creation: curr.usage.inputCacheCreation,
       prev_total_tokens: prevTotal,
-      curr_total_tokens: currTotal,
       cache_reuse_ratio: currRead / prevTotal,
-      cache_read_drop_ratio: (prevRead === 0 ? undefined : readDrop / prevRead) as number,
+      cache_read_drop_ratio: prevRead === 0 ? undefined : readDrop / prevRead,
       tools_match: prev.toolsHash === curr.toolsHash,
       system_prompt_match: prev.systemPromptHash === curr.systemPromptHash,
       history_prefix_match: historyPrefixMatches(prev, messages),
@@ -538,19 +668,19 @@ export class AgentLoopRequestObserver {
     if (request.model.protocol !== 'anthropic') return;
     const effort = request.thinkingEffort;
     if (effort === 'on' || effort === 'off') return;
-    const supportEfforts = (request.model as unknown as { supportEfforts?: string[] }).supportEfforts?.filter((value) => value.length > 0);
+    const supportEfforts = request.model.spec.thinking?.supportEfforts?.filter((value) => value.length > 0);
     if (supportEfforts === undefined || supportEfforts.length === 0 || supportEfforts.includes(effort)) return;
     const code = 'anthropic-thinking-effort-not-listed';
     const knownEfforts = supportEfforts.join(',');
-    const message = `Thinking effort "${effort}" is not listed for model "${request.model.name}" (known: ${supportEfforts.join(', ')}). The configured value will be sent unchanged to the Anthropic-compatible backend.`;
-    const key = [code, request.modelAlias, request.model.name, effort, knownEfforts].join('\u0000');
+    const message = `Thinking effort "${effort}" is not listed for model "${request.model.spec.name}" (known: ${supportEfforts.join(', ')}). The configured value will be sent unchanged to the Anthropic-compatible backend.`;
+    const key = [code, request.modelAlias, request.model.spec.name, effort, knownEfforts].join('\u0000');
     const emitted = this.states.get(llmRequesterEmittedThinkingEffortWarningsKey);
     if (emitted.has(key)) return;
     emitted.add(key);
     try {
       this.log.warn(message, {
         modelAlias: request.modelAlias,
-        model: request.model.name,
+        model: request.model.spec.name,
         effort,
         knownEfforts,
       });
@@ -565,49 +695,47 @@ export class AgentLoopRequestObserver {
   }
 }
 
-export class AgentRequestObservation {
+export class AgentRequestObservation implements LoopLlmRunObservation {
   readonly startedAt = Date.now();
   readonly media: AttemptObservation = {};
-  context: ResolvedRequestContext | undefined;
+  attemptCount = 0;
   recorded: RecordedRequestSnapshot | undefined;
-  private readonly trace = new MutableLLMRequestTrace();
+  currentRequestId: string | undefined;
 
   constructor(
     private readonly observer: AgentLoopRequestObserver,
     readonly source: AgentLLMRequestSource,
-    readonly config: RequestConfigSnapshot,
-    onTrace?: (trace: LLMRequestTrace) => void,
+    readonly context: ResolvedRequestContext,
+    private readonly infiniteRetry: boolean,
   ) {
-    onTrace?.(this.trace);
     this.setRequestId(undefined);
   }
 
-  prepare(context: ResolvedRequestContext): void {
-    this.context = context;
-    this.observer.noteModel(context);
+  attempt(
+    request: LlmRequest,
+    info: { readonly appliedRecoveries: readonly LlmRecoveryRecord[] },
+  ): void {
+    this.observer.recordAttempt(this, request, info.appliedRecoveries);
   }
 
-  get currentRequestId(): string | undefined {
-    return this.trace.requestId;
+  event(event: LlmRunEvent): void {
+    this.observer.reportEvent(this, event, this.infiniteRetry);
+  }
+
+  settle(outcome: LlmOutcome, signal: AbortSignal): void {
+    if (outcome.type === 'done') this.observer.completeRequest(this, outcome);
+    else if (outcome.type === 'failed') this.observer.failRequest(this, outcome.error, signal, outcome.requestId);
+    else this.setRequestId(undefined);
   }
 
   setRequestId(requestId: string | null | undefined, active = true): void {
     const resolved = requestId ?? undefined;
-    this.trace.set(resolved);
+    this.currentRequestId = resolved;
     this.observer.setRequestId(this.source, resolved, active);
   }
 
   requireContext(): ResolvedRequestContext {
-    if (this.context === undefined) throw new Error('request observation has no resolved context');
     return this.context;
-  }
-}
-
-class MutableLLMRequestTrace implements LLMRequestTrace {
-  requestId: string | undefined;
-
-  set(requestId: string | undefined): void {
-    this.requestId = requestId;
   }
 }
 
@@ -661,14 +789,32 @@ function apiStatusCode(error: unknown): number | undefined {
   return undefined;
 }
 
-function apiRequestId(error: unknown): string | undefined {
+export function apiRequestId(error: unknown): string | undefined {
   const raw = unwrapErrorCause(error);
   const fromDiagnostics = nonEmptyRequestId((errorDiagnostics(error) ?? errorDiagnostics(raw))?.['requestId']);
   if (fromDiagnostics !== undefined) return fromDiagnostics;
-  if (raw instanceof APIStatusError) return nonEmptyRequestId(raw.requestId);
-  return isLlmErrorMessage(error as never)
-    ? nonEmptyRequestId(llmErrorRequestId(error as never))
-    : undefined;
+  if (raw instanceof APIStatusError) return nonEmptyRequestId(raw.requestId) ?? nonEmptyRequestId(raw.traceId);
+  if (isLlmErrorMessage(error)) {
+    const id = nonEmptyRequestId(llmErrorRequestId(error));
+    if (id !== undefined) return id;
+    const headers = 'headers' in error ? error.headers : undefined;
+    if (headers !== undefined && headers !== null) {
+      return headerRequestIdFromRecord(headers);
+    }
+  }
+  return undefined;
+}
+
+function headerRequestIdFromRecord(headers: Readonly<Record<string, string>>): string | undefined {
+  for (const target of ['x-request-id', 'x-trace-id']) {
+    for (const [key, value] of Object.entries(headers)) {
+      if (key.toLowerCase() === target) {
+        const cleaned = nonEmptyRequestId(value);
+        if (cleaned !== undefined) return cleaned;
+      }
+    }
+  }
+  return undefined;
 }
 
 function nonEmptyRequestId(value: unknown): string | undefined {

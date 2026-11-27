@@ -9,7 +9,6 @@ import { type AgentContext } from '#/agent/agentContext/agentContext';
 import { type LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import { type ContextMessage, type PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { type Turn } from '#/agent/loop/loop';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { TurnStarted, TurnStepCompleted } from '#/agent/loop/turnEvents';
@@ -95,18 +94,18 @@ describe('Agent loop', () => {
       [emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Hello" } ], "origin": { "kind": "user" }, "createdAt": "<time>" }
       [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Hello" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "trigger": "normal", "time": "<time>" }
       [emit] turn.prompt                 { "time": "<time>", "agentId": "main", "input": [ { "type": "text", "text": "Hello" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "trigger": "normal" }
-      [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [], "id": "<msg-1>", "origin": { "kind": "user" } } ] }
+      [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "id": "<msg-1>", "origin": { "kind": "user" } } ] }
       [emit] turn.started                { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Hello" }
       [emit] prompt.started              { "time": "<time>", "agentId": "main", "promptId": "<msg-1>" }
       [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-      [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [], "id": "<msg-1>", "origin": { "kind": "user" } }, "time": "<time>" }
+      [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "id": "<msg-1>", "origin": { "kind": "user" } }, "time": "<time>" }
       [wire] tool_select.initialized     { "agentId": "main", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "EnterSpecMode", "ExitPlanMode", "ExitSpecMode", "FetchURL", "GetGoal", "Glob", "Grep", "Knowledge", "Memory", "Read", "run_code", "select_tools", "session_query", "SetGoalBudget", "Skill", "SnapshotList", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "WebSearch", "Workflow", "Write" ], "time": "<time>" }
       [wire] plugin.session_start        { "agentId": "main", "content": null, "time": "<time>" }
-      [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } } ] }
-      [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } }, "time": "<time>" }
+      [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } } ] }
+      [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } }, "time": "<time>" }
+      [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-2>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [wire] llm.tools_snapshot          { "agentId": "main", "hash": "<tools-hash>", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "EnterSpecMode", "ExitPlanMode", "ExitSpecMode", "FetchURL", "GetGoal", "Glob", "Grep", "Knowledge", "Memory", "Read", "run_code", "session_query", "SetGoalBudget", "Skill", "SnapshotList", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "WebSearch", "Workflow", "Write" ], "time": "<time>" }
       [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
-      [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-2>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [emit] thinking.delta              { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "<think-1>", "block": 0 }
       [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "<text-1>", "block": 1 }
       [emit] thinking.delta              { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "" }
@@ -115,11 +114,11 @@ describe('Agent loop', () => {
       [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 3, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 3, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 3, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] token_counting.measured     { "agentId": "main", "length": 3, "tokens": 13, "time": "<time>" }
       [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 13 }
-      [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 2, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "think", "think": "<think-1>" }, { "type": "text", "text": "<text-1><text-2>" } ], "toolCalls": [], "providerMessageId": "mock-1", "usage": { "inputOther": 3, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 } } ] }
+      [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 2, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "think", "think": "<think-1>", "reasoningKey": "reasoning_content" }, { "type": "text", "text": "<text-1><text-2>" } ], "toolCalls": [], "providerMessageId": "mock-1", "usage": { "inputOther": 3, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 } } ] }
       [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 1, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 3, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 10 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
-      [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-2>", "block": 0, "part": { "type": "think", "think": "<think-1>" }, "startedAt": "<time>" }, "time": "<time>" }
+      [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-2>", "block": 0, "part": { "type": "think", "think": "<think-1>", "reasoningKey": "reasoning_content" }, "startedAt": "<time>" }, "time": "<time>" }
       [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-4>", "turnId": "0", "step": 1, "stepUuid": "<uuid-2>", "block": 1, "part": { "type": "text", "text": "<text-1><text-2>" }, "startedAt": "<time>" }, "time": "<time>" }
-      [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed", "modelSteps": [ { "model": "mock-model", "provider": "openai", "isKfc": false, "step": 1, "role": "step" } ], "continuation": "none" }"
+      [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed", "replyModel": { "provider": "openai", "model": "mock-model" }, "modelSteps": [ { "model": "mock-model", "provider": "openai", "isKfc": false, "step": 1, "role": "step" } ], "continuation": "none" }"
     `);
     expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
     "system: <system-prompt>
@@ -189,27 +188,27 @@ describe('Agent loop', () => {
       [emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Hello" } ], "origin": { "kind": "user" }, "createdAt": "<time>" }
       [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Hello" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "trigger": "normal", "time": "<time>" }
       [emit] turn.prompt                 { "time": "<time>", "agentId": "main", "input": [ { "type": "text", "text": "Hello" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "trigger": "normal" }
-      [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [], "id": "<msg-1>", "origin": { "kind": "user" } } ] }
+      [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "id": "<msg-1>", "origin": { "kind": "user" } } ] }
       [emit] turn.started                { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Hello" }
       [emit] prompt.started              { "time": "<time>", "agentId": "main", "promptId": "<msg-1>" }
       [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-      [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "toolCalls": [], "id": "<msg-1>", "origin": { "kind": "user" } }, "time": "<time>" }
+      [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "id": "<msg-1>", "origin": { "kind": "user" } }, "time": "<time>" }
       [wire] tool_select.initialized     { "agentId": "main", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "EnterSpecMode", "ExitPlanMode", "ExitSpecMode", "FetchURL", "GetGoal", "Glob", "Grep", "Knowledge", "Memory", "Read", "run_code", "select_tools", "session_query", "SetGoalBudget", "Skill", "SnapshotList", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "WebSearch", "Workflow", "Write" ], "time": "<time>" }
       [wire] plugin.session_start        { "agentId": "main", "content": null, "time": "<time>" }
-      [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } } ] }
-      [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } }, "time": "<time>" }
+      [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } } ] }
+      [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } }, "time": "<time>" }
+      [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-2>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [wire] llm.tools_snapshot          { "agentId": "main", "hash": "<tools-hash>", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "EnterSpecMode", "ExitPlanMode", "ExitSpecMode", "FetchURL", "GetGoal", "Glob", "Grep", "Knowledge", "Memory", "Read", "run_code", "session_query", "SetGoalBudget", "Skill", "SnapshotList", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "WebSearch", "Workflow", "Write" ], "time": "<time>" }
       [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
-      [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-2>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "blocked", "block": 0 }
       [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] token_counting.measured     { "agentId": "main", "length": 3, "tokens": 8, "time": "<time>" }
       [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 8 }
       [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 2, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "blocked" } ], "toolCalls": [], "providerMessageId": "mock-1", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 } } ] }
-      [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 1, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 3, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 5 }, "finishReason": "filtered", "providerFinishReason": "filtered", "rawFinishReason": "filtered" }
+      [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 1, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 3, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 5 }, "finishReason": "filtered", "providerFinishReason": "filtered", "rawFinishReason": "content_filter" }
       [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-2>", "block": 0, "part": { "type": "text", "text": "blocked" }, "startedAt": "<time>" }, "time": "<time>" }
-      [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "failed", "error": { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered" }, "retryable": false }, "interruptReason": "filtered", "modelSteps": [ { "model": "mock-model", "provider": "openai", "isKfc": false, "step": 1, "role": "step" } ], "continuation": "none" }"
+      [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "failed", "error": { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered" }, "retryable": false }, "interruptReason": "filtered", "replyModel": { "provider": "openai", "model": "mock-model" }, "modelSteps": [ { "model": "mock-model", "provider": "openai", "isKfc": false, "step": 1, "role": "step" } ], "continuation": "none" }"
     `);
 
     const stepCompleted = ctx.allEvents.find(
@@ -598,18 +597,18 @@ describe('Agent loop', () => {
       [emit] prompt.submitted                { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Look up moon" } ], "origin": { "kind": "user" }, "createdAt": "<time>" }
       [wire] turn.prompt                     { "agentId": "main", "input": [ { "type": "text", "text": "Look up moon" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "trigger": "normal", "time": "<time>" }
       [emit] turn.prompt                     { "time": "<time>", "agentId": "main", "input": [ { "type": "text", "text": "Look up moon" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "trigger": "normal" }
-      [emit] context.spliced                 { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "toolCalls": [], "id": "<msg-1>", "origin": { "kind": "user" } } ] }
+      [emit] context.spliced                 { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "id": "<msg-1>", "origin": { "kind": "user" } } ] }
       [emit] turn.started                    { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Look up moon" }
       [emit] prompt.started                  { "time": "<time>", "agentId": "main", "promptId": "<msg-1>" }
       [emit] turn.step.started               { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-      [wire] context.append_message          { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "toolCalls": [], "id": "<msg-1>", "origin": { "kind": "user" } }, "time": "<time>" }
+      [wire] context.append_message          { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Look up moon" } ], "id": "<msg-1>", "origin": { "kind": "user" } }, "time": "<time>" }
       [wire] tool_select.initialized         { "agentId": "main", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "EnterSpecMode", "ExitPlanMode", "ExitSpecMode", "FetchURL", "GetGoal", "Glob", "Grep", "Knowledge", "Lookup", "Memory", "Read", "run_code", "select_tools", "session_query", "SetGoalBudget", "Skill", "SnapshotList", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "WebSearch", "Workflow", "Write" ], "time": "<time>" }
       [wire] plugin.session_start            { "agentId": "main", "content": null, "time": "<time>" }
-      [emit] context.spliced                 { "time": "<time>", "agentId": "main", "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } } ] }
-      [wire] context.append_message          { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } }, "time": "<time>" }
+      [emit] context.spliced                 { "time": "<time>", "agentId": "main", "start": 1, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } } ] }
+      [wire] context.append_message          { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "No tools are currently available for dynamic loading in this session. Do not call select_tools or guess tool names; use the tools you already have. Only a later <tools_added> announcement can make new tools loadable." } ], "origin": { "kind": "injection", "variant": "loadable-tools", "disclosure": { "kind": "snapshot", "revision": 0, "tools": [] } } }, "time": "<time>" }
+      [wire] context.append_loop_event       { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-2>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [wire] llm.tools_snapshot              { "agentId": "main", "hash": "<tools-hash>", "tools": [ "Agent", "AgentSwarm", "AskUserQuestion", "Bash", "CreateGoal", "CronCreate", "CronDelete", "CronList", "Edit", "EnterSpecMode", "ExitPlanMode", "ExitSpecMode", "FetchURL", "GetGoal", "Glob", "Grep", "Knowledge", "Memory", "Read", "run_code", "session_query", "SetGoalBudget", "Skill", "SnapshotList", "TaskList", "TaskOutput", "TaskStop", "TodoList", "UpdateGoal", "WaitFor", "WebSearch", "Workflow", "Write" ], "time": "<time>" }
       [wire] llm.request                     { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
-      [wire] context.append_loop_event       { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-2>", "turnId": "0", "step": 1 }, "time": "<time>" }
       [emit] assistant.delta                 { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "I will look it up.", "block": 0 }
       [emit] tool.call.delta                 { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"moon\\"}", "block": 0 }
       [wire] usage.record                    { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
@@ -640,19 +639,21 @@ describe('Agent loop', () => {
       [emit] tool.updated                        { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_lookup", "taskId": "<task-1>", "status": "success", "detached": false, "fields": {} }
       [emit] tool.result                         { "time": "<time>", "agentId": "main", "origin": "loop", "turnId": 0, "toolCallId": "call_lookup", "output": "lookup-result" }
       [emit] turn.step.completed                 { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 1, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 4, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 16 }, "finishReason": "tool_use", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }
-      [emit] context.spliced                     { "time": "<time>", "agentId": "main", "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "lookup-result" } ], "toolCallId": "call_lookup", "toolCalls": [] } ] }
+      [emit] context.spliced                     { "time": "<time>", "agentId": "main", "start": 3, "deleteCount": 0, "messages": [ { "role": "tool", "content": [ { "type": "text", "text": "lookup-result" } ], "toolCallId": "call_lookup" } ] }
       [wire] context.append_loop_event           { "agentId": "main", "event": { "type": "tool.result", "parentUuid": "<uuid-4>", "toolCallId": "call_lookup", "result": { "output": "lookup-result" } }, "time": "<time>" }
       [emit] turn.step.started                   { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-5>" }
       [wire] context.append_loop_event           { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 4, "output": 16, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "time": "<time>" }
-      [wire] llm.request                         { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 3, "turnStep": "0.2", "time": "<time>" }
       [wire] context.append_loop_event           { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-6>", "turnId": "0", "step": 2 }, "time": "<time>" }
+      [wire] llm.request                         { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "<tools-hash>", "messageCount": 3, "turnStep": "0.2", "time": "<time>" }
       [emit] assistant.delta                     { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "The lookup result is lookup-result.", "block": 0 }
       [wire] usage.record                        { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated                { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 29, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 29, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 29, "output": 28, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
+      [wire] token_counting.measured             { "agentId": "main", "length": 5, "tokens": 37, "time": "<time>" }
+      [emit] agent.status.updated                { "time": "<time>", "agentId": "main", "contextTokens": 37 }
       [emit] context.spliced                     { "time": "<time>", "agentId": "main", "start": 4, "deleteCount": 0, "messages": [ { "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is lookup-result." } ], "toolCalls": [], "providerMessageId": "mock-2", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } } ] }
       [emit] turn.step.completed                 { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-5>", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "cache": { "modelAlias": "mock-model", "protocol": "openai", "providerType": "kimi", "messageCount": 3, "historyHash": "<fingerprint>", "thinkingEffort": "off", "inputTokens": 25, "cacheRead": 0, "cacheCreation": 0, "outputTokens": 12 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
       [wire] context.append_loop_event           { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-7>", "turnId": "0", "step": 2, "stepUuid": "<uuid-6>", "block": 0, "part": { "type": "text", "text": "The lookup result is lookup-result." }, "startedAt": "<time>" }, "time": "<time>" }
-      [emit] turn.ended                          { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed", "modelSteps": [ { "model": "mock-model", "provider": "openai", "isKfc": false, "step": 1, "role": "step" }, { "model": "mock-model", "provider": "openai", "isKfc": false, "step": 2, "role": "step" } ], "continuation": "none" }"
+      [emit] turn.ended                          { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed", "replyModel": { "provider": "openai", "model": "mock-model" }, "modelSteps": [ { "model": "mock-model", "provider": "openai", "isKfc": false, "step": 1, "role": "step" }, { "model": "mock-model", "provider": "openai", "isKfc": false, "step": 2, "role": "step" } ], "continuation": "none" }"
     `);
     expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
       "messages:
@@ -660,72 +661,6 @@ describe('Agent loop', () => {
         assistant: text "I will look it up."  calls call_lookup:Lookup { "query": "moon" }
         tool[call_lookup]: text "lookup-result""
     `);
-  });
-
-  it('carries the engine cache-break verdict on turn.step.completed', async () => {
-    const toolCall: ToolCall = {
-      type: 'function',
-      id: 'call_echo',
-      name: 'Echo',
-      arguments: '{}',
-    };
-    const echoTool: ExecutableTool = {
-      name: 'Echo',
-      description: 'Echo a value.',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
-      resolveExecution: () => ({
-        approvalRule: 'Echo',
-        execute: async () => ({ output: 'ok' }),
-      }),
-    };
-    let calls = 0;
-    const generate = requesterFromGenerateFn(async (): Promise<LegacyGenerateResult> => {
-      calls += 1;
-      if (calls === 1) {
-        return {
-          id: 'mock-cache-1',
-          message: {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'calling echo' }],
-            toolCalls: [toolCall],
-          },
-          usage: { inputOther: 10, output: 5, inputCacheRead: 10_000, inputCacheCreation: 0 },
-          finishReason: 'tool_calls',
-          rawFinishReason: 'tool_calls',
-        };
-      }
-      return {
-        id: 'mock-cache-2',
-        message: { role: 'assistant', content: [{ type: 'text', text: 'done' }], toolCalls: [] },
-        usage: { inputOther: 10, output: 5, inputCacheRead: 1_000, inputCacheCreation: 0 },
-        finishReason: 'completed',
-        rawFinishReason: 'stop',
-      };
-    });
-    const local = createTestAgent(permissionModeServices('yolo'), { generate });
-    try {
-      local.get(IAgentProfileService).update({ activeToolNames: ['Echo'] });
-      local.get(IAgentToolRegistryService).register(echoTool);
-      const breaks: CacheBreakObservation[] = [];
-      const subscription = local.get(IEventBus).subscribe((event) => {
-        if (event instanceof TurnStepCompleted && event.cacheBreak !== undefined) {
-          breaks.push(event.cacheBreak);
-        }
-      });
-
-      await local.rpc.prompt({ input: [{ type: 'text', text: 'echo' }] });
-      await local.untilTurnEnd();
-      subscription.dispose();
-
-      expect(breaks).toHaveLength(1);
-      expect(breaks[0]).toMatchObject({
-        cause: 'unexplained',
-        previous: { usage: { inputCacheRead: 10_000 } },
-        current: { usage: { inputCacheRead: 1_000 } },
-      });
-    } finally {
-      await local.dispose();
-    }
   });
 
   it('does not abort sibling tools when a parallel batch tool completes first', async () => {
@@ -1761,11 +1696,11 @@ describe('turn telemetry', () => {
       subscription.dispose();
 
       expect(ended).toHaveLength(1);
-      expect(ended[0]!.traceId).toBe('trace-payload-completed');
+      expect(ended[0]!.requestId).toBe('trace-payload-completed');
       const record = (await local.persistedWireRecords()).find(
         (entry) => entry.type === 'turn.ended',
       );
-      expect(record).toMatchObject({ traceId: 'trace-payload-completed' });
+      expect(record).toMatchObject({ requestId: 'trace-payload-completed' });
     } finally {
       await local.dispose();
     }
@@ -1790,7 +1725,7 @@ describe('turn telemetry', () => {
 
       expect(ended).toHaveLength(1);
       expect(ended[0]!.reason).toBe('failed');
-      expect(ended[0]!.traceId).toBe('trace-payload-failed');
+      expect(ended[0]!.requestId).toBe('trace-payload-failed');
     } finally {
       await local.dispose();
     }
@@ -1833,7 +1768,7 @@ describe('turn telemetry', () => {
 
       expect(ended).toHaveLength(1);
       expect(ended[0]!.reason).toBe('cancelled');
-      expect(ended[0]!.traceId).toBe('trace-payload-cancelled');
+      expect(ended[0]!.requestId).toBe('trace-payload-cancelled');
     } finally {
       await local.dispose();
     }
@@ -1853,7 +1788,7 @@ describe('turn telemetry', () => {
       subscription.dispose();
 
       expect(ended).toHaveLength(1);
-      expect(ended[0]!.traceId).toBeUndefined();
+      expect(ended[0]!.requestId).toBeUndefined();
       const record = (await local.persistedWireRecords()).find(
         (entry) => entry.type === 'turn.ended',
       );
@@ -1892,8 +1827,8 @@ describe('turn telemetry', () => {
       subscription.dispose();
 
       expect(ended).toHaveLength(2);
-      expect(ended[0]!.traceId).toBe('trace-turn-one');
-      expect(ended[1]!.traceId).toBeUndefined();
+      expect(ended[0]!.requestId).toBe('trace-turn-one');
+      expect(ended[1]!.requestId).toBeUndefined();
     } finally {
       await local.dispose();
     }
@@ -2314,7 +2249,7 @@ describe('interruption reminder', () => {
     expect(ctx.contextData().history).toContainEqual({
       role: 'assistant',
       content: [
-        { type: 'think', think: 'seg', encrypted: 'sig' },
+        { type: 'think', think: '', encrypted: 'sig', detailsIndex: 0, reasoningKey: 'reasoning_details' },
         { type: 'text', text: 'partial answer' },
       ],
       toolCalls: [],
@@ -2456,34 +2391,6 @@ describe('interruption reminder', () => {
   });
 });
 
-describe('step timing split propagation', () => {
-  it('carries the split from the llmRequester timing event to the turn.step.completed protocol event', async () => {
-    const ctx = createTestAgent(agentService(IAgentLLMRequesterService, createTimingRequester()));
-    try {
-      await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
-      await ctx.untilTurnEnd();
-
-      const stepCompleted = ctx.allEvents.find(
-        (event) => event.type === '[rpc]' && event.event === 'turn.step.completed',
-      );
-      expect(stepCompleted?.args).toMatchObject({
-        llmFirstTokenLatencyMs: 100,
-        llmStreamDurationMs: 200,
-        llmRequestBuildMs: 30,
-        llmServerFirstTokenMs: 70,
-        llmServerDecodeMs: 150,
-        llmClientConsumeMs: 50,
-        llmClientBlockedMs: 20,
-        llmFirstTokenOffsetMs: 50,
-        llmLastTokenOffsetMs: 250,
-        llmWindowOnFrameClock: true,
-      });
-    } finally {
-      await ctx.dispose();
-    }
-  });
-});
-
 describe('aborted step tool execution', () => {
   it('accounts model usage when the step is aborted during tool execution', async () => {
     const ctx = createTestAgent(
@@ -2558,33 +2465,6 @@ describe('aborted step tool execution', () => {
     }
   });
 
-  it('settles a message-less notification when credential resolution rejects before the first request', async () => {
-    const rejectingCredentials = () => ({
-      resolve: () => Promise.reject(new Error('OAuth login required')),
-    });
-    const requester: IAgentLLMRequesterService = {
-      _serviceBrand: undefined,
-      prepareTurnConfig: () => ({ thinkingEffort: 'off' }),
-      currentCredentialProvider: rejectingCredentials,
-      credentialProviderForTurn: rejectingCredentials,
-      lastTurnRequest: () => undefined,
-      async request() {
-        throw new Error('request must not run');
-      },
-      start() {
-        throw new Error('request must not run');
-      },
-    };
-    const ctx = createTestAgent(agentService(IAgentLLMRequesterService, requester));
-    try {
-      const loopService = ctx.get(IAgentLoopService);
-      const handle = loopService.notify();
-      await loopService.settled();
-      expect(handle.dropped).toBe(false);
-    } finally {
-      await ctx.dispose();
-    }
-  });
 });
 
 function submitTurn(loop: IAgentLoopService, text: string): { readonly turn: Turn } {
@@ -2612,46 +2492,6 @@ function parkedLifecycleStub(): IAgentLifecycleService {
   };
 }
 
-
-function createTimingRequester(): IAgentLLMRequesterService {
-  const timing: ModelRequestTiming = {
-    firstTokenLatencyMs: 100,
-    streamDurationMs: 200,
-    requestBuildMs: 30,
-    serverFirstTokenMs: 70,
-    serverDecodeMs: 150,
-    clientConsumeMs: 50,
-    clientBlockedMs: 20,
-    llmFirstTokenOffsetMs: 50,
-    llmLastTokenOffsetMs: 250,
-    llmWindowOnFrameClock: true,
-  };
-
-  const requester: IAgentLLMRequesterService = {
-    _serviceBrand: undefined,
-    prepareTurnConfig: () => ({ thinkingEffort: 'off' }),
-    currentCredentialProvider: () => undefined,
-    credentialProviderForTurn: () => undefined,
-    lastTurnRequest: () => undefined,
-    async request(_overrides, onPart = () => {}) {
-      await onPart({ type: 'text', text: 'answer' });
-      return {
-        message: {
-          role: 'assistant',
-          content: [{ type: 'text', text: 'answer' }],
-          toolCalls: [],
-        },
-        usage: emptyUsage(),
-        model: 'mock-model',
-        timing,
-      };
-    },
-    start(overrides, onPart, signal) {
-      return { trace: { requestId: undefined }, result: this.request(overrides, onPart, signal) };
-    },
-  };
-  return requester;
-}
 
 function createAbortedStepGenerate(): GenerateFn {
   const usages = [

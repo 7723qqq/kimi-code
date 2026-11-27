@@ -54,7 +54,7 @@ async function createBridge(
   const providers = new ProviderService();
   const models = new ModelService();
   const log = stubLogService();
-  const bridge = new KosongConfigService(config, providers, models, log, retrySleep);
+  const bridge = new KosongConfigService(config, providers, models, undefined, log, retrySleep);
   await bridge.ready;
   return { config, providers, models, log, bridge };
 }
@@ -351,7 +351,7 @@ describe('KosongConfigService env-pinned default pointer', () => {
     const config = new PinnedConfigService(DEFAULT_MODEL_SECTION, 'env-model', seededSections);
     const providers = new ProviderService();
     const models = new ModelService();
-    const bridge = new KosongConfigService(config, providers, models, stubLogService());
+    const bridge = new KosongConfigService(config, providers, models, undefined, stubLogService());
     await bridge.ready;
     try {
       expect(models.getDefaultModel()).toBe('env-model');

@@ -14,7 +14,7 @@ type PromptCacheUsage = Pick<
   'input_tokens' | 'input_cache_read' | 'input_cache_creation' | 'output_tokens' | 'cache_hit_rate'
 >;
 
-export function cacheProbeUsage(usage: TokenUsage | undefined): PromptCacheUsage {
+export function cacheProbeUsage(usage: Readonly<TokenUsage> | undefined): PromptCacheUsage {
   const inputTokens = usage === undefined ? undefined : inputTotal(usage);
   return {
     input_tokens: inputTokens ?? 0,

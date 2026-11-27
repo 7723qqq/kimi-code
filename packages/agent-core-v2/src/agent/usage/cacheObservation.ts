@@ -1,4 +1,4 @@
-import type { LlmRequestProjection } from '#/agent/loop/llmRequestOps';
+import type { LlmRequestProjection } from '@moonshot-ai/core/llm/response';
 import type { ThinkingEffort } from '#human/llm/thinking';
 import { inputTotal, type TokenUsage } from '#human/llm/usage';
 

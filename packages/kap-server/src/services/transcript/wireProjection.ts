@@ -277,7 +277,7 @@ function signatureOf(message: ContextMessage, time: number | undefined): Message
   return {
     source: message,
     contentLength: message.content.length,
-    toolCallCount: message.toolCalls.length,
+    toolCallCount: message.toolCalls?.length ?? 0,
     usage: message.usage,
     llmTiming: message.llmTiming,
     time,
@@ -292,7 +292,7 @@ function sameMessage(
   return (
     signature.source === message &&
     signature.contentLength === message.content.length &&
-    signature.toolCallCount === message.toolCalls.length &&
+    signature.toolCallCount === (message.toolCalls?.length ?? 0) &&
     signature.usage === message.usage &&
     signature.llmTiming === message.llmTiming &&
     signature.time === time

@@ -1,5 +1,6 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import { Error2 } from '#/_base/errors/errors';
+import type { Event } from '#/_base/event';
 import type {
   AgentProfile,
   AgentProfileContext,
@@ -7,7 +8,7 @@ import type {
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { ErrorCode } from '#/errors';
 import type { ModelCapability } from '#/provider-catalog/capability';
-import type { ProfileUpdatePlan } from './profileOps';
+import type { ConfigUpdate, ProfileBind, ProfileUpdatePlan, ToolsSetActiveTools } from './profileOps';
 import type { InitializedLlmRequestPart } from '@moonshot-ai/core/llm/requester';
 import type { LlmModelSpec } from '@moonshot-ai/core/llm/request';
 import type { ThinkingEffort } from '#human/llm/thinking';
@@ -150,6 +151,7 @@ export interface IAgentProfileService {
   resolveBinding(input: BindAgentInput, current?: ProfileBindingSnapshot): Promise<ProfileBindingSnapshot>;
   resolveModel(model: string): ProfileSetModelResult;
   resolveThinkingLevel(level: string, current?: ProfileBindingSnapshot): string;
+  readonly onDidDispatchChange?: Event<ProfileBind | ConfigUpdate | ToolsSetActiveTools>;
 
 }
 

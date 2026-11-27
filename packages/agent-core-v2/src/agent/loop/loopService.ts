@@ -7,18 +7,22 @@ import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
 import { abortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
-import { readRetryAfterMs, retryBackoffDelay, sleepForRetry } from '#/_base/utils/retry';
-import { parseBooleanEnv } from '#/_base/utils/env';
 import { toErrorMessage } from '#/_base/errors/errorMessage';
-import {
-  type CoreLoopRequester,
-  type CoreLoopRequesterOptions,
-  type LoopRequester,
-  type RequestConfigSnapshot,
-} from './requesterContract';
-import { IAgentLLMRequesterService, type AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import type { LlmRequestPayload } from '#/agent/loop/llmRequestOps';
+import { parseBooleanEnv } from '#/_base/utils/env';
+import { AgentLoopRequestObserver } from './requestObservation';
+import { registerAgentMediaPolicy, registerAgentMediaTools } from './mediaPolicy';
+import type { RequestConfigSnapshot } from './requesterContract';
+import { AgentLoopProjector } from './projector';
+import { createStructureRecovery, createStructureResolver } from './projectionPolicy';
+import { createToolSelectResolver } from './toolSelectPolicy';
+import { RequestMetadataTracker, createRequestMetadataResolver } from './requestMetadata';
+import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
+
+import { ISessionRequestAttributionService } from '#/session/requestAttribution/requestAttribution';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { credentialRecovery } from '@moonshot-ai/core/llm/policy/credentials';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { ToolCallStarted, ToolResultEvent } from '#/agent/toolExecutor/toolExecutorEvents';
 import { agentTaskInfo } from '#/agent/task/handler';
@@ -31,9 +35,7 @@ import { restoreTaskCompletions } from '#/agent/task/completionRestore';
 import { completionMessage as coreCompletionMessage, type ToolCompletionInput } from '@moonshot-ai/core/loop/tool/outcome';
 import { IConfigService } from '#/app/config/config';
 import {
-  createMessageAccumulator,
   createUserMessage,
-  salvageInterruptedMessage,
   type ContentPart,
   type Message,
   type SystemMessage,
@@ -41,15 +43,12 @@ import {
   type UserMessage,
 } from '@moonshot-ai/core/llm/message';
 import { BugIndicatingError, ErrorCodes, Error2, isError2 } from '#/errors';
-import { unwrapErrorCause } from '#/_base/errors/errors';
 import { OrderedHookSlot } from '#/hooks';
-import { toCorePart } from '#/llm-adapter/contract/message';
-import type { StreamedMessagePart as ForkStreamedPart } from '#human/llm/message';
-import type { StreamedMessagePart as CoreStreamedPart } from '@moonshot-ai/core/llm/message';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import { foldSettle } from '#/agent/contextMemory/loopEventFold';
 import { newMessageId } from '#/agent/contextMemory/messageId';
 import { type ContextMessage, type PromptOrigin } from '#/agent/contextMemory/types';
+import { toCorePart } from '#/llm-adapter/contract/message';
 import { gateImageFormatParts } from '#/agent/media/image-compress';
 import { daemonFileRefFromPart } from '#/agent/media/mediaRef';
 import { materializePromptDaemonRefs } from '#/agent/media/promptMediaIntake';
@@ -66,23 +65,27 @@ import {
   type ResolvedAgentProfile,
   type SystemPromptContext,
 } from '#/agent/profile/profile';
-import { IProviderCatalogService } from '#/provider-catalog/providerCatalogService';
-import { resolveMaxOutputTokens } from '#/provider-catalog/model/completion-budget';
-import type { ModelOverrides } from '#/provider-catalog/model/model.types';
-import type { LlmRequest, LlmRequestModel, ThinkingEffort } from '@moonshot-ai/core/llm/request';
+import type {
+  LlmRequest,
+  LlmRequestModel,
+  ThinkingEffort,
+} from '@moonshot-ai/core/llm/request';
 import type { ModelCapability } from '#/provider-catalog/capability';
-import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
-import { toLlmErrorMessage } from '@moonshot-ai/core/llm/protocol/errors';
-import { isRetryableGenerateError, llmMessageFromError } from '#/llm-adapter/contract/errors';
-import type { TokenUsage } from '@moonshot-ai/core/llm/usage';
 import {
   requesterContents,
   type InitializedLlmRequester,
   type InitializedLlmRequestPart,
+  type LlmRequestPart,
 } from '@moonshot-ai/core/llm/requester';
-import { createLlmRequesterExecution } from '@moonshot-ai/core/llm/policy/policy';
+import {
+  createLlmRequesterExecution,
+} from '@moonshot-ai/core/llm/policy/policy';
+import { createPolicyRegistry, type PolicyRegistry } from '@moonshot-ai/core/llm/policy/registry';
+import type { LlmOutcome } from '@moonshot-ai/core/llm/response';
+import { resolveMaxOutputTokens } from '#/provider-catalog/model/completion-budget';
+import type { ModelOverrides } from '#/provider-catalog/model/model.types';
 import { getProviderDefinition } from '#/provider-catalog/provider/provider-definition';
-import { requestModelOf } from '#/provider-catalog/requester';
+import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentInterruptionReminderService } from '#/agent/interruptionReminder/interruptionReminder';
@@ -99,7 +102,6 @@ import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionRequestAttributionService } from '#/session/requestAttribution/requestAttribution';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -128,14 +130,20 @@ import {
   type TurnResult,
 } from './loop';
 import { TurnCancel, turnKey } from './turnOps';
-import { EMPTY_LOOP_PROMPT, contextFromHistoryEntry, historyEntryFromContext, historyFromContext, historyFromContextPreservingToolNotes } from './history';
+import {
+  EMPTY_LOOP_PROMPT,
+  contextFromHistoryEntry,
+  historyFromContext,
+  historyFromContextPreservingToolNotes,
+} from './history';
 import {
   createLoop,
   createMaxStepsHook,
-  type FullLoopLlmRequester,
+  normalizeLlmOutcome,
+  outcomeForError,
   type Loop,
   type LoopEmitted,
-  type LoopLlmRequester,
+  type FullLoopLlmRequester,
   type LoopHooks,
   type MessageAppendingEvent,
   type TurnStartingEvent,
@@ -146,10 +154,17 @@ import { AgentPromptProjection } from './promptProjection';
 import { AgentTurnProjection, loopLastRequestIdKey } from './turnProjection';
 import { AgentNotificationProjection } from './notificationProjection';
 import { AgentLoopProfileAdapter } from './profileAdapter';
+import { IProviderCatalogService } from '#/provider-catalog/providerCatalogService';
+import { requestModelOf } from '#/provider-catalog/requester';
 
 export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error' | 'steered';
 
 const KIMI_CODE_INFINITE_RETRY_ENV = 'KIMI_CODE_INFINITE_RETRY';
+const REQUEST_CONFIG_SECTIONS: ReadonlySet<string> = new Set([
+  LOOP_CONTROL_SECTION,
+  THINKING_SECTION,
+  'modelOverrides',
+]);
 
 export { loopLastRequestIdKey } from './turnProjection';
 export const loopDisposingKey = defineState<boolean>('loop.disposing', () => false);
@@ -157,7 +172,11 @@ export const loopDisposingKey = defineState<boolean>('loop.disposing', () => fal
 export class AgentLoopService extends Disposable implements IAgentLoopService {
   declare readonly _serviceBrand: undefined;
 
-  readonly requester: LoopRequester;
+  private readonly requesterExecution = createLlmRequesterExecution();
+  private readonly operationPolicyRegistry = createPolicyRegistry();
+  private readonly observer: AgentLoopRequestObserver;
+  private readonly projector: AgentLoopProjector;
+  private readonly requestMetadata: RequestMetadataTracker;
   readonly hooks: IAgentLoopService['hooks'] = {
     onWillBeginStep: new OrderedHookSlot(),
     onDidFinishStep: new OrderedHookSlot(),
@@ -188,14 +207,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private readonly turns: AgentTurnProjection;
   private readonly notifications = new AgentNotificationProjection();
   private readonly profileAdapter: AgentLoopProfileAdapter;
-  private readonly requesterExecution = createLlmRequesterExecution();
 
   constructor(
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
     @IAgentToolRegistryService _toolRegistry: IAgentToolRegistryService,
     @IConfigService private readonly config: IConfigService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
-    @IEventBus private readonly events: IEventBus,    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+    @IEventBus private readonly events: IEventBus,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
     @IEventService private readonly eventService: IEventService,
@@ -203,34 +222,37 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IAgentStateService private readonly states: IAgentStateService,
     @IWireService private readonly wire: IWireService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
-    @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
+    @ISessionTokenCountingService private readonly tokenCounting: ISessionTokenCountingService,
+    @IProviderCatalogService private readonly providerCatalog: IProviderCatalogService,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @ISessionRequestAttributionService attribution: ISessionRequestAttributionService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IProviderCatalogService readonly providerCatalog: IProviderCatalogService,
     @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
     @IProviderDiscoveryService private readonly discovery: IProviderDiscoveryService,
     @IPluginService private readonly plugins: IPluginService,
     @ISessionRunGate private readonly runGate: ISessionRunGate,
     @ILogService private readonly logger: ILogService,
+    @IAgentMediaResolverService private readonly mediaResolver: IAgentMediaResolverService,
     @IAgentTaskOutputService private readonly taskOutputs: IAgentTaskOutputService,
     @IAgentCacheBreakService private readonly cacheBreak: IAgentCacheBreakService,
-    @ISessionRequestAttributionService private readonly attribution: ISessionRequestAttributionService,
   ) {
     super();
     const space = this.scopeContext.agentContext.space;
-    if (space instanceof AgentSpaceImpl) {
-      this._register(space._setHistoryProvider(() => historyFromContext(this.history())));
-    }
-    this.requester = {
-      coreRequester: (options) => this.coreRequester(options),
-      prepareOperation: async (options, signal) => {
-        await this.start();
-        signal.throwIfAborted();
-        return this.coreRequester({
-          ...options,
-          runtime: { historyRevision: () => this.historyRevision() },
-        });
-      },
-    };
+    if (space instanceof AgentSpaceImpl) this._register(space._setHistoryProvider(() => historyFromContext(this.history())));
+    this.observer = instantiation.createInstance(AgentLoopRequestObserver);
+    this.observer.bindLoop(() => ({
+      historyRevision: this.loop?.historyRevision ?? 0,
+      infiniteRetry: this.infiniteRetryEnabled,
+      toolSelectEnabled: () => this.toolSelect.enabled(),
+      profileSystemPrompt: () => this.profile.data().systemPrompt,
+    }));
+    this.projector = new AgentLoopProjector((anomalies) => this.observer.reportProjectionRepairs(anomalies));
+    this.requestMetadata = new RequestMetadataTracker(scopeContext, dispatcher, attribution);
+    this.registerLoopPolicies(this.operationPolicyRegistry);
+    this._register(this.config.onDidSectionChange(({ domain }) => {
+      if (REQUEST_CONFIG_SECTIONS.has(domain)) this.syncRequester();
+    }));
+    this._register(this.providerCatalog.onChanged(() => this.syncRequester()));
     this.journal = new LoopJournal(wire, scopeContext.agentId, dispatcher);
     this.prompts = new AgentPromptProjection(
       dispatcher,
@@ -238,8 +260,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       (includeCurrent) => this.snapshot().queue.length + (includeCurrent ? 1 : 0),
     );
     this.turns = new AgentTurnProjection({
+      attribution,
       dispatcher,
-      events,
+      events: this.events,
       scopeContext,
       telemetry,
       plugins,
@@ -249,13 +272,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       hooks: this.hooks,
       errorHandlers: this.errorHandlers,
       maxSteps: () => this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
-      thinkingEffort: (turnId) =>
-        this.llmRequester.prepareTurnConfig(turnId)?.thinkingEffort ?? this.getEffectiveThinkingLevel(),
-      cache: () => this.llmRequester.lastTurnRequest()?.observation,
+      cache: () => this.observer.lastTurnCache(),
       cacheBreak: this.cacheBreak,
       cancel: (turnId, reason) => this.cancelActiveTurn(turnId, reason),
       recordStreamPart: (turnId, step, block) => this.journal.recordStreamPart(turnId, step, block),
-      attribution: this.attribution,
     });
     this.loopHooks.addLoopHook(createMaxStepsHook(
       () => this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn,
@@ -287,12 +307,18 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       catalog,
       telemetry,
       (value) => this.loop?.setSystemPrompt(value),
+      () => this.syncRequester(),
     );
     this._register(this.events.subscribe(ContextSpliced, (event) => {
       if (event.agentId !== this.scopeContext.agentId) return;
       if (event === this.ownSpliceEvent) return;
       this.adoptExternalContext();
     }));
+    if (this.profile.onDidDispatchChange !== undefined) {
+      this._register(this.profile.onDidDispatchChange((event) => {
+        this.profileAdapter.applyExternalEvent(event);
+      }));
+    }
     this._register(this.toolExecutor.hooks.onDidExecuteTool.register('loop.tool-delivery', async (ctx, next) => {
       const delivery = ctx.result.delivery;
       if (delivery !== undefined) {
@@ -326,6 +352,59 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       if (this.profileAdapter.snapshot().modelAlias === from) void this.profileAdapter.setModel(to).catch(() => {});
     }));
     this._register(toDisposable(() => this.turns.close(abortError('Agent loop disposed'))));
+  }
+
+  get requester(): FullLoopLlmRequester {
+    return this.createDynamicRequester();
+  }
+
+  private createDynamicRequester(parts: readonly LlmRequestPart[] = []): FullLoopLlmRequester {
+    const resolveBase = (): FullLoopLlmRequester => {
+      const loop = this.loop;
+      if (loop !== undefined) return loop.requester;
+      try {
+        return this.bindRequester(this.requestConfigSnapshot())
+          .with({ policy: this.operationPolicyRegistry.asPolicy() }) as FullLoopLlmRequester;
+      } catch (error) {
+        return createThrowingRequester(error);
+      }
+    };
+    const prepare = (base: FullLoopLlmRequester, rest: LlmRequestPart): FullLoopLlmRequester => {
+      let current = base;
+      for (const part of parts) current = current.with(part as never);
+      return current.with(rest as never) as FullLoopLlmRequester;
+    };
+    return {
+      [requesterContents]: {},
+      with: ((part: LlmRequestPart) =>
+        this.createDynamicRequester([...parts, part])) as FullLoopLlmRequester['with'],
+      request: (rest) => prepare(resolveBase(), rest).request({}),
+      generate: async (rest, control) => {
+        const prepared = prepare(resolveBase(), rest);
+        const builtRequest = prepared.request({});
+        const observation = this.observer.start(builtRequest);
+        let outcome: LlmOutcome;
+        try {
+          outcome = normalizeLlmOutcome(
+            await prepared.generate({}, {
+              ...control,
+              onAttempt: (attemptRequest, info) => {
+                observation.attempt(attemptRequest, info);
+                control.onAttempt?.(attemptRequest, info);
+              },
+              onEvent: (event) => {
+                observation.event(event);
+                control.onEvent?.(event);
+              },
+            }),
+          );
+        } catch (error) {
+          outcome = outcomeForError(control.signal, error);
+        }
+        observation.settle(outcome, control.signal);
+        return outcome;
+      },
+    };
   }
 
   private get disposing(): boolean {
@@ -432,10 +511,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     });
   }
 
-  get infiniteRetryEnabled(): boolean {
-    return parseBooleanEnv(process.env[KIMI_CODE_INFINITE_RETRY_ENV]) === true;
-  }
-
   requestConfigSnapshot(profile = this.profileAdapter.snapshot()): RequestConfigSnapshot {
     return {
       resolved: this.profile.resolveModelContext(profile),
@@ -445,7 +520,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     };
   }
 
-  bindRequester(config: RequestConfigSnapshot): InitializedLlmRequester {
+  private bindRequester(config: RequestConfigSnapshot): InitializedLlmRequester {
     const resolved = config.resolved;
     const model = this.providerCatalog.get(resolved.modelAlias);
     const maxOutputTokens = this.resolveMaxOutputTokens(resolved.maxOutputSize);
@@ -462,9 +537,20 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
       },
     };
-    return this.providerCatalog.createRequester(model, params, this.requesterExecution).with({
+    return this.providerCatalog.createRequester(
+      model,
+      params,
+      this.requesterExecution,
+    ).with({
+      content: { messages: [] },
       profile: { systemPrompt: config.systemPrompt },
-      attributes: { modelAlias: resolved.modelAlias, providerType: model.providerType },
+      ...(config.maxCompletionTokensCap !== undefined && config.maxCompletionTokensCap <= 0
+        ? { protocol: { options: { maxCompletionTokensCap: config.maxCompletionTokensCap } } }
+        : {}),
+      attributes: {
+        modelAlias: resolved.modelAlias,
+        providerType: model.providerType,
+      },
       policy: {
         retry: {
           maxAttemptsPerStep: this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxAttemptsPerStep,
@@ -474,13 +560,26 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     });
   }
 
-  wantsRequestMetadata(request: LlmRequest): boolean {
+  private registerLoopPolicies(policy: PolicyRegistry): void {
+    policy.addRecovery(credentialRecovery);
+    policy.addRecovery(createStructureRecovery(this.projector));
+    policy.addResolver(createToolSelectResolver(this.toolSelect));
+    registerAgentMediaTools(policy);
+    policy.addResolver(createStructureResolver(this.projector));
+    registerAgentMediaPolicy(policy, this.mediaResolver);
+    policy.addResolver(createRequestMetadataResolver(
+      this.requestMetadata,
+      (request) => this.wantsRequestMetadata(request),
+    ));
+  }
+
+  private wantsRequestMetadata(request: LlmRequest): boolean {
     const providerType = request.attributes?.providerType;
     if (providerType === undefined) return false;
     return getProviderDefinition(providerType, requestModelOf(request).protocol)?.requestMetadata === true;
   }
 
-  syncRequester(): void {
+  private syncRequester(): void {
     const loop = this.loop;
     if (loop === undefined) return;
     try {
@@ -489,17 +588,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       this.turns.thinkingEffort = config.resolved.thinkingLevel;
       loop.setRequester(requester as FullLoopLlmRequester);
     } catch (error) {
-      const requester: FullLoopLlmRequester = {
-        [requesterContents]: {},
-        with: (() => requester) as FullLoopLlmRequester['with'],
-        request: () => {
-          throw error;
-        },
-        generate: async () => {
-          throw error;
-        },
-      };
-      loop.setRequester(requester);
+      loop.setRequester(createThrowingRequester(error));
     }
   }
 
@@ -568,8 +657,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   history(): readonly ContextMessage[] {
-    const source = this.rawHistory();
-    return this.turns.history(source);
+    return this.turns.history(this.rawHistory());
   }
 
   rawHistory(): readonly Message[] {
@@ -625,7 +713,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (subsequence) {
       if (context.length !== messages.length) {
         this.replacedHistory = undefined;
-        loop.setContext(historyFromContextPreservingToolNotes(context), 'compaction');
+        loop.setContext(historyFromContextPreservingToolNotes(context), 'append');
       }
       return;
     }
@@ -740,6 +828,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   ): void {
     this.initialized = true;
     const loop = createLoop({
+      llmObserver: this.observer,
       shouldQueueTaskNotification: (taskId) => !this.suppressedTaskNotifications.has(taskId),
       completionMessage: (input: ToolCompletionInput) => {
         const handler = this.toolExecutor.handlerForCall(input.toolCall.id);
@@ -771,9 +860,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       },
       hook: this.loopHooks.hook,
     });
-    loop.setRequester(this.createLoopRequester(loop));
     this.loop = loop;
     this.pendingHistory = undefined;
+    this.registerLoopPolicies(loop.policy);
+    this.syncRequester();
     loop.subscribe((event) => {
       if (event.type === 'tool.started' && event.taskId === undefined) {
         void this.dispatcher.dispatch(new ToolCallStarted({
@@ -861,189 +951,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.maybeSettle();
   }
 
-  private createLoopRequester(loop: Loop): LoopLlmRequester {
-    return loop.operation((runtime) => this.requester.coreRequester({
-      source: () => {
-        const turn = loop.state.turn;
-        if (turn === undefined) throw new BugIndicatingError('Turn request requires an active turn');
-        return { type: 'turn', turnId: turn.id, step: turn.step };
-      },
-      runtime,
-      onSnapshot: () => {
-        const turn = loop.state.turn;
-        const prepared = turn === undefined ? undefined : this.llmRequester.prepareTurnConfig(turn.id);
-        this.turns.thinkingEffort = prepared?.thinkingEffort ?? this.resolveModelContext().thinkingLevel;
-      },
-      onTrace: (trace) => {
-        this.turns.requestTrace = trace;
-      },
-      onOutcome: (outcome, source) => this.turns.recordOutcome(outcome, source),
-    }));
-  }
-
-  private coreRequester(options: CoreLoopRequesterOptions): CoreLoopRequester {
-    const requester: CoreLoopRequester = {
-      generate: async (rest, control) => {
-        const source = options.source();
-        const maxAttempts = Math.max(
-          this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxAttemptsPerStep ?? 10,
-          1,
-        );
-        let accumulator = createMessageAccumulator();
-        const requestMessages = rest.content?.messages ?? [];
-        let started = false;
-        const emitRequest = (payload: LlmRequestPayload, attempt: number): void => {
-          if (!started) {
-            started = true;
-            control.onEvent?.({
-              type: 'llm.started',
-              provider: payload.provider,
-              model: payload.model,
-              thinkingEffort: payload.thinkingEffort,
-              thinkingKeep: payload.thinkingKeep,
-              temperature: payload.temperature,
-              topP: payload.topP,
-              maxOutputTokens: payload.maxTokens,
-              systemPromptHash: payload.systemPromptHash,
-              toolsHash: payload.toolsHash,
-              messageCount: payload.messageCount,
-            });
-          }
-          const { agentId: _agentId, ...summary } = payload;
-          control.onEvent?.({ ...summary, type: 'llm.requested', attempt: String(attempt) });
-        };
-        await this.toolSelect.prepareForRequest(control.signal);
-        const requestTools = this.toolSelect.requestTools(
-          (rest.profile?.tools as unknown as readonly Tool[] | undefined) ?? this.baselineTools(),
-          this.toolSelect.enabled(),
-        );
-        for (let attempt = 1; ; attempt += 1) {
-          const attemptNumber = attempt;
-          const task = this.llmRequester.start(
-            {
-              messages: requestMessages.map((message) =>
-                contextFromHistoryEntry(message),
-              ),
-              tools: requestTools as unknown as readonly Tool[],
-              systemPrompt: rest.profile?.systemPrompt,
-              source: source as unknown as AgentLLMRequestSource,
-              maxOutputSize: options.maxOutputSize,
-              promptCacheProbe: options.promptCacheProbe,
-              onRequest: (payload) => emitRequest(payload, attemptNumber),
-            },
-            (part) => {
-              const corePart = toCoreStreamPart(part);
-              const { block } = accumulator.push(corePart);
-              control.onEvent?.({
-                type: 'llm.delta.part',
-                part: corePart,
-                block,
-              });
-            },
-            control.signal,
-          );
-          options.onTrace?.(task.trace);
-          try {
-            const finish = await task.result;
-            const finishInfo = {
-              finishReason: finish.providerFinishReason ?? null,
-              rawFinishReason: finish.rawFinishReason ?? null,
-            };
-            const usage = finish.usage as unknown as TokenUsage;
-            control.onEvent?.({ type: 'llm.delta.usage', usage });
-            control.onEvent?.({ type: 'llm.delta.finish', finish: finishInfo });
-            if (finish.providerMessageId !== undefined) {
-              control.onEvent?.({ type: 'llm.delta.message_id', messageId: finish.providerMessageId });
-            }
-            const base = historyEntryFromContext(finish.message as unknown as ContextMessage);
-            const message = {
-              ...base,
-              attributes: {
-                ...base.attributes,
-                usage,
-                finish: finishInfo,
-                messageId: finish.providerMessageId,
-              },
-            } as typeof base;
-            const outcome = {
-              type: 'done',
-              message,
-              usage,
-              requestId: finish.traceId,
-              messageId: finish.providerMessageId,
-              finish: finishInfo,
-              timing: finish.timing,
-            } as unknown as LlmOutcome;
-            options.onOutcome?.(outcome as Extract<LlmOutcome, { type: 'done' }>, source);
-            return outcome;
-          } catch (error) {
-            if (control.signal.aborted) {
-              let message: Message | null = null;
-              try {
-                message = dropUnsignedThinking(salvageInterruptedMessage(accumulator.finish()));
-              } catch {
-                message = null;
-              }
-              return {
-                type: 'aborted',
-                message,
-                usage: undefined,
-                reason: control.signal.reason,
-              } as unknown as LlmOutcome;
-            }
-            const raw = unwrapErrorCause(error);
-            const known = llmMessageFromError(raw) ?? (raw === error ? undefined : llmMessageFromError(error));
-            const llmError = {
-              ...(known ?? toLlmErrorMessage(raw)),
-              retryable: isRetryableGenerateError(error),
-            };
-            const failure = task.attemptFailure?.();
-            let partial: Message | null = null;
-            try {
-              partial = salvageInterruptedMessage(accumulator.finish());
-            } catch {
-              partial = null;
-            }
-            if (partial !== null && failure?.usage !== undefined) {
-              partial = {
-                ...partial,
-                attributes: {
-                  ...partial.attributes,
-                  usage: failure.usage as unknown as TokenUsage,
-                  messageId: failure.messageId,
-                },
-              } as Message;
-            }
-            if (attempt >= maxAttempts || llmError.retryable !== true) {
-              return {
-                type: 'failed',
-                error: llmError,
-                message: partial ?? undefined,
-                rawError: error,
-              } as unknown as LlmOutcome;
-            }
-            const delayMs = readRetryAfterMs(error) ?? retryBackoffDelay(attempt - 1);
-            control.onEvent?.({
-              type: 'llm.retry',
-              reason: 'backoff',
-              error: llmError,
-              message: (partial ?? undefined) as never,
-              usage: failure?.usage as unknown as TokenUsage | undefined,
-              messageId: failure?.messageId,
-              timing: failure?.timing as never,
-              failedAttempt: attempt,
-              nextAttempt: attempt + 1,
-              maxAttempts,
-              delayMs,
-            });
-            accumulator = createMessageAccumulator();
-            await sleepForRetry(delayMs, control.signal);
-          }
-        }
-      },
-      snapshot: () => requester,
-    };
-    return requester;
+  private get infiniteRetryEnabled(): boolean {
+    return parseBooleanEnv(this.bootstrap.getEnv(KIMI_CODE_INFINITE_RETRY_ENV)) === true;
   }
 
   private projectTaskEvent(event: LoopEmitted): void {
@@ -1094,6 +1003,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         this.startPromise = undefined;
       });
       await this.startPromise;
+      this.requesterExecution.recoveries.clear();
       return;
     }
     if (loop.state.turn !== undefined || loop.state.resetting) {
@@ -1118,7 +1028,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           historyRevision,
         };
       });
-      loop.setRequester(this.createLoopRequester(loop));
+      this.requesterExecution.recoveries.clear();
+      this.syncRequester();
       this.turns.invalidateHistory();
       this.scheduleTaskReconciliation(seededMessages);
       this.maybeSettle();
@@ -1162,7 +1073,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   submit(payload: PromptPayload): Promise<PromptLaunchResult | undefined>;
   submit(input: UserMessage, options?: LoopSubmitOptions): LoopSubmitResult;
-  submit(input: UserMessage | PromptPayload, options?: LoopSubmitOptions): LoopSubmitResult | Promise<PromptLaunchResult | undefined> {
+  submit(
+    input: UserMessage | PromptPayload,
+    options?: LoopSubmitOptions,
+  ): LoopSubmitResult | Promise<PromptLaunchResult | undefined> {
     if ('input' in input) return this.submitClient(input);
     const origin = input.attributes?.origin as PromptOrigin | undefined;
     const tracked = (input.attributes as { readonly tracked?: boolean } | undefined)?.tracked;
@@ -1191,14 +1105,25 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   private async submitClient(payload: PromptPayload): Promise<PromptLaunchResult | undefined> {
-    await this.updatePromptMetadata(promptMetadataTextFromContentParts(payload.input));
+    const text = promptMetadataTextFromContentParts(payload.input);
+    const rejectIfBusy = payload.rejectIfBusy === true;
+    if (!rejectIfBusy) await this.updatePromptMetadata(text);
     const status = this.snapshot();
+    const wouldQueue = status.state === 'running' || status.paused || status.queue.length > 0;
+    if (rejectIfBusy && wouldQueue) {
+      throw new Error2(ErrorCodes.TURN_AGENT_BUSY, 'another turn is already in progress');
+    }
     const { id } = this.submit({
       role: 'user',
       content: [...payload.input],
       attributes: { promptId: payload.promptId, origin: { kind: 'user' } },
     });
-    if (status.state === 'running' || status.paused || status.queue.length > 0) return undefined;
+    if (rejectIfBusy) {
+      await this.updatePromptMetadata(text).catch((error: unknown) => {
+        this.logger.warn('failed to update metadata for an accepted prompt', { error });
+      });
+    }
+    if (wouldQueue) return undefined;
     return this.launchResult(id);
   }
 
@@ -1206,20 +1131,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.telemetry.track2('input_steer', { parts: input.content.length });
     await this.updatePromptMetadata(promptMetadataTextFromContentParts(input.content));
     const status = this.snapshot();
-    const loop = this.loop;
-    const steerable = loop?.state.turn !== undefined;
-    const queued = steerable || status.paused || status.queue.length > 0;
+    const steerable = status.state === 'running';
+    const queued = status.state === 'running' || status.paused || status.queue.length > 0;
     const { id } = steerable ? this.sendNow(input) : this.submit(input);
     const handle = this.promptHandle(id)!;
-    if (steerable && loop?.state.turn !== undefined) {
-      return {
-        turn_id: loop.state.turn.id,
-        prompt_id: id,
-        created_at: handle.createdAt,
-        state: 'running',
-        steered: true,
-      };
-    }
     if (!steerable && queued) {
       return { prompt_id: id, created_at: handle.createdAt, state: 'queued', steered: false };
     }
@@ -1278,23 +1193,19 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (ids.size !== promptIds.length || ![...ids].every((id) => queued.has(id))) {
       throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, 'one or more prompts are not pending');
     }
-    for (const id of ids) {
-      const entry = queued.get(id);
-      if (entry !== undefined) await this.materializeDaemonRefs(entry);
-    }
-    const pending = new Set(loop.state.inbox.normal.map((entry) => entry.attributes?.promptId));
-    if (loop.state.turn?.id !== activeTurnId || ![...ids].every((id) => pending.has(id))) {
+    const entries = loop.state.inbox.normal.filter(
+      (entry) => entry.attributes?.promptId !== undefined && ids.has(entry.attributes.promptId),
+    );
+    for (const entry of entries) await this.materializeDaemonRefs(entry);
+    const pendingEntries = loop.state.inbox.normal.filter(
+      (entry) => entry.attributes?.promptId !== undefined && ids.has(entry.attributes.promptId),
+    );
+    if (loop.state.turn?.id !== activeTurnId || pendingEntries.length !== ids.size) {
       throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, 'one or more prompts are no longer pending');
     }
-    const entries = loop.state.inbox.normal.filter((entry) => {
-      const id = entry.attributes?.promptId;
-      return id !== undefined && ids.has(id);
-    });
-    const merged = this.prompts.steer(entries, activeTurnId);
-    if (merged === undefined) {
-      throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, 'no active prompt to steer into');
-    }
-    loop.steer(promptIds, merged);
+    const fifoIds = pendingEntries.map((entry) => entry.attributes!.promptId!);
+    const merged = this.prompts.steer(pendingEntries, activeTurnId);
+    loop.steer(fifoIds, merged);
   }
 
   promptHandle(id: string): PromptHandle | undefined {
@@ -1319,11 +1230,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     });
     const admitted = this.admit(entry);
     this.notifications.register(id, note);
-    this.sendNotification(
-      admitted.entry,
-      false,
-      note.turnScoped !== false && note.bypassMaxSteps === true,
-    );
+    this.sendNotification(admitted.entry);
     this.maybeSettle();
     const notifications = this.notifications;
     return {
@@ -1366,7 +1273,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (loop.state.turn?.id !== activeTurnId || ![...ids].every((id) => pendingNormal.has(id) || pendingNotify.has(id))) {
       throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, 'one or more prompts are no longer pending');
     }
-    loop.sendNow(promptIds);
+    loop.sendNowQueued(promptIds);
   }
 
   remind(...messages: readonly Message[]): void {
@@ -1451,7 +1358,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private async turnStarting(event: TurnStartingEvent, signal: AbortSignal) {
     this.replacedHistory = undefined;
-    this.llmRequester.prepareTurnConfig(event.turnId);
     const pending = this.prompts.prepareTurn(event);
     if (pending === undefined) return undefined;
     const promptMessage: ContextMessage = {
@@ -1649,8 +1555,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     return (
       this.pendingSubmissions.length > 0 ||
       this.pendingNotifications.length > 0 ||
+      this.pendingReminders.length > 0 ||
       (this.loop?.state.inbox.normal.length ?? 0) > 0 ||
       (this.loop?.state.inbox.notify.length ?? 0) > 0 ||
+      (this.loop?.state.inbox.remind.length ?? 0) > 0 ||
       (this.loop?.state.completionPending ?? false) ||
       (this.loop?.state.resetting ?? false) ||
       (this.loop !== undefined && this.loop.state.status !== 'idle')
@@ -1742,19 +1650,6 @@ function machineUserMessage(message: ContextMessage | undefined): UserMessage {
   return { role: 'user', content: [...message.content] };
 }
 
-function dropUnsignedThinking(message: Message | null): Message | null {
-  if (message === null || message.role !== 'assistant') return message;
-  return {
-    ...message,
-    content: message.content.filter((part) => part.type !== 'think' || part.encrypted !== undefined),
-  };
-}
-
-function toCoreStreamPart(part: ForkStreamedPart): CoreStreamedPart {
-  if (part.type === 'function' || part.type === 'tool_call_part') return part as unknown as CoreStreamedPart;
-  return toCorePart(part as never) as unknown as CoreStreamedPart;
-}
-
 registerScopedService(
   LifecycleScope.Agent,
   IAgentLoopService,
@@ -1763,12 +1658,33 @@ registerScopedService(
   'loop',
 );
 
-function sameContextMessage(left: Message, right: { readonly role?: string; readonly content?: unknown; readonly toolCalls?: unknown; readonly toolCallId?: string }): boolean {
+function createThrowingRequester(error: unknown): FullLoopLlmRequester {
+  const requester: FullLoopLlmRequester = {
+    [requesterContents]: {},
+    with: (() => requester) as FullLoopLlmRequester['with'],
+    request: () => {
+      throw error;
+    },
+    generate: async () => {
+      throw error;
+    },
+  };
+  return requester;
+}
+
+function sameContextMessage(
+  left: Message,
+  right: { readonly role?: string; readonly content?: unknown; readonly toolCalls?: unknown; readonly toolCallId?: string },
+): boolean {
   if (left === right) return true;
   return messageSignature(left) === messageSignature(right);
 }
 
-function messageSignature(message: { readonly role?: string; readonly content?: unknown; readonly toolCalls?: unknown; readonly toolCallId?: string }): string {
+function messageSignature(message: {
+  readonly role?: string;
+  readonly content?: unknown;
+  readonly toolCalls?: unknown;
+  readonly toolCallId?: string;
+}): string {
   return JSON.stringify([message.role, message.content, message.toolCalls ?? [], message.toolCallId]);
 }
-

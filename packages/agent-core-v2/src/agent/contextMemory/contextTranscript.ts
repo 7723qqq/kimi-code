@@ -175,7 +175,7 @@ function toMutableEntry(message: ContextMessage, time: number | undefined): Muta
       ...(message.id !== undefined ? { id: message.id } : {}),
       role: message.role,
       content: [...message.content],
-      toolCalls: [...message.toolCalls],
+      toolCalls: [...(message.toolCalls ?? [])],
       ...(message.toolCallId !== undefined ? { toolCallId: message.toolCallId } : {}),
       ...(message.isError !== undefined ? { isError: message.isError } : {}),
       ...(message.origin !== undefined ? { origin: message.origin } : {}),

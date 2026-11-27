@@ -299,7 +299,7 @@ function formatMessages(messages: readonly Message[]): string[] {
     const role =
       message.toolCallId === undefined ? message.role : `${message.role}[${message.toolCallId}]`;
     const parts = [formatContent(message.content)];
-    if (message.toolCalls.length > 0) {
+    if (message.role === 'assistant' && message.toolCalls.length > 0) {
       parts.push(`calls ${message.toolCalls.map((call) => formatToolCall(call)).join(', ')}`);
     }
     return `  ${role}: ${parts.join('  ')}`;

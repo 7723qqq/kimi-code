@@ -1,19 +1,18 @@
 import { createDecorator } from '#/_base/di/instantiation';
-import type { Message } from '#/llm-adapter/contract/message';
-import type { ModelRequester } from '#/llm-adapter/model/model-requester';
+import type { Message } from '@moonshot-ai/core/llm/message';
+import type { LlmRequest } from '@moonshot-ai/core/llm/request';
 
 export interface IAgentMediaResolverService {
   readonly _serviceBrand: undefined;
 
   resolve(
     messages: readonly Message[],
-    requester: ModelRequester,
+    request: LlmRequest,
     signal?: AbortSignal,
   ): Promise<readonly Message[]>;
-
   recoverFailedUploads(
     messages: readonly Message[],
-    requester: ModelRequester,
+    request: LlmRequest,
     signal?: AbortSignal,
   ): Promise<boolean>;
 }

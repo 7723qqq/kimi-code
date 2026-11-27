@@ -610,7 +610,9 @@ describe('server-v2 /api/v1 skills', () => {
       await seedProjectSkill(secondary, 'e2e-secondary');
       await seedProjectSkill(secondary, 'e2e-shared');
       const wid = await registerWorkspace(primary, [secondary]);
-      const sid = await createSession(primary);
+      const created = await postJson<{ id: string }>('/api/v1/sessions', { workspace_id: wid });
+      expect(created.body.code).toBe(0);
+      const sid = created.body.data.id;
 
       const [wsRes, sessRes] = await Promise.all([
         getJson<{ skills: SkillWire[] }>(`/api/v1/workspaces/${wid}/skills`),

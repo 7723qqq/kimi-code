@@ -99,7 +99,7 @@ describe('Agent loop — abort handling', () => {
               type: 'function',
               id: `tc-${String(requestIndex)}`,
               name: requestIndex === 1 ? 'echo' : 'hang',
-              arguments: '{}',
+              arguments: requestIndex === 1 ? '{"text":"hi"}' : '{}',
             },
           ],
         },

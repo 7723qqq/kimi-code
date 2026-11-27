@@ -32,7 +32,7 @@ import {
   type StepStoppingEvent,
   type TurnTrigger,
 } from '@moonshot-ai/core/loop/index';
-import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
+import { apiRequestId, type LLMRequestTrace } from '#/agent/loop/requestObservation';
 import type { FinishReason, LlmTiming } from '@moonshot-ai/core/llm/response';
 import type { ThinkingEffort } from '@moonshot-ai/core/llm/request';
 import { emptyUsage, type TokenUsage } from '@moonshot-ai/core/llm/usage';
@@ -45,9 +45,9 @@ import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import { contextFromHistoryEntry, EMPTY_LOOP_PROMPT } from './history';
 import {
   AssistantDelta,
+  isDisplayablePromptOrigin,
   ThinkingDelta,
   ToolCallDelta,
-  isDisplayablePromptOrigin,
   turnPromptAttachments,
   turnPromptText,
   TurnStarted,
@@ -62,6 +62,7 @@ import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
 import { TurnEnded, type TurnReplyModel } from './turnOps';
 import type { ISessionRequestAttributionService } from '#/session/requestAttribution/requestAttribution';
 import { ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
+import { ChatProviderError, errorFromLlmMessage } from '#/provider-catalog/errors';
 import type {
   AfterStepContext,
   AfterStepTool,
@@ -139,11 +140,9 @@ interface ActiveTurn {
 
 type MutableTurn = {
   -readonly [K in keyof Turn]: Turn[K];
-} & {
-  started: Promise<void>;
 };
 
-type TurnLoopEnd = Extract<LoopEmitted, { type: 'turn.ended' }>['continuation'];
+type TurnContinuation = Extract<LoopEmitted, { type: 'turn.ended' }>['continuation'];
 
 export interface TurnProjectionOptions {
   readonly attribution: ISessionRequestAttributionService;
@@ -158,7 +157,6 @@ export interface TurnProjectionOptions {
   readonly hooks: AgentLoopService['hooks'];
   readonly errorHandlers: readonly LoopErrorHandler[];
   readonly maxSteps: () => number | undefined;
-  readonly thinkingEffort: (turnId: number) => ThinkingEffort | undefined;
   readonly cache: () => CacheObservation | undefined;
   readonly cacheBreak: {
     observe(input: CacheBreakObserveInput): CacheBreakObservation | undefined;
@@ -170,7 +168,8 @@ export interface TurnProjectionOptions {
 export class AgentTurnProjection {
   private active: ActiveTurn | undefined;
   private lastResultValue: TurnResult | undefined;
-  private activeRequestTrace: LLMRequestTrace | undefined;
+  private activeRequestId: string | undefined;
+  private rawFailureError: Error | undefined;
   private turnWatch: { timer: NodeJS.Timeout; signature: string; since: number; lastWarnAt: number } | undefined;
   private readonly promptOnlyTurnIds = new Set<number>();
   private readonly publishedPromptTurns = new Set<number>();
@@ -189,11 +188,7 @@ export class AgentTurnProjection {
   }
 
   get requestTrace(): LLMRequestTrace | undefined {
-    return this.activeRequestTrace;
-  }
-
-  set requestTrace(trace: LLMRequestTrace | undefined) {
-    this.activeRequestTrace = trace;
+    return this.activeRequestId === undefined ? undefined : { requestId: this.activeRequestId };
   }
 
   thinkingEffort: ThinkingEffort | undefined;
@@ -219,7 +214,7 @@ export class AgentTurnProjection {
 
   private turnRequestId(promptOnly: boolean, _cancelled: boolean, completed: boolean): string | undefined {
     if (promptOnly) return undefined;
-    return completed ? this.lastRequestId : this.activeRequestTrace?.requestId;
+    return completed ? this.lastRequestId : (this.activeRequestId ?? this.lastRequestId);
   }
 
   history(source: readonly Message[]): readonly ContextMessage[] {
@@ -245,8 +240,7 @@ export class AgentTurnProjection {
 
   private contextForHistory(entry: Message, failed = false, answered?: ReadonlySet<string>): ContextMessage {
     const message = liveContextFromHistoryEntry(entry, failed, answered);
-    if (message.role !== 'tool') return message;
-    if (message.toolCallId === undefined) return message;
+    if (message.role !== 'tool' || message.toolCallId === undefined) return message;
     let projected = message;
     const note = this.toolNotes.get(message.toolCallId);
     if (message.note === undefined && note !== undefined) {
@@ -268,10 +262,10 @@ export class AgentTurnProjection {
     const current = active?.current;
     const retry = active?.retry;
     return {
-      state: loop?.state.turn === undefined && active === undefined ? 'idle' : 'running',
+      state: loop?.state.status === 'running' || active !== undefined ? 'running' : 'idle',
       activeTurnId: loop?.state.turn?.id ?? active?.id,
       activePromptId: this.options.prompts.activePrompt()?.id,
-      queue: queue as never,
+      queue,
       notificationCount,
       paused,
       hasPendingRequests,
@@ -287,16 +281,8 @@ export class AgentTurnProjection {
             activeToolCalls: (loop?.state.calls ?? []).map((call) => ({ toolCallId: call.toolCall.id, name: call.toolCall.name })),
             since: active.startedAt,
           },
-      activeRequestId: this.activeRequestTrace?.requestId,
+      activeRequestId: this.activeRequestId,
     };
-  }
-
-  recordOutcome(outcome: { readonly timing?: LlmTiming }, source: { readonly type: string; readonly turnId?: number; readonly step?: number }): void {
-    if (source.type !== 'turn') return;
-    const active = this.active;
-    const step = active?.current;
-    if (active?.id !== source.turnId || step === undefined || step.number !== source.step) return;
-    step.timing = outcome.timing;
   }
 
   stepStarting(event: StepStartingEvent): StepStartingDecision | Promise<StepStartingDecision | undefined> | undefined {
@@ -306,8 +292,8 @@ export class AgentTurnProjection {
     turn.gatedSteps = event.step;
     if (!this.promptOnlyTurnIds.has(turn.id)) turn.steps = Math.max(turn.steps, event.step);
     turn.retry = undefined;
-    this.activeRequestTrace = undefined;
-    this.options.telemetry.setContext({ request_id: undefined });
+    this.activeRequestId = undefined;
+    this.options.telemetry.setContext({ trace_id: undefined, request_id: undefined });
     const step = turn.current ?? createStepState(event.step, turn.controller.signal);
     turn.current = step;
     turn.stepIds.set(step.number, step.uuid);
@@ -347,6 +333,7 @@ export class AgentTurnProjection {
     if (turn === undefined) return undefined;
     const step = turn.current;
     if (step === undefined) return undefined;
+    if (event.draft.type === 'aborted') return undefined;
     if (event.draft.type !== 'failed') {
       const finishReason = step.providerFinishReason ?? 'completed';
       const context: AfterStepContext = {
@@ -380,7 +367,12 @@ export class AgentTurnProjection {
       if (finishReason === 'filtered') turn.filtered = true;
       return undefined;
     }
-    const failure = turn.failedStep ?? { number: step.number, uuid: step.uuid, error: event.draft.error };
+    const failure = turn.failedStep ?? {
+      number: step.number,
+      uuid: step.uuid,
+      error: this.rawFailureError ?? event.draft.error,
+    };
+    this.rawFailureError = undefined;
     turn.failedStep = undefined;
     if (turn.controller.signal.aborted || isAbortError(failure.error)) {
       turn.abortReason = turn.controller.signal.aborted ? turn.controller.signal.reason : failure.error;
@@ -522,8 +514,6 @@ export class AgentTurnProjection {
         return;
       }
       case 'step.started': {
-        this.activeRequestTrace = undefined;
-        this.options.telemetry.setContext({ trace_id: undefined, request_id: undefined });
         if (this.active === undefined) {
           const trigger = this.turnTriggers.get(event.turnId) ?? 'continue';
           const pending = this.options.prompts.activatePending(event.turnId);
@@ -558,7 +548,9 @@ export class AgentTurnProjection {
       }
       case 'llm.requested': {
         const turn = this.active;
-        if (turn === undefined || (turn.retry === undefined && turn.current !== undefined)) return;
+        if (turn === undefined) return;
+        this.activeRequestId = undefined;
+        if (turn.retry === undefined && turn.current !== undefined) return;
         const stepNumber = turn.current?.number ?? turn.gatedSteps;
         const step = createStepState(stepNumber, turn.controller.signal, turn.stepIds.get(stepNumber));
         turn.current = step;
@@ -618,6 +610,25 @@ export class AgentTurnProjection {
             return;
         }
       }
+      case 'llm.delta.request_id': {
+        this.activeRequestId = event.requestId;
+        return;
+      }
+      case 'llm.ended': {
+        const outcome = event.outcome;
+        const errorRequestId = outcome.type === 'failed' ? apiRequestId(outcome.error) : undefined;
+        this.activeRequestId = outcome.requestId ?? errorRequestId ?? this.activeRequestId;
+        this.rawFailureError =
+          outcome.type === 'failed' &&
+          outcome.error.kind === 'provider' &&
+          outcome.rawError instanceof Error &&
+          !(outcome.rawError instanceof ChatProviderError)
+            ? outcome.rawError
+            : undefined;
+        const step = this.active?.current;
+        if (step !== undefined && outcome.type === 'done') step.timing = outcome.timing;
+        return;
+      }
       case 'llm.delta.usage': {
         const step = this.active?.current;
         if (step !== undefined) step.usage = mergeUsage(step.usage, event.usage);
@@ -652,7 +663,9 @@ export class AgentTurnProjection {
           turn.current = undefined;
           return;
         }
-        const fields = retryErrorFields(event.error);
+        const fields = retryErrorFields(
+          errorFromLlmMessage(event.error as Parameters<typeof errorFromLlmMessage>[0]),
+        );
         turn.retry = {
           failedAttempt: event.failedAttempt,
           nextAttempt: event.nextAttempt,
@@ -679,13 +692,13 @@ export class AgentTurnProjection {
       }
       case 'message.appended': {
         const history = loop.state.messages;
-        const appended = event.message;
-        const inHistory = history.at(-1) === event.message;
+        const index = history.lastIndexOf(event.message);
+        const start = index >= 0 ? index : Math.max(0, history.length - 1);
         void this.options.dispatcher.dispatch(new ContextSpliced({
           agentId: this.options.scopeContext.agentId,
-          start: inHistory ? history.length - 1 : history.length,
+          start,
           deleteCount: 0,
-          messages: [contextFromHistoryEntry(appended)],
+          messages: [contextFromHistoryEntry(event.message)],
         }));
         this.options.prompts.appended(event);
         if (this.active !== undefined) this.options.prompts.materialized(this.active.turn);
@@ -699,10 +712,9 @@ export class AgentTurnProjection {
         step.providerFinishReason = attributes?.finish?.finishReason ?? step.providerFinishReason;
         step.rawFinishReason = attributes?.finish?.rawFinishReason ?? step.rawFinishReason;
         step.messageId = attributes?.messageId ?? step.messageId;
-        const requestId = this.activeRequestTrace?.requestId;
+        const requestId = this.activeRequestId;
         this.lastRequestId = requestId;
-        const model = (attributes as { model?: { provider: string; model: string } } | undefined)?.model;
-        turn.replyModel = model === undefined ? undefined : { requestId, model };
+        turn.replyModel = attributes?.model === undefined ? undefined : { requestId, model: attributes.model };
         const toolCalls = step.entry.toolCalls;
         if (toolCalls.length === 0 && attributes?.partial !== true) this.endOrInterruptStep(turn, step, step.providerFinishReason ?? 'completed');
         else if (toolCalls.length > 0) step.pendingToolIds = new Set(toolCalls.map((call) => call.id));
@@ -736,7 +748,14 @@ export class AgentTurnProjection {
         if (outcome.type === 'blocked' && outcome.cause.reason === MAX_STEPS_REASON) {
           turn.maxStepsError = createMaxStepsExceededError(this.options.maxSteps() ?? 0);
         }
-        if (outcome.type === 'failed') turn.failedStep ??= { number: event.step, uuid: step?.uuid ?? randomUUID(), error: outcome.error };
+        if (outcome.type === 'failed') {
+          turn.failedStep ??= {
+            number: event.step,
+            uuid: step?.uuid ?? randomUUID(),
+            error: this.rawFailureError ?? outcome.error,
+          };
+          this.rawFailureError = undefined;
+        }
         if (step !== undefined && turn.current !== undefined) turn.current = undefined;
         return;
       }
@@ -774,14 +793,16 @@ export class AgentTurnProjection {
     const prompt = this.options.prompts.begin(pending.waiter, { ...pending.entry, content: pending.message.content });
     const controller = new AbortController();
     const ready = createControlledPromise<void>();
+    const startedSignal = createControlledPromise<void>();
     const result = createControlledPromise<TurnResult>();
     void ready.catch(() => undefined);
+    void startedSignal.catch(() => undefined);
     const turn: MutableTurn = {
       id: turnId,
       state: 'queued',
       signal: controller.signal,
       ready,
-      started: Promise.resolve(),
+      started: startedSignal,
       result,
       cancel: (reason) => this.active?.id === turnId
         ? this.options.cancel(turnId, reason ?? userCancellationReason())
@@ -827,12 +848,9 @@ export class AgentTurnProjection {
     active.providerType = provider_type;
     active.protocol = protocol;
     this.options.telemetry.setContext({ turn_id: turnId });
-    this.thinkingEffort = this.options.thinkingEffort(turnId) ?? this.thinkingEffort;
-    this.lastRequestId = undefined;
-    this.activeRequestTrace = undefined;
-    this.options.telemetry.setContext({ trace_id: undefined, thinking_effort: this.thinkingEffort });
+    this.options.telemetry.setContext({ thinking_effort: this.thinkingEffort });
     turn.state = 'running';
-    active.started = this.options.dispatcher.dispatch(new TurnStarted({
+    const dispatched = this.options.dispatcher.dispatch(new TurnStarted({
       agentId: this.options.scopeContext.agentId,
       turnId,
       promptId: isDisplayablePromptOrigin(prompt.origin) ? prompt.promptId : undefined,
@@ -845,7 +863,11 @@ export class AgentTurnProjection {
         : undefined,
       promptAttachments: turnPromptAttachments(prompt.message.content, prompt.origin),
     }));
-    turn.started = active.started ?? Promise.resolve();
+    active.started = dispatched;
+    void dispatched.then(
+      () => startedSignal.resolve(),
+      (error: unknown) => startedSignal.reject(error),
+    );
     const started: TurnStartedTelemetryEvent = {
       turn_id: turnId,
       mode: active.mode ?? 'agent',
@@ -870,11 +892,12 @@ export class AgentTurnProjection {
     }
     const normalized = finishReason === 'tool_calls' && step.entry?.toolCalls.length === 0 ? 'other' : normalizeFinishReason(finishReason);
     const usage = step.usage ?? emptyUsage();
+    const normalizedUsage = usageFromCore(usage) ?? emptyHumanUsage();
     turn.lastStopReason = finishReason;
     turn.current = step;
     const cache = this.options.cache();
     const cacheBreak = this.options.cacheBreak.observe({
-      usage: usageFromCore(usage) ?? emptyHumanUsage(),
+      usage: normalizedUsage,
       cache,
       turnId: turn.id,
       step: step.number,
@@ -884,7 +907,7 @@ export class AgentTurnProjection {
       turnId: turn.id,
       step: step.number,
       stepId: step.uuid,
-      usage: usageFromCore(usage),
+      usage: normalizedUsage,
       ...(cache === undefined ? {} : { cache }),
       cacheBreak,
       finishReason: normalized,
@@ -903,7 +926,7 @@ export class AgentTurnProjection {
     }));
   }
 
-  private async finishTurn(turn: ActiveTurn, outcome: Extract<LoopEmitted, { type: 'turn.ended' }>['outcome'], continuation?: TurnLoopEnd): Promise<void> {
+  private async finishTurn(turn: ActiveTurn, outcome: Extract<LoopEmitted, { type: 'turn.ended' }>['outcome'], continuation?: TurnContinuation): Promise<void> {
     if (this.active !== turn) return;
     if (turn.abortReason !== undefined || turn.controller.signal.aborted || outcome.type === 'aborted') {
       const reason = turn.abortReason ?? (turn.controller.signal.aborted ? turn.controller.signal.reason : undefined) ?? abortError('Turn aborted');
@@ -970,7 +993,7 @@ export class AgentTurnProjection {
     }
   }
 
-  private async endTurn(turn: ActiveTurn, result: TurnResult, promptOnly = false, continuation?: TurnLoopEnd): Promise<void> {
+  private async endTurn(turn: ActiveTurn, result: TurnResult, promptOnly = false, continuation?: TurnContinuation): Promise<void> {
     if (this.active !== turn) return;
     this.lastResultValue = result;
     this.active = undefined;
@@ -995,8 +1018,8 @@ export class AgentTurnProjection {
       durationMs,
       interruptReason,
       stopReason: result.type === 'completed' ? result.stopReason : undefined,
-      traceId: requestId,
       requestId,
+      traceId: requestId,
       replyModel: modelSteps !== undefined && turn.replyModel?.requestId === requestId ? turn.replyModel?.model : undefined,
       modelSteps,
       continuation,
@@ -1011,6 +1034,7 @@ export class AgentTurnProjection {
         interrupt_reason: interruptReason,
         provider_type: turn.providerType,
         protocol: turn.protocol,
+        trace_id: requestId,
         request_id: requestId,
       };
       this.options.telemetry.track2('turn_interrupted', interrupted);
@@ -1023,13 +1047,15 @@ export class AgentTurnProjection {
       error_type: error?.code,
       provider_type: turn.providerType,
       protocol: turn.protocol,
+      trace_id: requestId,
       request_id: requestId,
       enabled_plugins: this.options.plugins.enabledPluginIds()?.join(','),
     };
     this.options.telemetry.track2('turn_ended', ended);
-    this.options.telemetry.setContext({ turn_id: undefined, request_id: undefined, thinking_effort: undefined, trace_id: undefined });
-    this.activeRequestTrace = undefined;
+    this.options.telemetry.setContext({ turn_id: undefined, trace_id: undefined, request_id: undefined, thinking_effort: undefined });
+    this.activeRequestId = undefined;
     this.lastRequestId = undefined;
+    this.rawFailureError = undefined;
     await turnEnded;
     await this.options.dispatcher.flush();
     await turn.started;
@@ -1133,6 +1159,3 @@ function interruptReasonFor(result: Extract<TurnResult, { readonly type: 'cancel
   if (isError2(result.error) && result.error.code === ErrorCodes.PROVIDER_FILTERED) return 'filtered';
   return 'error';
 }
-
-
-

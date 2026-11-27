@@ -534,6 +534,7 @@ export function errorFromLlmMessage(error: LlmErrorMessage): Error {
         error.retryAfterMs,
         traceIdFromHeadersRecord(error.headers),
       );
+    case 'auth':
     case 'request_structure':
     case 'image_format':
     case 'status':
@@ -646,10 +647,27 @@ export function llmMessageFromError(error: unknown): LlmRemoteErrorMessage | und
     };
   }
   if (error instanceof APIStatusError) {
+    const statusCode = error.statusCode;
+    const kind =
+      error.code === PROVIDER_RATE_LIMIT_ERROR_CODE || statusCode === 429
+        ? 'rate_limit'
+        : error.code === PROVIDER_AUTH_ERROR_CODE || statusCode === 401 || statusCode === 403
+          ? 'auth'
+          : statusCode === 529
+            ? 'overloaded'
+            : statusCode !== undefined && isContextOverflowStatusError(statusCode, error.message)
+              ? 'context_overflow'
+              : statusCode !== undefined && isRequestTooLargeStatusError(statusCode, error.message)
+                ? 'request_too_large'
+                : statusCode !== undefined && isRequestStructureStatusError(statusCode, error.message)
+                  ? 'request_structure'
+                  : statusCode !== undefined && isImageFormatStatusError(statusCode, error.message)
+                    ? 'image_format'
+                    : 'status';
     return {
-      kind: 'status',
+      kind,
       message: error.message,
-      statusCode: error.statusCode,
+      statusCode,
       requestId: error.requestId,
       retryAfterMs: error.retryAfterMs,
       headers: traceHeadersOf(error),

@@ -350,6 +350,10 @@ exports[`API surface snapshot matches the documented v1 route table and meta end
     ],
     [
       "GET",
+      "/api/v1/tools/catalog",
+    ],
+    [
+      "GET",
       "/api/v1/workspaces",
     ],
     [
@@ -578,7 +582,19 @@ exports[`API surface snapshot matches the documented v1 route table and meta end
     ],
     [
       "POST",
+      "/api/v1/sessions/{session_id}:btw",
+    ],
+    [
+      "POST",
       "/api/v1/sessions/{session_id}:cancel",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions/{session_id}:compact",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions/{session_id}:continue",
     ],
     [
       "POST",
@@ -586,11 +602,23 @@ exports[`API surface snapshot matches the documented v1 route table and meta end
     ],
     [
       "POST",
+      "/api/v1/sessions/{session_id}:fork",
+    ],
+    [
+      "POST",
       "/api/v1/sessions/{session_id}:reload",
     ],
     [
       "POST",
+      "/api/v1/sessions/{session_id}:restore",
+    ],
+    [
+      "POST",
       "/api/v1/sessions/{session_id}:takeover",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions/{session_id}:undo",
     ],
     [
       "POST",

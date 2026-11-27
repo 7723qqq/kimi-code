@@ -8,6 +8,7 @@ import { deepEqual } from '#/app/config/sectionDiff';
 import { LifecycleScope } from '#/app/scopes';
 import { IModelService, type ModelsSection } from '#/llm-adapter/model/model';
 import { IProviderService, type ProvidersSection } from '#/llm-adapter/provider/provider';
+import { IProviderCatalogService } from '#/provider-catalog/providerCatalogService';
 
 import {
   DEFAULT_MODEL_SECTION,
@@ -32,14 +33,15 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
     @IConfigService private readonly config: IConfigService,
     @IProviderService private readonly providers: IProviderService,
     @IModelService private readonly models: IModelService,
-    @ILogService private readonly log: ILogService,
+    @IProviderCatalogService private readonly providerCatalog?: IProviderCatalogService,
+    @ILogService private readonly log?: ILogService,
     retrySleep: (delayMs: number) => Promise<void> = sleepForRetry,
   ) {
     super();
     this.retrySleep = retrySleep;
     this.ready = this.initialize();
     void this.ready.catch((error) => {
-      this.log.warn('kosong config bridge initialization failed', {
+      this.log?.warn('kosong config bridge initialization failed', {
         error: describeUnknownError(error),
       });
     });
@@ -47,17 +49,20 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
 
   private async initialize(): Promise<void> {
     await this.config.ready;
-    this.providers.loadAll(
-      this.config.get<ProvidersSection>(PROVIDERS_SECTION) ?? {},
-      this.config.get<string>(DEFAULT_PROVIDER_SECTION),
-    );
-    this.models.loadAll(
-      this.config.get<ModelsSection>(MODELS_SECTION) ?? {},
-      this.config.get<string>(DEFAULT_MODEL_SECTION),
-    );
+    const initialProviders = this.config.get<ProvidersSection>(PROVIDERS_SECTION) ?? {};
+    const initialDefaultProvider = this.config.get<string>(DEFAULT_PROVIDER_SECTION);
+    const initialModels = this.config.get<ModelsSection>(MODELS_SECTION) ?? {};
+    const initialDefaultModel = this.config.get<string>(DEFAULT_MODEL_SECTION);
+    this.providers.loadAll(initialProviders, initialDefaultProvider);
+    this.models.loadAll(initialModels, initialDefaultModel);
+    this.providerCatalog?.loadProviderConfigs(initialProviders, initialDefaultProvider);
+    this.providerCatalog?.loadModelRecords(initialModels, initialDefaultModel);
     this._register(this.config.onDidSectionChange((e) => this.onConfigSectionChanged(e)));
     this._register(
       this.providers.onDidChangeProviders((e) => {
+        if (this.providerCatalog !== undefined) {
+          e.waitUntil(this.providerCatalog.replaceProviderConfigs(this.providers.list()));
+        }
         if (
           deepEqual(
             this.config.get<ProvidersSection>(PROVIDERS_SECTION) ?? {},
@@ -71,12 +76,18 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
     );
     this._register(
       this.providers.onDidChangeDefaultProvider((e) => {
+        if (this.providerCatalog !== undefined) {
+          e.waitUntil(this.providerCatalog.setDefaultProviderId(e.id));
+        }
         if (this.config.get<string>(DEFAULT_PROVIDER_SECTION) === e.id) return;
         e.waitUntil(this.enqueuePersistDefaultPointer(DEFAULT_PROVIDER_SECTION, e.id));
       }),
     );
     this._register(
       this.models.onDidChangeModels((e) => {
+        if (this.providerCatalog !== undefined) {
+          e.waitUntil(this.providerCatalog.replaceModelRecords(this.models.list()));
+        }
         if (deepEqual(this.config.get<ModelsSection>(MODELS_SECTION) ?? {}, this.models.list())) {
           return;
         }
@@ -85,6 +96,9 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
     );
     this._register(
       this.models.onDidChangeDefaultModel((e) => {
+        if (this.providerCatalog !== undefined) {
+          e.waitUntil(this.providerCatalog.setDefaultModelId(e.id));
+        }
         if (this.config.get<string>(DEFAULT_MODEL_SECTION) === e.id) return;
         e.waitUntil(this.enqueuePersistDefaultPointer(DEFAULT_MODEL_SECTION, e.id));
       }),
@@ -172,7 +186,7 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
   }
 
   private logPersistFailure(error: unknown): void {
-    this.log.warn('kosong config persist failed', { error: describeUnknownError(error) });
+    this.log?.warn('kosong config persist failed', { error: describeUnknownError(error) });
   }
 }
 

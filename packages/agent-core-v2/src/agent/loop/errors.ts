@@ -20,4 +20,3 @@ export const LoopErrors = {
 } as const satisfies ErrorDomain;
 
 registerErrorDomain(LoopErrors);
-

@@ -80,7 +80,7 @@ describe('check-import-boundaries', () => {
     );
     expect(violations).toHaveLength(1);
     expect(violations[0]?.message).toMatch(
-      /only llm-adapter, agent\/loop\/machine and session\/agentLifecycle may import the human implementation/,
+      /only llm-adapter, provider-catalog, agent\/loop\/machine and session\/agentLifecycle may import the human implementation/,
     );
   });
 
@@ -107,7 +107,7 @@ describe('check-import-boundaries', () => {
     );
     expect(violations).toHaveLength(1);
     expect(violations[0]?.message).toMatch(
-      /only llm-adapter, agent\/loop\/machine and session\/agentLifecycle may import the human implementation/,
+      /only llm-adapter, provider-catalog, agent\/loop\/machine and session\/agentLifecycle may import the human implementation/,
     );
   });
 
