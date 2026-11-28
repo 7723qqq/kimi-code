@@ -17,8 +17,10 @@ import {
 } from '#/features/skill/catalog/skillSource';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IProjectContext } from '#/project/projectContext/projectContext';
+import { IProjectDirs } from '#/project/projectDirs/projectDirs';
 
 import { ConfiguredSkillRootWatcher } from './configuredSkillRootWatcher';
+import { projectSkillWorkDirs } from './rootFileSkillSource';
 
 export interface IExtraFileSkillSource extends ISkillSource {
   readonly _serviceBrand: undefined;
@@ -35,13 +37,14 @@ export class ExtraFileSkillSource extends Disposable implements IExtraFileSkillS
   private readonly onDidChangeEmitter = this._register(new Emitter<void>());
   readonly onDidChange: Event<void> = this.onDidChangeEmitter.event;
   private readonly watcher = this._register(new MutableDisposable<ConfiguredSkillRootWatcher>());
-  private watchedDirs: readonly string[] = [];
+  private watchSignature: string | undefined;
 
   constructor(
     @ISkillDiscovery private readonly discovery: ISkillDiscovery,
     @IConfigService private readonly config: IConfigService,
     @IProjectContext private readonly workspace: IProjectContext,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IProjectDirs private readonly projectDirs: IProjectDirs,
     private readonly fs: IHostFileSystem,
     private readonly log?: ILogService,
   ) {
@@ -51,23 +54,35 @@ export class ExtraFileSkillSource extends Disposable implements IExtraFileSkillS
         if (event.domain === EXTRA_SKILL_DIRS_SECTION) this.onDidChangeEmitter.fire();
       }),
     );
+    this._register(
+      this.projectDirs.onDidChange(() => {
+        if (this.configuredDirs().length > 0) this.onDidChangeEmitter.fire();
+      }),
+    );
+  }
+
+  private configuredDirs(): readonly string[] {
+    return this.config.get<ExtraSkillDirsConfig>(EXTRA_SKILL_DIRS_SECTION) ?? [];
   }
 
   async load(): Promise<SkillContribution> {
-    await this.config.ready;
-    const extraSkillDirs = this.config.get<ExtraSkillDirsConfig>(EXTRA_SKILL_DIRS_SECTION) ?? [];
-    if (
-      extraSkillDirs.length !== this.watchedDirs.length ||
-      extraSkillDirs.some((dir, index) => dir !== this.watchedDirs[index])
-    ) {
-      this.watchedDirs = [...extraSkillDirs];
+    await Promise.all([this.config.ready, this.projectDirs.ready.catch(() => undefined)]);
+    const extraSkillDirs = this.configuredDirs();
+    const workDirs = projectSkillWorkDirs(
+      this.projectDirs,
+      this.workspace.workspaceId,
+      this.workspace.cwd,
+    );
+    const signature = JSON.stringify([extraSkillDirs, workDirs]);
+    if (signature !== this.watchSignature) {
+      this.watchSignature = signature;
       this.watcher.value =
         extraSkillDirs.length === 0
           ? undefined
           : new ConfiguredSkillRootWatcher(
               {
-                dirs: this.watchedDirs,
-                cwd: this.workspace.cwd,
+                dirs: extraSkillDirs,
+                workDirs,
                 osHomeDir: this.bootstrap.osHomeDir,
                 source: this.id,
                 fs: this.fs,
@@ -82,7 +97,7 @@ export class ExtraFileSkillSource extends Disposable implements IExtraFileSkillS
     return this.discovery.discover(
       await configuredRoots(
         extraSkillDirs,
-        this.workspace.cwd,
+        workDirs,
         this.bootstrap.osHomeDir,
         'extra',
         this.fs,

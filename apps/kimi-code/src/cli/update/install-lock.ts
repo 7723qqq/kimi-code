@@ -1,6 +1,11 @@
 import { mkdir, readFile, stat, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
+import {
+  currentProcessLiveness,
+  processStampAlive,
+} from '@moonshot-ai/agent-core-v2/_base/utils/processLiveness';
+
 import { getUpdateInstallLockFile } from '#/utils/paths';
 import { createFileIfAbsent } from '#/utils/persistence';
 
@@ -51,20 +56,6 @@ function isAlreadyExists(error: unknown): boolean {
   );
 }
 
-/**
- * Liveness probe for the lock holder. Signal 0 delivers nothing; ESRCH means
- * the process is gone, EPERM means it exists but may not be signalled — which
- * still counts as alive.
- */
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 interface LockInspection {
   readonly content: string;
   readonly mtimeMs: number;
@@ -90,14 +81,12 @@ async function inspectLockFile(filePath: string): Promise<LockInspection | null>
  * written complete by a then-live process, so a dead pid means the holder
  * died afterwards. Past the age threshold a LIVE holder still survives: a
  * native download is idle-bounded but intentionally not duration-bounded, so
- * a slow link legitimately exceeds it. (A pid reused by an unrelated process
- * can pin the lock until that process exits — a delayed update, never a
- * corrupt one.)
+ * a slow link legitimately exceeds it.
  */
 function isStaleLock(
   inspection: LockInspection,
   now: Date,
-  probe: (pid: number) => boolean,
+  customProbe?: (pid: number) => boolean,
 ): boolean {
   let parsed: unknown;
   try {
@@ -106,11 +95,27 @@ function isStaleLock(
     return now.getTime() - inspection.mtimeMs > LOCK_PUBLISH_GRACE_MS;
   }
   if (typeof parsed !== 'object' || parsed === null) return true;
-  const lock = parsed as { readonly startedAt?: unknown; readonly pid?: unknown };
+  const lock = parsed as {
+    readonly startedAt?: unknown;
+    readonly pid?: unknown;
+    readonly liveness?: unknown;
+  };
   if (typeof lock.startedAt !== 'string') return true;
   const startedAt = Date.parse(lock.startedAt);
   if (!Number.isFinite(startedAt)) return true;
-  if (typeof lock.pid === 'number' && !probe(lock.pid)) return true;
+  if (typeof lock.pid === 'number') {
+    const liveness =
+      typeof lock.liveness === 'string' && lock.liveness.length > 0 ? lock.liveness : undefined;
+    const alive =
+      customProbe !== undefined
+        ? customProbe(lock.pid)
+        : processStampAlive({
+            pid: lock.pid,
+            startedAt,
+            ...(liveness === undefined ? {} : { liveness }),
+          });
+    if (!alive) return true;
+  }
   if (now.getTime() - startedAt <= UPDATE_INSTALL_LOCK_STALE_MS) return false;
   return typeof lock.pid !== 'number';
 }
@@ -120,11 +125,13 @@ async function createLockFile(
   request: UpdateInstallLockRequest,
 ): Promise<UpdateInstallLockHandle | null> {
   const now = request.now ?? new Date();
+  const liveness = currentProcessLiveness();
   const content = `${JSON.stringify(
     {
       version: request.version,
       pid: process.pid,
       startedAt: now.toISOString(),
+      ...(liveness === undefined ? {} : { liveness }),
     },
     null,
     2,
@@ -160,7 +167,7 @@ export async function tryAcquireUpdateInstallLock(
   filePath: string = getUpdateInstallLockFile(),
 ): Promise<UpdateInstallLockHandle | null> {
   await mkdir(dirname(filePath), { recursive: true });
-  const probe = request.isProcessAlive ?? isProcessAlive;
+  const probe = request.isProcessAlive;
   try {
     return await createLockFile(filePath, request);
   } catch (error) {

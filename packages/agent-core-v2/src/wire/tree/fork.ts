@@ -6,6 +6,7 @@ import {
 import { cutTurnUndo } from '#/agent/undo/turnUndo';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { WireRecord } from '#/wire/record';
+import { markWireTurnClockOnly } from '#/wire/turnInput';
 
 import { activeChain, AGENT_SWITCHED_TYPE, parseTree, type WireLine, type WireTree } from './tree';
 
@@ -140,7 +141,7 @@ export function restorableChain(entries: readonly WireLine[], tree: WireTree): W
   for (const entry of entries) {
     if (chainLines.has(entry.line)) continue;
     if (entry.record.type === 'turn.prompt') {
-      reIncluded.push(entry);
+      reIncluded.push({ ...entry, record: markWireTurnClockOnly(entry.record) });
       continue;
     }
     if (entry.record.type !== 'context.append_message') continue;

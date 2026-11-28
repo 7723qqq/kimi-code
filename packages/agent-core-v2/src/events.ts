@@ -10,6 +10,7 @@ import type {
   TurnStepInterruptedEvent,
   TurnStepRetryingEvent,
   TurnStepStartedEvent,
+  TurnStepStreamResetEvent,
   AssistantDeltaEvent,
   ThinkingDeltaEvent,
 } from '#/agent/loop/turnEvents';
@@ -89,6 +90,7 @@ export type AgentEvent =
   | TurnStepCompletedEvent
   | TurnStepRetryingEvent
   | TurnStepInterruptedEvent
+  | TurnStepStreamResetEvent
   | AssistantDeltaEvent
   | HookResultEvent
   | ThinkingDeltaEvent

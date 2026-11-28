@@ -17,6 +17,7 @@ import {
 import { isProxyConfigured, resolveKimiHome } from '@moonshot-ai/kimi-code-sdk/runtime';
 import { ErrorCodes, isKimiError } from '@moonshot-ai/kimi-code-sdk';
 import { installCrashHandlers, shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
+import { takeProgramResumeToken } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import type { MigrateCommandOptions } from '#/migration/command';
@@ -61,6 +62,7 @@ export async function handleMainCommand(
   opts: CLIOptions,
   version: string,
   startupWarnings: readonly string[] = [],
+  programResumeToken?: string,
 ): Promise<MainCommandOutcome> {
   let validated: ReturnType<typeof validateOptions>;
   startupTrace('main:enter');
@@ -104,7 +106,10 @@ export async function handleMainCommand(
   startupTrace('runShell:begin');
   const { runShell } = await import('./run-shell');
   const warnings = startupWarnings.length > 0 ? startupWarnings : ensureNativeWorkersInstalled();
-  await runShell(validated.options, version, { startupWarnings: warnings });
+  await runShell(validated.options, version, {
+    startupWarnings: warnings,
+    ...(programResumeToken === undefined ? {} : { programResumeToken }),
+  });
   return { headlessCompleted: false };
 }
 
@@ -289,6 +294,7 @@ function ensureNativeWorkersInstalled(): readonly string[] {
 }
 
 async function bootstrap(): Promise<void> {
+  const programResumeToken = takeProgramResumeToken(process.env);
   // Configure the host-side diagnostic logger first: every symbol below this
   // point (proxy install, worker setup, CLI dispatch) logs through `log`, and
   // an unconfigured root logger drops those lines silently. Failures are not
@@ -318,7 +324,7 @@ async function bootstrap(): Promise<void> {
   const program = createProgram(
     version,
     (opts) => {
-      void handleMainCommand(opts, version, [])
+      void handleMainCommand(opts, version, [], programResumeToken)
         .then(async (outcome) => {
           // Only the process entrypoint disposes of the process. Print mode
           // relies on the event loop draining to exit; flush any buffered output

@@ -28,6 +28,7 @@ export interface CompactionApplyDeps {
 
 export interface CompactionApplyInput {
   readonly attemptSummary: string;
+  readonly attemptSummaryOutputTokens?: number;
   readonly attemptUsage: TokenUsage | null;
   readonly originalHistory: readonly ContextMessage[];
   readonly nonHistoryStateBefore: string;
@@ -66,9 +67,10 @@ export async function applyCompactionRound(
     tokensBefore: input.tokensBefore,
     inFlightTurn: input.inFlightTurn,
     summaryOutputTokens:
-      input.attemptUsage === null
+      input.attemptSummaryOutputTokens === undefined
         ? undefined
-        : input.attemptUsage.output + (recoveryFooter === undefined ? 0 : deps.estimateText(recoveryFooter)),
+        : input.attemptSummaryOutputTokens +
+          (recoveryFooter === undefined ? 0 : deps.estimateText(recoveryFooter)),
     requestOverheadTokens: input.requestOverheadTokens,
     droppedCount: input.droppedCount === 0 ? undefined : input.droppedCount,
     wireLines,

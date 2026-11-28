@@ -18,7 +18,7 @@ import { SkillActivationComponent } from '../components/messages/skill-activatio
 import { ThinkingComponent } from '../components/messages/thinking';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { UserMessageComponent } from '../components/messages/user-message';
-import { getNoActiveSessionMessage } from '../constant/kimi-tui';
+import { getNoActiveSessionMessage, UNDO_LIMIT_STATUS_TURN_ID } from '../constant/kimi-tui';
 import type { TranscriptEntry } from '../types';
 import { hasDispose } from '../utils/component-capabilities';
 import { formatErrorMessage } from '../utils/event-payload';
@@ -39,8 +39,6 @@ interface UndoAvailability {
 type UndoSessionContext = Awaited<
   ReturnType<NonNullable<SlashCommandHost['session']>['getContext']>
 >;
-
-const UNDO_LIMIT_STATUS_TURN_ID = 'undo-limit-status';
 
 export async function handleUndoCommand(host: SlashCommandHost, args: string = ''): Promise<void> {
   if (host.state.appState.streamingPhase !== 'idle') {
@@ -150,9 +148,13 @@ async function undoByCount(host: SlashCommandHost, count: number): Promise<boole
     (entry, index) =>
       !((index >= lastUserIndex || groupEntryIndices.has(index)) && isUndoContextEntry(entry)),
   );
-  entries.splice(0, entries.length, ...preservedEntries);
+  if (host.replaceTranscriptEntries !== undefined) {
+    host.replaceTranscriptEntries(preservedEntries);
+  } else {
+    entries.splice(0, entries.length, ...preservedEntries);
+  }
 
-  if (entries.length === 0) {
+  if (preservedEntries.length === 0) {
     renderWelcome(host);
   }
 

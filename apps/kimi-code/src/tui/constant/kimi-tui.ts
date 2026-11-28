@@ -38,6 +38,7 @@ export function getWorkspaceDirsUnavailableNotice(error: string): string {
 export const TOWER_TEARDOWN_PROMPT =
   'Tear down the tower: call TowerTeardown and report what it did. It refuses to destroy dirty worktrees unless forced.';
 export const EXIT_CONFIRM_WINDOW_MS = 1500;
+export const UNDO_LIMIT_STATUS_TURN_ID = 'undo-limit-status';
 export const MAX_AUTO_TITLE_ATTEMPTS = 3;
 export const DOUBLE_ESC_WINDOW_MS = 600;
 

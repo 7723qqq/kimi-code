@@ -41,6 +41,7 @@ export interface CompactionGenerationDeps {
   readonly tokenProfile: HistoryTokenProfile;
   readonly tools?: readonly CoreToolDescription[];
   readonly getEffectiveMaxContextTokens: () => number;
+  readonly getThinkingLevel: () => string;
   readonly llmRequester: FullLoopLlmRequester;
   readonly resolveMaxOutputTokens: (maxOutputSize?: number) => LlmRequestModel['maxOutputTokens'];
   readonly shouldRecoverFromContextOverflow: (error: unknown, estimatedTokens: number) => boolean;
@@ -67,6 +68,7 @@ export async function generateCompactionSummary(
     tokenProfile,
     tools,
     getEffectiveMaxContextTokens,
+    getThinkingLevel,
     llmRequester,
     resolveMaxOutputTokens,
     shouldRecoverFromContextOverflow,
@@ -126,7 +128,7 @@ export async function generateCompactionSummary(
       };
       const result = await runRequest();
       cacheProbePending = false;
-      attempt = collectSummary(result);
+      attempt = collectSummary(result, getThinkingLevel());
       break;
     } catch (error) {
       const isContextOverflow = shouldRecoverFromContextOverflow(

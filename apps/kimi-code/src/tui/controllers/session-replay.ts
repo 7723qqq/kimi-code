@@ -1,23 +1,29 @@
-import type {
-  AgentReplayRecord,
-  ContextMessage,
-  GoalChange,
-  PermissionMode,
-  ResumedAgentState,
-  Session,
-  ToolCall,
-  ToolInputDisplay,
+import {
+  ErrorCodes,
+  type AgentReplayRecord,
+  type ContextMessage,
+  type GoalChange,
+  type PermissionMode,
+  type ResumedAgentState,
+  type Session,
+  type ToolCall,
+  type ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 
+import { errorReportHintLine } from '../constant/feedback';
+import {
+  getOauthLoginRequiredStartupNotice,
+  OAUTH_LOGIN_REQUIRED_CODE,
+} from '../constant/kimi-tui';
 import { modelDisplayName } from '../components/dialogs/model-selector';
 import { ShellRunComponent } from '../components/messages/shell-run';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { ReplayTurnBoundaryComponent } from '../components/messages/user-message';
 import type { TUIState } from '../state';
-import { currentTheme } from '../theme';
+import { currentTheme, type ColorToken } from '../theme';
 import type {
   AppState,
   BackgroundAgentMetadata,
@@ -27,6 +33,7 @@ import type {
 } from '../types';
 import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
+import { formatLocalizedError } from '../utils/error-display';
 import { formatErrorMessage } from '../utils/event-payload';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import {
@@ -83,6 +90,7 @@ function preserveBundleHookResults(
   return start === firstIndex ? limited : [...replay.slice(start, firstIndex), ...limited];
 }
 type CompactionReplayRecord = Extract<AgentReplayRecord, { type: 'compaction' }>;
+type TurnEndedReplayRecord = Extract<AgentReplayRecord, { type: 'turn_ended' }>;
 type GoalReplayLifecycleChange = GoalChange & { readonly kind: 'lifecycle' };
 
 export interface SessionReplayHost {
@@ -304,6 +312,46 @@ export class SessionReplayRenderer {
         return;
       case 'config_updated':
         return;
+      case 'turn_ended':
+        this.renderTurnEnded(context, record);
+        return;
+    }
+  }
+
+  private renderTurnEnded(
+    context: ReplayRenderContext,
+    { reason, error }: TurnEndedReplayRecord,
+  ): void {
+    this.flushAssistant(context);
+    const show = (content: string, color?: ColorToken): void => {
+      this.host.appendTranscriptEntry({
+        ...replayEntry(context, 'status', content, 'plain'),
+        color,
+      });
+    };
+    if (reason === 'cancelled') {
+      show(t('tui.statusMessages.interruptedByUser'), 'error');
+      return;
+    }
+    if (reason === 'blocked') {
+      show(t('tui.statusMessages.turnStoppedBlocked'), 'error');
+      return;
+    }
+    if (reason !== 'failed' || error === undefined) return;
+    if (error.code === ErrorCodes.PROVIDER_FILTERED) {
+      show(t('tui.statusMessages.turnStoppedFiltered'), 'error');
+    }
+    if (error.code === OAUTH_LOGIN_REQUIRED_CODE) {
+      show(
+        t('tui.statusMessages.errorPrefix', { message: getOauthLoginRequiredStartupNotice() }),
+        'error',
+      );
+      return;
+    }
+    const formatted = formatLocalizedError(error);
+    if (formatted.length > 0) {
+      show(t('tui.statusMessages.errorPrefix', { message: formatted }), 'error');
+      show(errorReportHintLine());
     }
   }
 

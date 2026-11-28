@@ -6,9 +6,11 @@ import { openAIProtocol } from '#/llm/builtin/protocol/openai/index';
 import { kimiOpenAIProtocol } from '#/llm/builtin/provider/kimi/protocol';
 import {
   createAssistantMessage,
+  createSystemMessage,
   createToolMessage,
   createUserMessage,
 } from '#/llm/message';
+import type { LlmResolver } from '#/llm/policy/resolver';
 import { setLog } from '#/utils/log';
 
 import {
@@ -17,8 +19,77 @@ import {
   openAIChunk,
   openAICompletion,
   runGenerate,
+  TEST_MODEL,
   testModule,
 } from '../harness';
+
+describe('resolved context budget', () => {
+  const profile = {
+    tools: [{
+      name: 'lookup',
+      description: 'x'.repeat(8192),
+      parameters: { type: 'object' },
+      deferred: true as const,
+    }],
+  };
+  const model = { ...TEST_MODEL, spec: { ...TEST_MODEL.spec, maxContextSize: 1024 } };
+  const resolvers: readonly LlmResolver[] = [{
+    id: 'disclose-tools',
+    recoveryRequest: 'resolved',
+    resolve: async (request) => ({
+      ...request,
+      profile: {
+        ...request.profile,
+        tools: request.profile?.tools?.filter((tool) => tool.deferred !== true),
+      },
+      content: {
+        ...request.content,
+        messages: [...request.content.messages, createSystemMessage('Load catalog')],
+      },
+    }),
+  }];
+
+  it.each([
+    { usedTokens: undefined, messages: undefined, maxTokens: 1017 },
+    { usedTokens: 0, messages: undefined, maxTokens: 1024 },
+    { usedTokens: 800, messages: undefined, maxTokens: 224 },
+    { usedTokens: 2048, messages: undefined, maxTokens: 1 },
+    {
+      usedTokens: undefined,
+      messages: [
+        createUserMessage('earlier'),
+        createAssistantMessage([{ type: 'text', text: 'ok' }], [], {
+          usage: { inputOther: 100, inputCacheRead: 600, inputCacheCreation: 50, output: 50 },
+        }),
+        createUserMessage('hi'),
+      ],
+      maxTokens: 217,
+    },
+  ])('budgets the resolved request with usage $usedTokens and output cap $maxTokens', async ({ usedTokens, messages, maxTokens }) => {
+    const sentBodies: Record<string, unknown>[] = [];
+    const protocol = {
+      ...kimiOpenAIProtocol,
+      send: async (_client: unknown, native: { readonly params: Record<string, unknown> }) => {
+        sentBodies.push(native.params);
+        return {
+          body: openAICompletion({ content: 'ok' }, { finishReason: 'stop' }),
+          headers: {},
+        };
+      },
+    };
+    const module = testModule<never>({ model, profile, usedTokens, messages });
+    const original = structuredClone(module);
+    const result = await runGenerate(protocol, {
+      module,
+      stream: false,
+      resolvers,
+    });
+
+    expect(result.outcome.type).toBe('done');
+    expect(sentBodies.map((body) => body['max_completion_tokens'])).toEqual([maxTokens]);
+    expect(module).toEqual(original);
+  });
+});
 
 describe('LLM run boundaries', () => {
   it('as an event consumer, I want streaming and replay to share message semantics and ordered run events', async () => {

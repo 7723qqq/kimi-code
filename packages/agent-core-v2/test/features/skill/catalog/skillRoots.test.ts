@@ -181,7 +181,7 @@ describe('skillRoots', () => {
 
       const roots = await configuredRoots(
         ['~', '~/notes', absDir, 'relative'],
-        root,
+        [root],
         homeDir,
         'extra',
       );

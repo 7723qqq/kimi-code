@@ -241,6 +241,80 @@ describe('foldAgentWireReplay corruption handling', () => {
       warning: 'Skipped 1 corrupt record while replaying session history (line 1).',
     });
   });
+
+  it('replays retried steps and salvages valid content around a single orphan step event', async () => {
+    const dir = await makeTempDir();
+    const retryPath = join(dir, 'wire-retry.jsonl');
+    await writeFile(
+      retryPath,
+      [
+        { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+        {
+          type: 'context.append_message',
+          message: { role: 'user', content: [{ type: 'text', text: 'q' }], origin: { kind: 'user' } },
+          time: 2,
+        },
+        { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1' }, time: 3 },
+        {
+          type: 'context.append_loop_event',
+          event: { type: 'step.end', uuid: 's1', finishReason: 'error' },
+          time: 4,
+        },
+        {
+          type: 'context.append_loop_event',
+          event: { type: 'content.part', stepUuid: 's1', part: { type: 'text', text: 'ok' } },
+          time: 5,
+        },
+        {
+          type: 'context.append_loop_event',
+          event: { type: 'step.end', uuid: 's1', finishReason: 'stop' },
+          time: 6,
+        },
+      ]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+      'utf-8',
+    );
+    const retried = await foldAgentWireReplay(retryPath, 10);
+    expect(retried.warning).toBeUndefined();
+    expect(retried.error).toBeUndefined();
+    expect(retried.replay).toHaveLength(2);
+
+    const orphanPath = join(dir, 'wire-orphan.jsonl');
+    await writeFile(
+      orphanPath,
+      [
+        { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+        {
+          type: 'context.append_message',
+          message: { role: 'user', content: [{ type: 'text', text: 'q' }], origin: { kind: 'user' } },
+          time: 2,
+        },
+        { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 's1' }, time: 3 },
+        {
+          type: 'context.append_loop_event',
+          event: { type: 'content.part', stepUuid: 'missing', part: { type: 'text', text: 'bad' } },
+          time: 4,
+        },
+        {
+          type: 'context.append_loop_event',
+          event: { type: 'content.part', stepUuid: 's1', part: { type: 'text', text: 'good' } },
+          time: 5,
+        },
+        { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 's1' }, time: 6 },
+      ]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+      'utf-8',
+    );
+    const salvaged = await foldAgentWireReplay(orphanPath, 10);
+    expect(salvaged.warning).toBe('Skipped 1 corrupt record while replaying session history (line 4).');
+    expect(salvaged.replay).toHaveLength(2);
+    expect(salvaged.replay[1]).toMatchObject({
+      type: 'message',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'good' }] },
+    });
+  });
 });
 
 describe('v2MetaToSessionMeta', () => {

@@ -57,6 +57,7 @@ export interface StreamingUIHost {
   appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
   mountTranscriptComponent(entry: TranscriptEntry, component: Component): void;
   replaceTranscriptChild(previous: Component, next: Component, entry?: TranscriptEntry): boolean;
+  removeTranscriptEntries?(entries: readonly TranscriptEntry[]): void;
   mergeCurrentTurnSteps(): void;
   mergeCompletedTurnAssistants(): void;
 }
@@ -113,6 +114,10 @@ export class StreamingUIController {
     solo?: ToolCallComponent;
     group?: ReadGroupComponent;
   } | null = null;
+  private _stepOutput: { entries: TranscriptEntry[]; toolCallIds: string[] } = {
+    entries: [],
+    toolCallIds: [],
+  };
 
   readonly timeline = new TurnTimeline();
 
@@ -137,6 +142,7 @@ export class StreamingUIController {
 
   setStep(step: number): void {
     this._currentStep = step;
+    this._stepOutput = { entries: [], toolCallIds: [] };
   }
 
   hasActiveTurn(): boolean {
@@ -619,6 +625,18 @@ export class StreamingUIController {
     this._toolCallEntries.clear();
   }
 
+  discardStepOutput(): void {
+    this.resetLiveText();
+    this.resetToolUi();
+    if (this._stepOutput.toolCallIds.length > 0) {
+      this.timeline.forget(this._stepOutput.toolCallIds);
+    }
+    if (this._stepOutput.entries.length > 0) {
+      this.host.removeTranscriptEntries?.(this._stepOutput.entries);
+    }
+    this._stepOutput = { entries: [], toolCallIds: [] };
+  }
+
   finalizeLiveTextBuffers(nextMode: LivePaneState['mode'] = 'idle'): void {
     this.flushThinkingToTranscript(nextMode);
     this.finalizeAssistantStream();
@@ -689,6 +707,7 @@ export class StreamingUIController {
     };
     const component = new AssistantMessageComponent();
     this._streamingBlock = { component, entry };
+    this._stepOutput.entries.push(entry);
     this.host.appendTranscriptEntry(entry, component);
   }
 
@@ -733,6 +752,7 @@ export class StreamingUIController {
         content: fullText,
       };
       this._activeThinkingEntry = entry;
+      this._stepOutput.entries.push(entry);
       this.host.appendTranscriptEntry(entry, component);
       return;
     }
@@ -761,6 +781,8 @@ export class StreamingUIController {
 
     const entry = this.createToolCallEntry(toolCall);
     this._toolCallEntries.set(toolCall.id, entry);
+    this._stepOutput.toolCallIds.push(toolCall.id);
+    this._stepOutput.entries.push(entry);
 
     if (toolCall.name !== 'Agent') this._pendingAgentGroup = null;
     if (toolCall.name !== 'Read') this._pendingReadGroup = null;

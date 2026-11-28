@@ -5,7 +5,7 @@ import type { IGitService } from '#/app/git/git';
 import { GitService } from '#/app/git/gitService';
 import { LOCAL_ENVIRONMENT_ID, environmentBindingId } from '#/environment/environment';
 import type { IExplicitFileSkillSource } from '#/features/skill/project/explicitFileSkillSource';
-import type { IExtraFileSkillSource } from '#/features/skill/project/extraFileSkillSource';
+import { ExtraFileSkillSource } from '#/features/skill/project/extraFileSkillSource';
 import type { IPluginSkillSource } from '#/features/skill/project/pluginSkillSource';
 import { WorkspaceRootSkillSource } from '#/features/skill/project/rootFileSkillSource';
 import { EnvironmentSkillDiscovery } from '#/features/skill/project/environmentSkillDiscovery';
@@ -34,7 +34,6 @@ import type { ProgramDependencies } from './programDependencies';
 export interface ProgramHarness {
   readonly userAgentProfiles: IUserAgentProfileLoader;
   readonly explicitSkills: IExplicitFileSkillSource;
-  readonly extraSkills: IExtraFileSkillSource;
   readonly pluginSkills: IPluginSkillSource;
 }
 
@@ -198,7 +197,6 @@ export class ProgramWorkdirs {
         contextKey: workdirContextKey(environmentId, cwd, followsPrimary),
         userAgentProfiles: this.harness.userAgentProfiles,
         explicitSkills: this.harness.explicitSkills,
-        extraSkills: this.harness.extraSkills,
         pluginSkills: this.harness.pluginSkills,
       });
     } finally {
@@ -216,8 +214,10 @@ export class ProgramWorkdirs {
     const agentProfiles: IProjectAgentProfileLoader = input.projectAgentProfiles
       ? own(new WorkspaceAgentProfileLoaderService(input.context, input.hostFs, dirs, this.dependencies.log, input.userAgentProfiles, this.dependencies.agentProfiles, input.contextKey, input.watch))
       : { _serviceBrand: undefined, ready: Promise.resolve(), reload: () => Promise.resolve() };
-    const workspaceSkills = own(new WorkspaceRootSkillSource(new EnvironmentSkillDiscovery(this.dependencies.log, input.hostFs), input.context, this.dependencies.config, this.dependencies.bootstrap, dirs, input.hostFs, input.watch));
-    const skills = own(new WorkspaceSkillCatalogService(this.dependencies.builtinSkills, this.dependencies.userSkills, input.explicitSkills, input.extraSkills, workspaceSkills, input.pluginSkills, state, this.dependencies.config));
+    const discovery = new EnvironmentSkillDiscovery(this.dependencies.log, input.hostFs);
+    const extraSkills = own(new ExtraFileSkillSource(discovery, this.dependencies.config, input.context, this.dependencies.bootstrap, dirs, input.hostFs, this.dependencies.log));
+    const workspaceSkills = own(new WorkspaceRootSkillSource(discovery, input.context, this.dependencies.config, this.dependencies.bootstrap, dirs, input.hostFs, input.watch));
+    const skills = own(new WorkspaceSkillCatalogService(this.dependencies.builtinSkills, this.dependencies.userSkills, input.explicitSkills, extraSkills, workspaceSkills, input.pluginSkills, state, this.dependencies.config));
     return { state, localConfig, dirs, git, fs, instructions, skills, agentProfiles };
   }
 }

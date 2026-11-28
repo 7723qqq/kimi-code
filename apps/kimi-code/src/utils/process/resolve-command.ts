@@ -62,6 +62,16 @@ function isInsideCwd(candidate: string, cwd: string, platform: NodeJS.Platform):
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
+export function resolveTrustedExecutable(
+  candidate: string,
+  cwd: string = process.cwd(),
+): string | undefined {
+  const platform = process.platform;
+  if (!isExecutableFile(candidate, platform)) return undefined;
+  if (isInsideCwd(candidate, cwd, platform)) return undefined;
+  return resolve(candidate);
+}
+
 export interface ResolveCommandDeps {
   readonly platform: NodeJS.Platform;
   readonly env: NodeJS.ProcessEnv;

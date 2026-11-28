@@ -140,6 +140,7 @@ export interface SlashCommandHost {
   showStatus(msg: string, color?: ColorToken): void;
   showNotice(title: string, detail?: string): void;
   appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
+  replaceTranscriptEntries?(entries: readonly TranscriptEntry[]): void;
   mountTranscriptComponent(entry: TranscriptEntry, component: Component): void;
   track(event: string, props?: Record<string, unknown>): void;
   mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void;

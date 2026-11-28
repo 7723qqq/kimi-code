@@ -43,7 +43,7 @@ export class ExplicitFileSkillSource extends Disposable implements IExplicitFile
       new ConfiguredSkillRootWatcher(
         {
           dirs: bootstrap.args.skillDirs ?? [],
-          cwd: workspace.cwd,
+          workDirs: [workspace.cwd],
           osHomeDir: bootstrap.osHomeDir,
           source: this.id,
           fs,
@@ -65,7 +65,7 @@ export class ExplicitFileSkillSource extends Disposable implements IExplicitFile
     return this.discovery.discover(
       await configuredRoots(
         explicitDirs,
-        this.workspace.cwd,
+        [this.workspace.cwd],
         this.bootstrap.osHomeDir,
         'user',
         this.fs,

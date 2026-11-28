@@ -17,6 +17,7 @@ type TurnStepStartedEvent = Extract<Event, { type: 'turn.step.started' }>;
 type TurnStepCompletedEvent = Extract<Event, { type: 'turn.step.completed' }>;
 type TurnStepInterruptedEvent = Extract<Event, { type: 'turn.step.interrupted' }>;
 type TurnStepRetryingEvent = Extract<Event, { type: 'turn.step.retrying' }>;
+type TurnStepStreamResetEvent = Extract<Event, { type: 'turn.step.stream_reset' }>;
 type CronFiredEvent = Extract<Event, { type: 'cron.fired' }>;
 type ErrorEvent = Extract<Event, { type: 'error' }>;
 type WarningEvent = Extract<Event, { type: 'warning' }>;
@@ -244,6 +245,7 @@ export class SessionEventHandler {
   private goalCompletionAwaitingClear = false;
   private goalCompletionTurnEnded = false;
   private currentTurnHasAssistantText = false;
+  private turnHadAssistantTextBeforeStep = false;
   private pluginCommandTurns: Map<string, string> = new Map();
   private pluginMcpToolsUsedInTurn: Set<string> = new Set();
   /** `tool.call.started` timestamps for the footer tool-duration stat; entries
@@ -268,6 +270,7 @@ export class SessionEventHandler {
     this.goalCompletionAwaitingClear = false;
     this.goalCompletionTurnEnded = false;
     this.currentTurnHasAssistantText = false;
+    this.turnHadAssistantTextBeforeStep = false;
     this.pluginCommandTurns.clear();
     this.pluginMcpToolsUsedInTurn.clear();
     this.pendingModelBlockedFallback = undefined;
@@ -391,6 +394,9 @@ export class SessionEventHandler {
       case 'turn.step.retrying':
         this.handleStepRetrying(event);
         break;
+      case 'turn.step.stream_reset':
+        this.handleStepStreamReset(event);
+        break;
       case 'tool.progress':
         this.handleToolProgress(event);
         break;
@@ -497,6 +503,7 @@ export class SessionEventHandler {
     this.host.acknowledgeSteerTurnStarted?.(event.promptId);
     this.host.handleTurnStarted?.(event);
     this.currentTurnHasAssistantText = false;
+    this.turnHadAssistantTextBeforeStep = false;
     if (event.origin?.kind === 'plugin_command') {
       this.pluginCommandTurns.set(String(event.turnId), event.origin.pluginId);
     } else {
@@ -598,6 +605,7 @@ export class SessionEventHandler {
   }
 
   private handleStepBegin(event: TurnStepStartedEvent): void {
+    this.turnHadAssistantTextBeforeStep = this.currentTurnHasAssistantText;
     this.host.streamingUI.timeline.abandonUnstarted();
     this.host.streamingUI.flushNow();
     this.host.streamingUI.setStep(event.step);
@@ -685,6 +693,13 @@ export class SessionEventHandler {
       if (retry === null) return;
       this.host.setAppState({ stepRetry: { ...retry, phase: 'attempt' } });
     }, event.delayMs);
+  }
+
+  private handleStepStreamReset(_event: TurnStepStreamResetEvent): void {
+    this.host.streamingUI.discardStepOutput();
+    this.currentTurnHasAssistantText = this.turnHadAssistantTextBeforeStep;
+    this.host.patchLivePane({ mode: 'waiting' });
+    this.host.setAppState({ streamingPhase: 'waiting' });
   }
 
   private clearStepRetry(): void {

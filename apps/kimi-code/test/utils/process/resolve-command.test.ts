@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, w
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 
-import { resolveCommandPath } from '#/utils/process/resolve-command';
+import { resolveCommandPath, resolveTrustedExecutable } from '#/utils/process/resolve-command';
 
 let tempDirs: string[] = [];
 
@@ -221,5 +221,34 @@ describe('resolveCommandPath (win32)', () => {
     // The cwd entry resolves first (like cmd.exe's cwd-first lookup); the
     // planted binary must be skipped in favour of the later PATH entry.
     expect(resolveCommandPath('npm', cwd, win32Env(`${cwd};${bin}`, '.CMD'))).toBe(real);
+  });
+});
+
+describe('resolveTrustedExecutable', () => {
+  it('accepts an executable outside cwd and rejects one inside cwd', () => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    try {
+      const trustedDir = makeTempDir('kimi-trusted-bin-');
+      const cwd = makeTempDir('kimi-untrusted-cwd-');
+      const trustedExe = join(trustedDir, 'kimi.exe');
+      const untrustedExe = join(cwd, 'kimi.exe');
+      const nestedDir = join(cwd, 'bin');
+      mkdirSync(nestedDir);
+      const nestedExe = join(nestedDir, 'kimi.exe');
+      writeFileSync(trustedExe, 'MZ');
+      writeFileSync(untrustedExe, 'MZ');
+      writeFileSync(nestedExe, 'MZ');
+
+      expect(resolveTrustedExecutable(trustedExe, cwd)).toBe(trustedExe);
+      expect(resolveTrustedExecutable(untrustedExe, cwd)).toBeUndefined();
+      expect(resolveTrustedExecutable(nestedExe, cwd)).toBeUndefined();
+      expect(resolveTrustedExecutable(nestedDir, cwd)).toBeUndefined();
+      expect(resolveTrustedExecutable(join(trustedDir, 'missing.exe'), cwd)).toBeUndefined();
+    } finally {
+      if (originalDescriptor !== undefined) {
+        Object.defineProperty(process, 'platform', originalDescriptor);
+      }
+    }
   });
 });

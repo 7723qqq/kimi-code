@@ -46,6 +46,13 @@ export {
 	type TextStyle,
 } from "./colors.ts";
 // Components
+export {
+	formatProgramResume,
+	formatProgramResumeClear,
+	type ProgramResumeCommand,
+	type ProgramResumeSender,
+	takeProgramResumeToken,
+} from "./program-resume.ts";
 export { formatProgramStatus, type ProgramStatus } from "./program-status.ts";
 export { Box } from "./components/box.ts";
 export { CancellableLoader } from "./components/cancellable-loader.ts";

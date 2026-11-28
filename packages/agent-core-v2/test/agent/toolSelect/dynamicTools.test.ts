@@ -116,6 +116,13 @@ describe('renderLoadableToolsAnnouncement', () => {
     expect(removedOnly).toContain('<tools_removed>\nb\n</tools_removed>');
     expect(removedOnly).not.toContain('<tools_added>');
   });
+
+  it('announces same-name replacements as removal followed by a loadable addition', () => {
+    const replacement = renderLoadableToolsAnnouncement(['a'], ['a']);
+    expect(replacement.indexOf('<tools_removed>')).toBeLessThan(replacement.indexOf('<tools_added>'));
+    expect(replacement).toContain('A name added again is loadable with its updated definition.');
+    expect([...foldAnnouncedToolNames([announcement(['a'], ['a'])])]).toEqual(['a']);
+  });
 });
 
 describe('stripDynamicToolContext', () => {

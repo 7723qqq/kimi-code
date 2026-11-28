@@ -10,6 +10,10 @@ import { Emitter } from '#/_base/event';
 import { OrderedHookSlot } from '#/hooks';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { IEventBus } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
+import { ContextUndone } from '#/agent/undo/undoService';
+import type { ContextInjectionProvider } from '#/features/reminder/types';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
@@ -71,6 +75,8 @@ interface Harness {
   readonly ix: TestInstantiationService;
   readonly notifier: IAgentChangeNotifierService;
   readonly reminders: CapturedReminder[];
+  beginStep(): Promise<void>;
+  readonly eventBus: EventBusService;
   readonly instructionsChange: Emitter<readonly WatchChange[]>;
   readonly skillCatalogChange: Emitter<string>;
   readonly agentCatalogChange: Emitter<string>;
@@ -114,6 +120,8 @@ function createHarness(options: {
   readonly skillReady?: Promise<void>;
 }): Harness {
   const reminders: CapturedReminder[] = [];
+  const reminderProviders: ContextInjectionProvider[] = [];
+  const eventBus = disposables.add(new EventBusService());
   const workspaceInfoChange = disposables.add(new Emitter<void>());
   let workspaceDirs: readonly string[] = [];
   let workspacePrimary: Readonly<Record<string, string>> = {};
@@ -191,6 +199,10 @@ function createHarness(options: {
       reg.defineInstance(
         IAgentReminderService,
         createReminderStub({
+          register: (_variant, provider) => {
+            reminderProviders.push(provider as ContextInjectionProvider);
+            return { dispose: () => {} };
+          },
           notify: (content, notification) => {
             reminders.push({ content, variant: notification.variant });
           },
@@ -293,6 +305,7 @@ function createHarness(options: {
           }
         },
       } as unknown as IEventDispatcher);
+      reg.defineInstance(IEventBus, eventBus);
       reg.define(IAgentChangeNotifierService, AgentChangeNotifierService);
     },
     strict: true,
@@ -302,6 +315,18 @@ function createHarness(options: {
     ix,
     notifier,
     reminders,
+    eventBus,
+    beginStep: async () => {
+      for (const provider of reminderProviders) {
+        await provider({
+          injectedPositions: [],
+          lastInjectedAt: null,
+          lastInjection: undefined,
+          lastDisclosure: undefined,
+          isNewTurn: true,
+        });
+      }
+    },
     instructionsChange,
     skillCatalogChange,
     agentCatalogChange,

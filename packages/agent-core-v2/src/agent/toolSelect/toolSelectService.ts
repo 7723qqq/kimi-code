@@ -20,6 +20,7 @@ import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
+import { readToolLifecycleMeta } from '@moonshot-ai/core/llm/message';
 import type { ContentPart, ToolDescription as Tool } from '#human/llm/message';
 
 import {
@@ -752,15 +753,20 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       messages,
       this.toolRegistry.list(),
     );
+    const declaredDynamicTools = new Set<string>();
     let shaped: ContextMessage[] | undefined;
     for (let i = 0; i < messages.length; i += 1) {
       const message = messages[i]!;
+      const announced = isLoadableToolsAnnouncement(message)
+        ? this.shapeLifecycleAnnouncement(message, declaredDynamicTools)
+        : message;
       const next = this.shapeActiveMessage(
-        message,
+        announced,
         inlineNames,
         firstToolDeclarations,
         latestToolDeclarations,
         pendingSchemaUpdates,
+        declaredDynamicTools,
       );
       if (next === message) {
         if (shaped !== undefined) shaped.push(message);
@@ -770,6 +776,61 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       if (next !== undefined) shaped.push(next);
     }
     return shaped ?? messages;
+  }
+
+  private shapeLifecycleAnnouncement(
+    message: ContextMessage,
+    declaredDynamicTools: Set<string>,
+  ): ContextMessage {
+    let content: ContextMessage['content'] | undefined;
+    const ensureCopy = (upto: number): ContextMessage['content'] => {
+      if (content === undefined) content = message.content.slice(0, upto);
+      return content;
+    };
+    for (let i = 0; i < message.content.length; i += 1) {
+      const part = message.content[i]!;
+      if (part.type !== 'text') {
+        content?.push(part);
+        continue;
+      }
+      const lifecycle = readToolLifecycleMeta(part);
+      if (lifecycle === undefined) {
+        content?.push(part);
+        continue;
+      }
+      const removed = lifecycle.removed.filter((name) => declaredDynamicTools.delete(name));
+      const isReplacement = lifecycle.added.some((name) => lifecycle.removed.includes(name));
+      let partText = part.text;
+      if (isReplacement) {
+        const rendered = renderLoadableToolsAnnouncement(lifecycle.added, lifecycle.removed);
+        if (part.text.length > 0) {
+          partText = part.text.trimStart().startsWith('<system-reminder>')
+            ? wrapSystemReminder(rendered)
+            : rendered;
+        } else if (i > 0) {
+          const prevIndex = i - 1;
+          const prev = content?.[prevIndex] ?? message.content[prevIndex];
+          if (
+            prev?.type === 'text' &&
+            (prev.text.includes('<tools_added>') || prev.text.includes('<tools_removed>'))
+          ) {
+            const nextPrevText = prev.text.trimStart().startsWith('<system-reminder>')
+              ? wrapSystemReminder(rendered)
+              : rendered;
+            if (nextPrevText !== prev.text) {
+              const target = ensureCopy(i);
+              target[prevIndex] = { ...prev, text: nextPrevText };
+            }
+          }
+        }
+      }
+      if (removed.length === lifecycle.removed.length && partText === part.text) {
+        content?.push(part);
+        continue;
+      }
+      ensureCopy(i).push({ ...part, text: partText, meta: { ...lifecycle, removed } });
+    }
+    return content === undefined ? message : { ...message, content };
   }
 
   private shapeActiveMessage(
@@ -784,6 +845,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       { readonly message: ContextMessage; readonly toolIndex: number }
     >,
     pendingSchemaUpdates: ReadonlySet<string>,
+    declaredDynamicTools: Set<string>,
   ): ContextMessage | undefined {
     if (message.role !== 'system') return message;
     const tools = message.tools;
@@ -817,6 +879,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
             loadedSchema !== undefined &&
             toolSelectSchemaSignature(loadedSchema) === toolSelectSchemaSignature(tool));
       if (keep) {
+        declaredDynamicTools.add(tool.name);
         if (kept !== undefined) kept.push(tool);
         continue;
       }

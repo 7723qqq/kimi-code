@@ -1,6 +1,11 @@
 import { mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import {
+  currentProcessLiveness,
+  processStampAlive,
+} from '@moonshot-ai/agent-core-v2/_base/utils/processLiveness';
+
 export interface RemoteControlLockInfo {
   readonly pid: number;
   readonly nonce: string;
@@ -8,6 +13,7 @@ export interface RemoteControlLockInfo {
   readonly deviceId: string;
   readonly url: string;
   readonly startedAt: number;
+  readonly liveness?: string;
 }
 
 interface RemoteControlLockDisk {
@@ -17,6 +23,7 @@ interface RemoteControlLockDisk {
   readonly device_id: string;
   readonly url: string;
   readonly started_at: number;
+  readonly liveness?: string;
 }
 
 export class RemoteControlAlreadyRunningError extends Error {
@@ -55,6 +62,7 @@ export async function acquireRemoteControlLock(
 ): Promise<RemoteControlLock> {
   const lockPath = remoteControlLockPath(homeDir);
   await mkdir(dirname(lockPath), { recursive: true });
+  const liveness = currentProcessLiveness();
   const info: RemoteControlLockInfo = {
     pid: process.pid,
     nonce: hexNonce(),
@@ -62,6 +70,7 @@ export async function acquireRemoteControlLock(
     deviceId: details.deviceId,
     url: details.url,
     startedAt: Date.now(),
+    ...(liveness === undefined ? {} : { liveness }),
   };
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -77,7 +86,7 @@ export async function acquireRemoteControlLock(
         throw error;
       }
       const holder = await readRemoteControlLock(lockPath);
-      if (holder !== undefined && pidAlive(holder.pid)) {
+      if (holder !== undefined && holderAlive(holder)) {
         throw new RemoteControlAlreadyRunningError(holder);
       }
       await removeFile(lockPath);
@@ -91,7 +100,7 @@ export async function inspectRemoteControlLock(
   const lockPath = remoteControlLockPath(homeDir);
   const info = await readRemoteControlLock(lockPath);
   if (info === undefined) return undefined;
-  if (!pidAlive(info.pid)) {
+  if (!holderAlive(info)) {
     await removeFile(lockPath);
     return undefined;
   }
@@ -139,6 +148,7 @@ function encodeLock(info: RemoteControlLockInfo): string {
     device_id: info.deviceId,
     url: info.url,
     started_at: info.startedAt,
+    ...(info.liveness === undefined ? {} : { liveness: info.liveness }),
   };
   return JSON.stringify(disk);
 }
@@ -161,6 +171,9 @@ function decodeLock(raw: string): RemoteControlLockInfo | undefined {
         deviceId: parsed.device_id,
         url: parsed.url,
         startedAt: parsed.started_at,
+        ...(typeof parsed.liveness === 'string' && parsed.liveness.length > 0
+          ? { liveness: parsed.liveness }
+          : {}),
       };
     }
     return undefined;
@@ -177,12 +190,10 @@ async function removeFile(lockPath: string): Promise<void> {
   }
 }
 
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
-    return true;
-  }
+function holderAlive(holder: RemoteControlLockInfo): boolean {
+  return processStampAlive({
+    pid: holder.pid,
+    startedAt: holder.startedAt,
+    ...(holder.liveness === undefined ? {} : { liveness: holder.liveness }),
+  });
 }

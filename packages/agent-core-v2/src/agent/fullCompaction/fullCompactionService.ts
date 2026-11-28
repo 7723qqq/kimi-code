@@ -671,6 +671,10 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         tokenProfile,
         tools: this.defaultTools().filter((tool) => tool.deferred !== true),
         getEffectiveMaxContextTokens: () => this.getEffectiveMaxContextTokens(),
+        getThinkingLevel: () => {
+          thinkingEffort = this.loopService.resolveModelContext().thinkingLevel;
+          return thinkingEffort;
+        },
         llmRequester: this.loopService.requester,
         resolveMaxOutputTokens: (maxOutputSize) => this.loopService.resolveMaxOutputTokens(maxOutputSize),
         shouldRecoverFromContextOverflow: (error, estimatedTokens) =>
@@ -687,6 +691,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         applyDeps,
         {
           attemptSummary: attempt.summary,
+          attemptSummaryOutputTokens: attempt.summaryOutputTokens,
           attemptUsage: attempt.usage,
           originalHistory,
           nonHistoryStateBefore,

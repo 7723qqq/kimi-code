@@ -113,6 +113,7 @@ function distributeExcessTokens(
 
 export interface CompactionAttemptResult {
   readonly summary: string;
+  readonly summaryOutputTokens?: number;
   readonly usage: TokenUsage | null;
   readonly traceId?: string;
 }
@@ -135,16 +136,22 @@ export function findAPIStatusError(error: unknown): APIStatusError | undefined {
   return undefined;
 }
 
-export function collectSummary(finish: {
-  readonly message: { readonly content: readonly { readonly type: string; readonly text?: string }[] };
-  readonly usage?: unknown;
-  readonly traceId?: string;
-  readonly providerFinishReason?: string;
-}): CompactionAttemptResult {
+export function collectSummary(
+  finish: {
+    readonly message: { readonly content: readonly { readonly type: string; readonly text?: string }[] };
+    readonly usage?: unknown;
+    readonly traceId?: string;
+    readonly providerFinishReason?: string;
+  },
+  thinkingLevel?: string,
+): CompactionAttemptResult {
   if (finish.providerFinishReason === 'truncated') {
     throw new CompactionTruncatedError();
   }
 
+  const hasThinking =
+    (thinkingLevel !== undefined && thinkingLevel !== 'off') ||
+    finish.message.content.some((part) => part.type === 'think');
   const summary = finish.message.content
     .filter((part) => part.type === 'text')
     .map((part) => part.text ?? '')
@@ -154,7 +161,10 @@ export function collectSummary(finish: {
     throw new APIEmptyResponseError('The compaction response did not contain a non-empty summary.');
   }
 
-  return { summary, usage: (finish.usage ?? null) as TokenUsage | null, traceId: finish.traceId };
+  const usage = (finish.usage ?? null) as TokenUsage | null;
+  const summaryOutputTokens =
+    !hasThinking && usage !== null ? usage.output : undefined;
+  return { summary, summaryOutputTokens, usage, traceId: finish.traceId };
 }
 
 export function historySafeToCompact(

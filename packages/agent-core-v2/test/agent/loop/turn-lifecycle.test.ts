@@ -194,7 +194,7 @@ describe('Agent loop — turn lifecycle', () => {
         id: `usage-${String(requestIndex)}`,
         message: {
           role: 'assistant',
-          content: [],
+          content: requestIndex === 1 ? [] : [{ type: 'text', text: 'done' }],
           toolCalls:
             requestIndex === 1
               ? [

@@ -35,6 +35,7 @@ export class WorkspaceSkillCatalogService extends Disposable implements IProject
 
   private readonly sources: readonly ISkillSource[];
   private readonly sourceLoadTails = new Map<ISkillSource, Promise<void>>();
+  private readonly changedSources: ISkillSource[] = [];
   readonly ready: Promise<void>;
   private readonly onDidChangeEmitter = this._register(new Emitter<string>());
   readonly onDidChange: Event<string> = this.onDidChangeEmitter.event;
@@ -56,12 +57,7 @@ export class WorkspaceSkillCatalogService extends Disposable implements IProject
       (a, b) => a.priority - b.priority,
     );
     for (const s of this.sources) {
-      if (s.onDidChange)
-        this._register(
-          s.onDidChange(() => {
-            void this.reloadSource(s.id);
-          }),
-        );
+      if (s.onDidChange) this._register(s.onDidChange(() => this.queueSourceChange(s)));
     }
     this._register(
       this.config.onDidSectionChange((event) => {
@@ -123,6 +119,31 @@ export class WorkspaceSkillCatalogService extends Disposable implements IProject
       await this.loadSource(s);
     }
     this.remerge();
+  }
+
+  private queueSourceChange(source: ISkillSource): void {
+    if (this.changedSources.length === 0) queueMicrotask(() => void this.reloadChangedSources());
+    this.changedSources.push(source);
+  }
+
+  private async reloadChangedSources(): Promise<void> {
+    const changed = this.changedSources.splice(0);
+    const loaded = new Set<ISkillSource>();
+    await Promise.all(
+      [...new Set(changed)].map(async (source) => {
+        try {
+          await this.loadSource(source, false);
+          loaded.add(source);
+        } catch {
+          return;
+        }
+      }),
+    );
+    if (loaded.size === 0) return;
+    this.remerge();
+    for (const source of changed) {
+      if (loaded.has(source)) this.onDidChangeEmitter.fire(source.id);
+    }
   }
 
   private async reloadSource(id: string): Promise<void> {

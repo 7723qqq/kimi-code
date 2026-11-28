@@ -5,6 +5,7 @@ import type { GoalChange, GoalSnapshot } from '@moonshot-ai/agent-core-v2/contra
 import type { CompactionResult } from '@moonshot-ai/agent-core-v2/contract';
 import type { ModelCapability, ProviderConfig } from '@moonshot-ai/core';
 
+import type { KimiErrorPayload, TurnEndReason } from '#/events';
 import type { AgentContextData, ContextMessage } from '#/context';
 import type { PermissionApprovalResultRecord, PermissionData, PermissionMode } from '#/permission';
 import type { BackgroundTaskInfo } from '#/task';
@@ -65,7 +66,8 @@ export type AgentReplayRecordPayload =
   | { type: 'plan_updated'; enabled: boolean }
   | { type: 'config_updated'; config: AgentConfigUpdateData }
   | { type: 'permission_updated'; mode: PermissionMode }
-  | { type: 'approval_result'; record: PermissionApprovalResultRecord };
+  | { type: 'approval_result'; record: PermissionApprovalResultRecord }
+  | { type: 'turn_ended'; turnId: number; reason: TurnEndReason; error?: KimiErrorPayload };
 
 export type AgentReplayRecord = { readonly time: number } & AgentReplayRecordPayload;
 

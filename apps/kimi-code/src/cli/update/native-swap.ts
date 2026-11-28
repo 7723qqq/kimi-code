@@ -22,6 +22,7 @@ import { constants as osConstants } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
 import { log } from '@moonshot-ai/kimi-code-sdk/logging';
+import { takeProgramResumeToken } from '@moonshot-ai/pi-tui';
 
 import {
   KIMI_CODE_NATIVE_STAGED_STATE_FILE_NAME,
@@ -144,6 +145,7 @@ async function recordSwapFailure(version: string): Promise<void> {
 function smokeCheck(
   exePath: string,
   staged: StagedNativeUpdate,
+  env: NodeJS.ProcessEnv,
   spawnImpl: typeof spawn,
 ): Promise<boolean> {
   return new Promise((resolve) => {
@@ -154,9 +156,12 @@ function smokeCheck(
       settled = true;
       resolve(ok);
     };
+    const smokeEnv: NodeJS.ProcessEnv = { ...env };
+    takeProgramResumeToken(smokeEnv);
     let child: SpawnedChild & { readonly stdout?: NodeJS.ReadableStream | null; kill(): void };
     try {
       child = spawnImpl(exePath, ['--version'], {
+        env: smokeEnv,
         stdio: ['ignore', 'pipe', 'ignore'],
         windowsHide: true,
       }) as unknown as typeof child;
@@ -564,7 +569,7 @@ export async function maybeRelaunchWithStagedNativeUpdate(deps: NativeSwapDeps):
   // 1. Smoke-check the staged exe BEFORE touching the install path: a staged
   //    binary that cannot start (or lies about its version) is discarded with
   //    the running exe never moved — the safest possible failure shape.
-  if (!(await smokeCheck(stagedExe, staged, spawnImpl))) {
+  if (!(await smokeCheck(stagedExe, staged, deps.env, spawnImpl))) {
     logSwap('smoke check failed, discarding staged update', { version: staged.version });
     await recordSwapFailure(staged.version);
     return discard();

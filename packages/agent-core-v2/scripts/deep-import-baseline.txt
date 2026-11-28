@@ -367,3 +367,6 @@ apps/desktop/tests/backend/browser/browser-mcp-registration.test.ts agent/loop/h
 
 packages/kap-server/src/routes/config.ts app/config/toml
 packages/kap-server/src/routes/fs.ts app/project/implicitProject
+packages/remote-control/src/lock.ts _base/utils/processLiveness
+apps/kimi-code/src/cli/update/install-lock.ts _base/utils/processLiveness
+apps/kimi-code/test/cli/update/install-lock.test.ts _base/utils/processLiveness

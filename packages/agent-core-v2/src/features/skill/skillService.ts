@@ -8,7 +8,6 @@ import type {
 } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type PromptLaunchResult, type Turn } from '#/agent/loop/loop';
 import { loopUserEntry } from '#/agent/loop/userEntry';
-import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventService } from '#/app/event/event';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -22,7 +21,11 @@ import { skillActivationPart } from '#human/agent/origin';
 import type { ContentPart } from '#human/llm/message';
 
 import { isUserActivatableSkillType, type SkillDefinition } from './catalog/types';
-import { promptMetadataTextFromSkill, renderUserSlashSkillPrompt } from './prompt';
+import {
+  promptMetadataTextFromBundledSkills,
+  promptMetadataTextFromSkill,
+  renderUserSlashSkillPrompt,
+} from './prompt';
 import { ISessionSkillCatalog } from './session/skillCatalog';
 import type {
   PromptSkillActivation,
@@ -153,7 +156,7 @@ export class AgentSkillService implements IAgentSkillService {
           eventService: this.eventService,
           sessionId: this.sessionContext.sessionId,
         },
-        promptMetadataTextFromContentParts(input.input, input.clientMetadata),
+        promptMetadataTextFromBundledSkills(input),
       );
     }
     for (const activation of prepared) {

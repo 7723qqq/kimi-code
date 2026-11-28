@@ -21,10 +21,12 @@ function isBareVersionArgv(argv: readonly string[]): boolean {
 }
 
 if (isSshAskpassEnvironment()) {
+  delete process.env['OSC7577_TOKEN'];
   void runSshAskpass().then((code) => {
     process.exitCode = code;
   });
 } else if (isExecServerArgv(process.argv)) {
+  delete process.env['OSC7577_TOKEN'];
   // stdout is reserved for protocol frames; the runner logs to stderr only.
   void runExecServerCommand('stdio').then((code) => {
     process.exitCode = code;

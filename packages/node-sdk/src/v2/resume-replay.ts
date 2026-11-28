@@ -5,6 +5,7 @@ import {
   FOLD_RELEVANT_WIRE_TYPES,
   foldWireRecords,
   isRealUserInput,
+  selectFoldableWireRecords,
   type AgentReplayRecord as V2AgentReplayRecord,
   type ContextMessage as V2ContextMessage,
   type WireRecord,
@@ -39,17 +40,13 @@ export async function foldAgentWireReplay(
   } catch {
     // Any windowed-scan irregularity reproduces the reference behavior below.
   }
-  const full = await foldAgentWireReplayFull(wirePath);
-  return {
-    replay: limitAgentReplayByTurns(full.replay, turnLimit),
-    toolStore: full.toolStore,
-    userTurnCount: full.userTurnCount,
-    warning: full.warning,
-    error: full.error,
-  };
+  return foldAgentWireReplayFull(wirePath, turnLimit);
 }
 
-async function foldAgentWireReplayFull(wirePath: string): Promise<FoldedAgentReplay> {
+async function foldAgentWireReplayFull(
+  wirePath: string,
+  turnLimit?: number,
+): Promise<FoldedAgentReplay> {
   let content: string;
   try {
     content = await readFile(wirePath, 'utf-8');
@@ -67,14 +64,15 @@ async function foldAgentWireReplayFull(wirePath: string): Promise<FoldedAgentRep
   }
   try {
     const folded = foldWireRecords(entries.map((entry) => entry.record));
+    const mapped = folded.replay.map(mapReplayRecord);
     return {
-      replay: folded.replay.map(mapReplayRecord),
+      replay: turnLimit === undefined ? mapped : limitAgentReplayByTurns(mapped, turnLimit),
       toolStore: folded.toolStore,
       userTurnCount: userTurns.count,
       warning: formatSkippedRecordsWarning(skippedLines),
     };
   } catch (error) {
-    return salvageFoldedReplay(entries, skippedLines, error);
+    return salvageFoldedReplay(entries, skippedLines, error, userTurns.count, turnLimit);
   }
 }
 
@@ -82,6 +80,8 @@ function salvageFoldedReplay(
   entries: readonly ParsedWireEntry[],
   initialSkippedLines: readonly number[],
   initialError: unknown,
+  userTurnCount?: number,
+  turnLimit?: number,
 ): FoldedAgentReplay {
   const header = entries[0]?.record.type === 'metadata' ? entries[0] : undefined;
   if (header !== undefined) {
@@ -91,28 +91,24 @@ function salvageFoldedReplay(
       return { ...EMPTY_FOLD, error: formatReplayError(error) };
     }
   }
-  const kept: WireRecord[] = header === undefined ? [] : [header.record];
-  const skippedLines = [...initialSkippedLines];
-  for (const entry of header === undefined ? entries : entries.slice(1)) {
-    const probe = header === undefined ? [entry.record] : [header.record, entry.record];
-    try {
-      const probed = foldWireRecords(probe);
-      probed.replay.map(mapReplayRecord);
-      kept.push(entry.record);
-    } catch {
-      skippedLines.push(entry.lineNumber);
-    }
-  }
+  const { kept, skipped } = selectFoldableWireRecords(entries);
+  const keptRecords = kept.map((entry) => entry.record);
+  const skippedLines = [
+    ...initialSkippedLines,
+    ...skipped.map((entry) => entry.lineNumber),
+  ];
   const hasContent = kept.length > (header === undefined ? 0 : 1);
   if (!hasContent) {
     return { ...EMPTY_FOLD, error: formatReplayError(initialError) };
   }
   try {
-    const folded = foldWireRecords(kept);
+    const folded = foldWireRecords(keptRecords);
+    const mapped = folded.replay.map(mapReplayRecord);
     const sortedLines = skippedLines.toSorted((a, b) => a - b);
     return {
-      replay: folded.replay.map(mapReplayRecord),
+      replay: turnLimit === undefined ? mapped : limitAgentReplayByTurns(mapped, turnLimit),
       toolStore: folded.toolStore,
+      userTurnCount,
       warning: formatSkippedRecordsWarning(sortedLines),
     };
   } catch (error) {
@@ -173,7 +169,12 @@ function formatSkippedRecordsWarning(skippedLines: readonly number[]): string | 
   if (skippedLines.length === 0) return undefined;
   const noun = skippedLines.length === 1 ? 'record' : 'records';
   const label = skippedLines.length === 1 ? 'line' : 'lines';
-  return `Skipped ${skippedLines.length} corrupt ${noun} while replaying session history (${label} ${skippedLines.join(', ')}).`;
+  const MAX_DISPLAYED_LINES = 20;
+  const lineList =
+    skippedLines.length <= MAX_DISPLAYED_LINES
+      ? skippedLines.join(', ')
+      : `${skippedLines.slice(0, MAX_DISPLAYED_LINES).join(', ')}, ... (+${skippedLines.length - MAX_DISPLAYED_LINES} more)`;
+  return `Skipped ${skippedLines.length} corrupt ${noun} while replaying session history (${label} ${lineList}).`;
 }
 
 function isWireRecordObject(value: unknown): value is WireRecord {
@@ -445,9 +446,12 @@ class WireReplayScan {
         this.noteCompaction(record, start);
         return;
       case 'context.append_loop_event': {
-        const event = record['event'] as { readonly type?: string };
-        if (event.type === 'step.end') this.endsAfter++;
-        else if (event.type === 'step.begin') this.beginsAfter++;
+        const event = record['event'] as { readonly type?: string; readonly finishReason?: string };
+        if (event.type === 'step.end') {
+          if (event.finishReason !== 'interrupted' && event.finishReason !== 'error') {
+            this.endsAfter++;
+          }
+        } else if (event.type === 'step.begin') this.beginsAfter++;
         return;
       }
       default:
@@ -460,10 +464,13 @@ class WireReplayScan {
       case 'context.append_loop_event': {
         const event = record['event'] as {
           readonly type?: string;
+          readonly finishReason?: string;
           readonly toolCallId?: unknown;
         };
         if (event.type === 'step.end') {
-          this.walkStepBalance++;
+          if (event.finishReason !== 'interrupted' && event.finishReason !== 'error') {
+            this.walkStepBalance++;
+          }
         } else if (event.type === 'step.begin') {
           if (this.walkStepBalance > 0) this.walkStepBalance--;
           this.finishExtend(start);

@@ -837,6 +837,7 @@ describe('WorkspaceSkillCatalogService', () => {
                 config,
                 workspaceContextStub(workDir),
                 stubBootstrap('/home'),
+                workspaceDirsStub(),
                 new HostFileSystem(),
               );
         await source.load();

@@ -64,6 +64,7 @@ import { type ExecutableTool, type ToolDisclosure, type ToolExecution } from '#/
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { IWireService } from '#/wire/wire';
 import type { ToolDescription as Tool, ToolCall } from '#human/llm/message';
+import { kimiOpenAIProtocol } from '@moonshot-ai/core/llm/builtin/provider/kimi/protocol';
 
 import { registerLogServices } from '../../_base/log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
@@ -1095,6 +1096,126 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
       kind: 'tool_lifecycle',
       removed: expect.arrayContaining([MCP_ALPHA]),
     });
+  });
+
+  it('unloads only tools declared by earlier system messages when shaping requests', async () => {
+    const h = createHarness();
+    registerBuiltin(h, new EchoTool('CreateGoal'));
+    registerBuiltin(h, new EchoTool('Read'));
+    registerMcp(h, new StubMcpTool(MCP_ALPHA));
+    registerMcp(h, new StubMcpTool(MCP_BETA));
+    activeToolNames = new Set(['Read', MCP_ALPHA, MCP_BETA]);
+    await h.sut.prepareForRequest();
+    await announce(h);
+    h.contextMemory.entries.push(userMessage('load alpha'), schemaMessage(MCP_ALPHA));
+
+    const persisted = JSON.stringify(h.ix.get(IAgentStateService).get(toolSelectKey));
+    const restored = createHarness();
+    registerBuiltin(restored, new EchoTool('Read'));
+    const alphaRegistration = registerMcp(restored, new StubMcpTool(MCP_ALPHA));
+    restored.ix.get(IAgentStateService).set(toolSelectKey, JSON.parse(persisted));
+    restored.contextMemory.entries.push(...structuredClone(h.contextMemory.get()));
+
+    const removedText = await announce(restored, 2);
+    expect(removedText).toContain(`<tools_removed>\nCreateGoal\n${MCP_BETA}\n</tools_removed>`);
+    const persistedDelta = restored.contextMemory.get().at(-1)!;
+    expect(persistedDelta.content[1]).toMatchObject({
+      meta: { kind: 'tool_lifecycle', added: [], removed: ['CreateGoal', MCP_BETA] },
+    });
+
+    const encodeHistory = async (harness: Harness) => {
+      const resolved = await resolveWith(harness, {
+        messages: harness.contextMemory.get(),
+        tools: harness.sut.initialTools(),
+        capabilities,
+      });
+      return kimiOpenAIProtocol.encode({
+        model: { spec: { provider: 'kimi', name: 'test-model', capability: capabilities } },
+        profile: resolved.profile ?? {},
+        content: resolved.content as never,
+        options: undefined,
+      });
+    };
+
+    const restoredWire = await encodeHistory(restored);
+    expect(restoredWire.params.messages.filter((message) => 'unload_tools' in message)).toEqual([]);
+    expect(
+      restoredWire.params.messages.some(
+        (message) =>
+          Array.isArray(message.content) &&
+          message.content.some(
+            (part) =>
+              part.type === 'text' &&
+              part.text.includes(`<tools_removed>\nCreateGoal\n${MCP_BETA}\n</tools_removed>`),
+          ),
+      ),
+    ).toBe(true);
+    expect(restored.contextMemory.get().at(-1)).toBe(persistedDelta);
+
+    alphaRegistration.dispose();
+    await announce(restored, 3);
+    const unloadedWire = await encodeHistory(restored);
+    expect(
+      unloadedWire.params.messages.filter((message) => 'unload_tools' in message) as unknown[],
+    ).toEqual([{ role: 'system', unload_tools: [MCP_ALPHA] }]);
+  });
+
+  it('projects persisted replacement announcements in removal-then-addition order without rewriting history', async () => {
+    const h = createHarness();
+    registerMcp(h, new StubMcpTool(MCP_ALPHA));
+    await announce(h);
+    h.contextMemory.entries.push(schemaMessage(MCP_ALPHA));
+    h.contextMemory.entries.push({
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text:
+            `<system-reminder>\n<tools_added>\n${MCP_ALPHA}\n</tools_added>\n\n` +
+            `<tools_removed>\n${MCP_ALPHA}\n</tools_removed>\n\n` +
+            'Names listed as removed are no longer loadable — do not select them.\n</system-reminder>',
+        },
+        {
+          type: 'text',
+          text: '',
+          meta: { kind: 'tool_lifecycle', added: [MCP_ALPHA], removed: [MCP_ALPHA] },
+        },
+      ],
+      toolCalls: [],
+      origin: {
+        kind: 'injection',
+        variant: LOADABLE_TOOLS_VARIANT,
+        disclosure: {
+          kind: 'delta',
+          revision: 2,
+          added: [],
+          removed: [],
+        },
+      },
+    });
+    const resolved = await resolveWith(h, {
+      messages: h.contextMemory.get(),
+      tools: [],
+      capabilities,
+    });
+    const shaped = resolved.content.messages.find((message) =>
+      announcementText(message).includes('<tools_removed>'),
+    )!;
+    const text = announcementText(shaped);
+    expect(text.indexOf('<tools_removed>')).toBeLessThan(text.indexOf('<tools_added>'));
+    expect(text).toContain('A name added again is loadable with its updated definition.');
+    expect(shaped.content[1]).toMatchObject({
+      meta: { kind: 'tool_lifecycle', added: [MCP_ALPHA], removed: [MCP_ALPHA] },
+    });
+    const encoded = kimiOpenAIProtocol.encode({
+      model: { spec: { provider: 'kimi', name: 'test-model', capability: capabilities } },
+      profile: resolved.profile ?? {},
+      content: resolved.content as never,
+      options: undefined,
+    });
+    expect(
+      encoded.params.messages.filter((message) => 'unload_tools' in message) as unknown[],
+    ).toEqual([{ role: 'system', unload_tools: [MCP_ALPHA] }]);
   });
 
   it('keeps historical deferred MCP schemas pinned after same-name updates', async () => {

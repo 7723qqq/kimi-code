@@ -7,9 +7,9 @@ import { join } from 'pathe';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { parseBooleanEnv } from '#/_base/utils/env';
+import { currentProcessLiveness, processStampAlive } from '#/_base/utils/processLiveness';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
-import { processStampAlive } from '#/persistence/backends/node-fs/processLiveness';
 import {
   ISessionLockService,
   SessionLockHolds,
@@ -183,6 +183,10 @@ export class SessionLockService extends SessionLockHolds {
     } catch {
       return UNREADABLE_HOLDER;
     }
+    const liveness =
+      typeof parsed.liveness === 'string' && parsed.liveness.length > 0
+        ? parsed.liveness
+        : undefined;
     return {
       version: typeof parsed.version === 'number' ? parsed.version : UNREADABLE_HOLDER.version,
       token: typeof parsed.token === 'string' ? parsed.token : UNREADABLE_HOLDER.token,
@@ -196,6 +200,7 @@ export class SessionLockService extends SessionLockHolds {
           : UNREADABLE_HOLDER.clientIdentity,
       clientDisplayName:
         typeof parsed.clientDisplayName === 'string' ? parsed.clientDisplayName : undefined,
+      ...(liveness === undefined ? {} : { liveness }),
     };
   }
 
@@ -204,6 +209,7 @@ export class SessionLockService extends SessionLockHolds {
   }
 
   private payload(token: string): string {
+    const liveness = currentProcessLiveness();
     return JSON.stringify({
       version: LOCK_FILE_VERSION,
       token,
@@ -212,6 +218,7 @@ export class SessionLockService extends SessionLockHolds {
       startedAt: Date.now(),
       clientIdentity: this.clientIdentity,
       clientDisplayName: this.clientDisplayName,
+      ...(liveness === undefined ? {} : { liveness }),
     } satisfies SessionLockHolder);
   }
 

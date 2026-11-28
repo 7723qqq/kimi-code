@@ -152,6 +152,10 @@ import { type ActiveExclusiveMode, type ReviewCycleMode } from './controllers/ed
 import { EditorKeyboardController } from './controllers/editor-keyboard';
 import { MessageDispatchController } from './controllers/message-dispatch';
 import { ModelMigrationController } from './controllers/model-migration';
+import {
+  hasResumableTranscriptContent,
+  ProgramResumeController,
+} from './controllers/program-resume';
 import { PromptPredictionController } from './controllers/prompt-prediction';
 import { ProgramStatusController } from './controllers/program-status';
 import { PromptOptimizerController } from './controllers/prompt-optimizer';
@@ -285,6 +289,7 @@ export interface KimiTUIStartupInput {
   /** When true, run only the migration screen, then exit (the `kimi migrate` command). */
   readonly migrateOnly?: boolean;
   readonly telemetryDisabled?: boolean;
+  readonly programResumeToken?: string;
   /** Replaces the survey controller's injected dependencies (an embedder, a test harness). */
   readonly surveyDeps?: SurveyControllerDeps;
 }
@@ -494,6 +499,7 @@ export class KimiTUI {
   >();
   readonly streamingUI: StreamingUIController;
   readonly programStatus: ProgramStatusController;
+  readonly programResume: ProgramResumeController;
   readonly authFlow: AuthFlowController;
   readonly btwPanelController: BtwPanelController;
   readonly sessionEventHandler: SessionEventHandler;
@@ -576,6 +582,9 @@ export class KimiTUI {
     this.state = createTUIState(tuiOptions);
     this.state.statsRegion.setSegmentsProvider(() => this.sessionStatSegments());
     this.programStatus = new ProgramStatusController(this.state, this.state.terminal);
+    this.programResume = new ProgramResumeController(this.state, this.state.terminal, {
+      token: startupInput.programResumeToken,
+    });
     this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
     this.state.footer.setGitBinding((state) => this.footerGitBinding(state));
     this.state.transcriptContainer.setHost({
@@ -876,6 +885,7 @@ export class KimiTUI {
     startupTrace('tui:start');
     // Signal handlers must be installed before raw mode to avoid EIO loops.
     this.registerSignalHandlers();
+    const releaseResume = this.programResume.hold();
     // Outer try rolls back signal listeners on startup failure.
     try {
       // The workspace trust gate must run before anything else in startup —
@@ -897,6 +907,7 @@ export class KimiTUI {
           if (this.migrateOnly) {
             const failed = migrationResult.decision === 'now' && migrationResult.migrated === false;
             this.disposeTerminalTracking();
+            this.programResume.clearForExit();
             this.state.ui.stop();
             await this.onExit?.(failed ? 1 : 0);
             return;
@@ -934,8 +945,11 @@ export class KimiTUI {
         throw error;
       }
     } catch (error) {
+      this.programResume.preserveForSignal();
       this.unregisterSignalHandlers();
       throw error;
+    } finally {
+      releaseResume();
     }
   }
 
@@ -1318,6 +1332,7 @@ export class KimiTUI {
   async stop(exitCode?: number): Promise<void> {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
+    this.programResume.clearForExit();
     this.unregisterSignalHandlers();
     this.aborted = true;
     // A Ctrl+C during shutdown means "don't wait for slow hooks": skip the
@@ -1401,6 +1416,7 @@ export class KimiTUI {
   // teardown — alternate screen, mouse reporting, autowrap — and the CLI's
   // stty restore via onExit, instead of the bare emergency sequences.
   private forceExitDuringShutdown(): void {
+    this.programResume.clearForExit({ force: true });
     try {
       this.stopUiForExit();
     } catch {
@@ -1425,6 +1441,7 @@ export class KimiTUI {
 
     for (const signal of signals) {
       const handler = (): void => {
+        this.programResume.preserveForSignal();
         if (signal === 'SIGHUP') {
           this.emergencyTerminalExit();
           return;
@@ -1443,6 +1460,18 @@ export class KimiTUI {
       process.prependListener(signal, handler);
       this.signalCleanupHandlers.push(() => {
         process.off(signal, handler);
+      });
+    }
+
+    if (process.platform !== 'win32') {
+      const sigcontHandler = (): void => {
+        if (!this.state.externalEditorRunning && !this.isShuttingDown) {
+          this.programResume.republish();
+        }
+      };
+      process.prependListener('SIGCONT', sigcontHandler);
+      this.signalCleanupHandlers.push(() => {
+        process.off('SIGCONT', sigcontHandler);
       });
     }
 
@@ -3191,6 +3220,7 @@ export class KimiTUI {
     );
     this.state.transcriptEntries = this.state.transcriptEntries.filter((e) => !doomed.has(e));
     this.state.ui.requestRender();
+    this.programResume.refresh();
   }
 
   // =========================================================================
@@ -3217,10 +3247,13 @@ export class KimiTUI {
   pushTranscriptEntry(entry: TranscriptEntry): void {
     this.state.transcriptEntries.push(entry);
     this.trimTranscriptWindow();
+    this.programResume.refresh();
   }
 
   setExternalEditorRunning(running: boolean): void {
+    const wasRunning = this.state.externalEditorRunning;
     this.state.externalEditorRunning = running;
+    if (wasRunning && !running) this.programResume.republish();
     if (!running) this.modelMigration.retry();
   }
 
@@ -3245,7 +3278,7 @@ export class KimiTUI {
   }
 
   hasSessionContent(): boolean {
-    return this.state.transcriptEntries.length > 0;
+    return hasResumableTranscriptContent(this.state.transcriptEntries);
   }
 
   setExitOpenUrl(url: string): void {
@@ -3345,6 +3378,9 @@ export class KimiTUI {
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
     const sessionTitleChanged = 'sessionTitle' in patch;
     Object.assign(this.state.appState, patch);
+    if ('sessionId' in patch || 'workDir' in patch || 'isReplaying' in patch) {
+      this.programResume.refresh();
+    }
     if ('planMode' in patch) this.updateEditorBorderHighlight();
     this.state.footer.setState(this.state.appState);
     this.updateActivityPane();
@@ -3547,40 +3583,45 @@ export class KimiTUI {
   }
 
   private async lazyCreateSession(): Promise<Session | undefined> {
-    let session: Session;
+    const releaseResume = this.programResume.hold();
     try {
-      session = await this.createSessionFromCurrentState(true);
-    } catch (error) {
-      const msg = formatErrorMessage(error);
-      this.showError(t('tui.statusMessages.failedToStartSession', { message: msg }));
-      return undefined;
-    }
-    this.resetSessionRuntime();
-    await this.setSession(session, 0);
-    this.setAppState({ sessionId: session.id });
-    try {
-      await this.activateRuntime();
-      await this.syncRuntimeState(session);
-    } catch (error) {
+      let session: Session;
+      try {
+        session = await this.createSessionFromCurrentState(true);
+      } catch (error) {
+        const msg = formatErrorMessage(error);
+        this.showError(t('tui.statusMessages.failedToStartSession', { message: msg }));
+        return undefined;
+      }
+      this.resetSessionRuntime();
+      await this.setSession(session, 0);
+      this.setAppState({ sessionId: session.id });
+      try {
+        await this.activateRuntime();
+        await this.syncRuntimeState(session);
+      } catch (error) {
+        this.sessionEventHandler.startSubscription();
+        const msg = formatErrorMessage(error);
+        this.showError(`Post-create setup failed: ${msg}`);
+        return undefined;
+      }
+      try {
+        await this.refreshSkillCommands(session);
+        await this.refreshPluginCommands(session);
+      } catch {
+        /* keep the new session usable even if dynamic skills fail */
+      }
       this.sessionEventHandler.startSubscription();
-      const msg = formatErrorMessage(error);
-      this.showError(`Post-create setup failed: ${msg}`);
-      return undefined;
+      void this.showSessionWarnings(session);
+      // The session-only thinking override was consumed by this session; the
+      // runtime status now owns the displayed effort.
+      if (this.state.appState.lazySessionThinking !== undefined) {
+        this.setAppState({ lazySessionThinking: undefined });
+      }
+      return session;
+    } finally {
+      releaseResume();
     }
-    try {
-      await this.refreshSkillCommands(session);
-      await this.refreshPluginCommands(session);
-    } catch {
-      /* keep the new session usable even if dynamic skills fail */
-    }
-    this.sessionEventHandler.startSubscription();
-    void this.showSessionWarnings(session);
-    // The session-only thinking override was consumed by this session; the
-    // runtime status now owns the displayed effort.
-    if (this.state.appState.lazySessionThinking !== undefined) {
-      this.setAppState({ lazySessionThinking: undefined });
-    }
-    return session;
   }
 
   async setSession(
@@ -3915,134 +3956,140 @@ export class KimiTUI {
     }
   }
 
-  async resumeSession(targetSessionId: string): Promise<boolean> {
-    // A first-use lazy creation may still be in flight: wait it out so the
-    // checks below see settled state — the pending prompt would otherwise
-    // replace the resumed session when creation completes.
-    await this.waitForSessionAssembly();
-    if (targetSessionId === this.state.appState.sessionId) {
-      this.showStatus(t('tui.statusMessages.alreadyOnSession'));
-      return true;
-    }
-    if (this.state.appState.streamingPhase !== 'idle') {
-      this.showError(t('tui.statusMessages.cannotSwitchWhileStreaming'));
-      return false;
-    }
-    if (this.state.appState.isReplaying) {
-      this.showError(t('tui.statusMessages.cannotSwitchWhileReplaying'));
-      return false;
-    }
+  resumeSession(targetSessionId: string): Promise<boolean> {
+    return this.programResume.runHeld(async () => {
+      // A first-use lazy creation may still be in flight: wait it out so the
+      // checks below see settled state — the pending prompt would otherwise
+      // replace the resumed session when creation completes.
+      await this.waitForSessionAssembly();
+      if (targetSessionId === this.state.appState.sessionId) {
+        this.showStatus(t('tui.statusMessages.alreadyOnSession'));
+        return true;
+      }
+      if (this.state.appState.streamingPhase !== 'idle') {
+        this.showError(t('tui.statusMessages.cannotSwitchWhileStreaming'));
+        return false;
+      }
+      if (this.state.appState.isReplaying) {
+        this.showError(t('tui.statusMessages.cannotSwitchWhileReplaying'));
+        return false;
+      }
 
-    let session: Session;
-    try {
-      session = await this.harness.resumeSession({
-        id: targetSessionId,
-        replayTurnLimit: REPLAY_TURN_LIMIT,
-      });
-    } catch (error) {
-      log.error('resume_session_failed', {
-        sessionId: targetSessionId,
-        error,
-        details:
-          isKimiError(error) && error.code === ErrorCodes.WIRE_VERSION_TOO_LOW
-            ? error.details
-            : undefined,
-      });
-      const msg = formatErrorMessage(error);
-      this.showError(
-        t('tui.statusMessages.failedToResumeSession', {
+      let session: Session;
+      try {
+        session = await this.harness.resumeSession({
+          id: targetSessionId,
+          replayTurnLimit: REPLAY_TURN_LIMIT,
+        });
+      } catch (error) {
+        log.error('resume_session_failed', {
           sessionId: targetSessionId,
-          message: msg,
-        }),
+          error,
+          details:
+            isKimiError(error) && error.code === ErrorCodes.WIRE_VERSION_TOO_LOW
+              ? error.details
+              : undefined,
+        });
+        const msg = formatErrorMessage(error);
+        this.showError(
+          t('tui.statusMessages.failedToResumeSession', {
+            sessionId: targetSessionId,
+            message: msg,
+          }),
+        );
+        return false;
+      }
+
+      await this.switchToSession(
+        session,
+        t('tui.statusMessages.resumedSession', { sessionId: session.id }),
       );
-      return false;
-    }
-
-    await this.switchToSession(
-      session,
-      t('tui.statusMessages.resumedSession', { sessionId: session.id }),
-    );
-    return true;
+      return true;
+    });
   }
 
-  async switchToSession(session: Session, statusMessage: string): Promise<void> {
-    this.resetSessionRuntime();
-    await this.setSession(session);
-    await this.syncRuntimeState(session);
-    this.updateTerminalTitle();
-    try {
-      await this.refreshSkillCommands(this.session);
-      await this.refreshPluginCommands(this.session);
-    } catch {
-      /* keep the switched session usable even if dynamic skills fail */
-    }
-    this.clearTranscriptAndRedraw();
-    try {
-      await this.sessionReplay.hydrateFromReplay(session);
-    } catch (error) {
-      const msg = formatErrorMessage(error);
-      this.showError(t('tui.statusMessages.replayFailed', { message: msg }));
-    } finally {
-      this.sessionEventHandler.startSubscription();
-    }
-    const resumeState = session.getResumeState();
-    this.surveyController.seedFromResumedAgents(resumeState?.sessionMetadata.agents ?? {});
-    if (resumeState?.warning !== undefined) {
-      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
-    }
-    this.showStatus(statusMessage);
-    void this.showSessionWarnings(session);
-    void this.cacheHint.maybeShowOnResume();
+  switchToSession(session: Session, statusMessage: string): Promise<void> {
+    return this.programResume.runHeld(async () => {
+      this.resetSessionRuntime();
+      await this.setSession(session);
+      await this.syncRuntimeState(session);
+      this.updateTerminalTitle();
+      try {
+        await this.refreshSkillCommands(this.session);
+        await this.refreshPluginCommands(this.session);
+      } catch {
+        /* keep the switched session usable even if dynamic skills fail */
+      }
+      this.clearTranscriptAndRedraw();
+      try {
+        await this.sessionReplay.hydrateFromReplay(session);
+      } catch (error) {
+        const msg = formatErrorMessage(error);
+        this.showError(t('tui.statusMessages.replayFailed', { message: msg }));
+      } finally {
+        this.sessionEventHandler.startSubscription();
+      }
+      const resumeState = session.getResumeState();
+      this.surveyController.seedFromResumedAgents(resumeState?.sessionMetadata.agents ?? {});
+      if (resumeState?.warning !== undefined) {
+        this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+      }
+      this.showStatus(statusMessage);
+      void this.showSessionWarnings(session);
+      void this.cacheHint.maybeShowOnResume();
+    });
   }
 
-  async reloadCurrentSessionView(
+  reloadCurrentSessionView(
     session: Session,
     statusMessage: string,
     options?: { readonly replayHistory?: boolean },
   ): Promise<void> {
-    this.sessionEventUnsubscribe?.();
-    this.sessionEventUnsubscribe = undefined;
-    this.clearReverseRpcPanels();
-    session.setApprovalHandler(undefined);
-    session.setQuestionHandler(undefined);
-    const reloadReason = t('tui.statusMessages.sessionChangeReasonReloading');
-    this.approvalController.cancelAll(reloadReason);
-    this.questionController.cancelAll(reloadReason);
+    return this.programResume.runHeld(async () => {
+      this.sessionEventUnsubscribe?.();
+      this.sessionEventUnsubscribe = undefined;
+      this.clearReverseRpcPanels();
+      session.setApprovalHandler(undefined);
+      session.setQuestionHandler(undefined);
+      const reloadReason = t('tui.statusMessages.sessionChangeReasonReloading');
+      this.approvalController.cancelAll(reloadReason);
+      this.questionController.cancelAll(reloadReason);
 
-    // The same session reloads in place, so its queued messages stay queued.
-    this.resetSessionRuntime({ keepQueuedMessages: true });
-    this.session = session;
-    this.surveyController.seedUserTurnCount(
-      session.getResumeState()?.agents[MAIN_AGENT_ID]?.userTurnCount,
-    );
-    this.harness.setTelemetryContext({ sessionId: session.id });
-    this.registerSessionHandlers(session);
-    await this.syncRuntimeState(session);
-    this.updateTerminalTitle();
-    try {
-      await this.refreshSkillCommands(session);
-      await this.refreshPluginCommands(session);
-    } catch {
-      /* keep the reloaded session usable even if dynamic skills fail */
-    }
-    if (options?.replayHistory === true) {
-      this.clearTranscriptView();
+      // The same session reloads in place, so its queued messages stay queued.
+      this.resetSessionRuntime({ keepQueuedMessages: true });
+      this.session = session;
+      this.surveyController.seedUserTurnCount(
+        session.getResumeState()?.agents[MAIN_AGENT_ID]?.userTurnCount,
+      );
+      this.harness.setTelemetryContext({ sessionId: session.id });
+      this.registerSessionHandlers(session);
+      await this.syncRuntimeState(session);
+      this.updateTerminalTitle();
       try {
-        await this.sessionReplay.hydrateFromReplay(session);
-      } catch (error) {
-        this.showError(
-          t('tui.statusMessages.replayFailed', { message: formatErrorMessage(error) }),
-        );
+        await this.refreshSkillCommands(session);
+        await this.refreshPluginCommands(session);
+      } catch {
+        /* keep the reloaded session usable even if dynamic skills fail */
       }
-    }
-    this.sessionEventHandler.startSubscription();
-    const resumeState = session.getResumeState();
-    this.surveyController.seedFromResumedAgents(resumeState?.sessionMetadata.agents ?? {});
-    if (resumeState?.warning !== undefined) {
-      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
-    }
-    this.showStatus(statusMessage);
-    void this.showSessionWarnings(session);
+      if (options?.replayHistory === true) {
+        this.clearTranscriptView();
+        try {
+          await this.sessionReplay.hydrateFromReplay(session);
+        } catch (error) {
+          this.showError(
+            t('tui.statusMessages.replayFailed', { message: formatErrorMessage(error) }),
+          );
+        }
+      }
+      this.sessionEventHandler.startSubscription();
+      const resumeState = session.getResumeState();
+      this.surveyController.seedFromResumedAgents(resumeState?.sessionMetadata.agents ?? {});
+      if (resumeState?.warning !== undefined) {
+        this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+      }
+      this.showStatus(statusMessage);
+      void this.showSessionWarnings(session);
+    });
   }
 
   async createNewSession(inherited?: {
@@ -4053,16 +4100,21 @@ export class KimiTUI {
       this.showError(t('tui.statusMessages.cannotStartNewWhileReplaying'));
       return;
     }
-    // Track the replacement like `ensureSession` tracks lazy creation: a
-    // second `/new` shares the in-flight assembly instead of racing a second
-    // createSession, and idle checks (the model-migration prompt) treat the
-    // switch as busy until it has fully settled.
-    if (this.newSessionPromise !== null) return this.newSessionPromise;
-    this.newSessionPromise = this.assembleNewSession(inherited).finally(() => {
-      this.newSessionPromise = null;
-      this.modelMigration.retry();
-    });
-    return this.newSessionPromise;
+    const releaseResume = this.programResume.hold();
+    try {
+      // Track the replacement like `ensureSession` tracks lazy creation: a
+      // second `/new` shares the in-flight assembly instead of racing a second
+      // createSession, and idle checks (the model-migration prompt) treat the
+      // switch as busy until it has fully settled.
+      if (this.newSessionPromise !== null) return await this.newSessionPromise;
+      this.newSessionPromise = this.assembleNewSession(inherited).finally(() => {
+        this.newSessionPromise = null;
+        this.modelMigration.retry();
+      });
+      return await this.newSessionPromise;
+    } finally {
+      releaseResume();
+    }
   }
 
   private async assembleNewSession(inherited?: {
@@ -4229,6 +4281,12 @@ export class KimiTUI {
     if (component || trimmed || merged) {
       this.state.ui.requestRender();
     }
+    this.programResume.refresh();
+  }
+
+  replaceTranscriptEntries(entries: readonly TranscriptEntry[]): void {
+    this.state.transcriptEntries.splice(0, this.state.transcriptEntries.length, ...entries);
+    this.programResume.refresh();
   }
 
   /**
@@ -4343,6 +4401,7 @@ export class KimiTUI {
     // converge on its own (a mass change above the viewport still makes the
     // engine repaint everything, but nothing is forced destructively here).
     this.state.ui.requestRender();
+    this.programResume.refresh();
   }
 
   private isTurnBoundaryComponent(child: Component): boolean {
@@ -5237,63 +5296,65 @@ export class KimiTUI {
     }
   }
 
-  private async deleteCurrentSessionFromPicker(session: SessionRow): Promise<void> {
-    let inherited: { readonly environmentId: string; readonly environmentCwd?: string } | undefined;
-    let inheritError: unknown;
-    try {
-      inherited = await this.environmentForNewSession();
-    } catch (error) {
-      inheritError = error;
-    }
-    const startReplacement = async (): Promise<void> => {
-      this.setAppState({ sessionId: '' });
-      this.clearTranscriptAndRedraw();
-      if (inheritError !== undefined) {
-        this.showError(
-          t('tui.statusMessages.failedToStartNewSession', {
-            message: formatErrorMessage(inheritError),
-          }),
-        );
+  private deleteCurrentSessionFromPicker(session: SessionRow): Promise<void> {
+    return this.programResume.runHeld(async () => {
+      let inherited: { readonly environmentId: string; readonly environmentCwd?: string } | undefined;
+      let inheritError: unknown;
+      try {
+        inherited = await this.environmentForNewSession();
+      } catch (error) {
+        inheritError = error;
+      }
+      const startReplacement = async (): Promise<void> => {
+        this.setAppState({ sessionId: '' });
+        this.clearTranscriptAndRedraw();
+        if (inheritError !== undefined) {
+          this.showError(
+            t('tui.statusMessages.failedToStartNewSession', {
+              message: formatErrorMessage(inheritError),
+            }),
+          );
+          return;
+        }
+        await this.createNewSession(inherited);
+      };
+      // The picker stays mounted (locking input) until the replacement session
+      // is ready — restoring the editor mid-flight would let a prompt race the swap.
+      try {
+        // Tear down before deleting so no events from the dying session reach the UI.
+        await this.closeSession(t('tui.statusMessages.sessionChangeReasonDeleting'));
+        await this.harness.deleteSession(session.id);
+      } catch (error) {
+        // The engine aborts a failed delete and keeps the session: reattach,
+        // falling back to a fresh session if it is gone. showError runs after
+        // the switch because switchToSession clears the transcript.
+        const message = t('tui.statusMessages.failedToDeleteSession', {
+          sessionId: session.id,
+          error: formatErrorMessage(error),
+        });
+        try {
+          const resumed = await this.harness.resumeSession({
+            id: session.id,
+            replayTurnLimit: REPLAY_TURN_LIMIT,
+          });
+          await this.switchToSession(
+            resumed,
+            t('tui.statusMessages.resumedSession', { sessionId: resumed.id }),
+          );
+        } catch {
+          // Reattach failed and the session is already unloaded: detach before
+          // the fallback create so a failed create leaves no ghost UI behind.
+          await startReplacement();
+        }
+        this.showError(message);
+        this.hideSessionPicker();
         return;
       }
-      await this.createNewSession(inherited);
-    };
-    // The picker stays mounted (locking input) until the replacement session
-    // is ready — restoring the editor mid-flight would let a prompt race the swap.
-    try {
-      // Tear down before deleting so no events from the dying session reach the UI.
-      await this.closeSession(t('tui.statusMessages.sessionChangeReasonDeleting'));
-      await this.harness.deleteSession(session.id);
-    } catch (error) {
-      // The engine aborts a failed delete and keeps the session: reattach,
-      // falling back to a fresh session if it is gone. showError runs after
-      // the switch because switchToSession clears the transcript.
-      const message = t('tui.statusMessages.failedToDeleteSession', {
-        sessionId: session.id,
-        error: formatErrorMessage(error),
-      });
-      try {
-        const resumed = await this.harness.resumeSession({
-          id: session.id,
-          replayTurnLimit: REPLAY_TURN_LIMIT,
-        });
-        await this.switchToSession(
-          resumed,
-          t('tui.statusMessages.resumedSession', { sessionId: resumed.id }),
-        );
-      } catch {
-        // Reattach failed and the session is already unloaded: detach before
-        // the fallback create so a failed create leaves no ghost UI behind.
-        await startReplacement();
-      }
-      this.showError(message);
+      // The session is gone whether or not replacement creation succeeds: detach
+      // first so a failed create leaves no ghost (stale id + transcript) behind.
+      await startReplacement();
       this.hideSessionPicker();
-      return;
-    }
-    // The session is gone whether or not replacement creation succeeds: detach
-    // first so a failed create leaves no ghost (stale id + transcript) behind.
-    await startReplacement();
-    this.hideSessionPicker();
+    });
   }
 
   openUndoSelector(): void {

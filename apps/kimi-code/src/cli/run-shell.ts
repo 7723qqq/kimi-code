@@ -45,6 +45,7 @@ export async function runShell(
     readonly migrateOnly?: boolean;
     readonly startupWarnings?: readonly string[];
     readonly childProcess?: RunShellChildProcess;
+    readonly programResumeToken?: string;
   } = {},
 ): Promise<void> {
   const childProcess = runOptions.childProcess ?? SYSTEM_CHILD_PROCESS;
@@ -172,6 +173,9 @@ export async function runShell(
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
     telemetryDisabled: config.telemetry === false,
+    ...(runOptions.programResumeToken === undefined
+      ? {}
+      : { programResumeToken: runOptions.programResumeToken }),
   });
 
   initializeCliTelemetry({

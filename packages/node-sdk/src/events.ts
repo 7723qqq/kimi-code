@@ -38,6 +38,7 @@ export type {
   TurnStepCompletedEvent,
   TurnStepRetryingEvent,
   TurnStepInterruptedEvent,
+  TurnStepStreamResetEvent,
   TurnEndReason,
   CacheBreakCause,
   CacheBreakObservation,
