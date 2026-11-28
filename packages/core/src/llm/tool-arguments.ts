@@ -3,6 +3,7 @@ import type { LlmErrorMessage } from '#/llm/response';
 import {
   compileToolArgsValidator,
   validateToolArgs,
+  validParameterNamesFromSchema,
   type JsonType,
   type ToolArgsValidator,
 } from '#/tool/args';
@@ -51,7 +52,11 @@ function schemaIssue(tool: ToolDescription, value: Record<string, unknown>): Too
     validators.set(tool, cached);
   }
   if (cached.error !== undefined) return { reason: 'schema_config', message: cached.error };
-  const message = validateToolArgs(cached.validator, value as JsonType);
+  const message = validateToolArgs(
+    cached.validator,
+    value as JsonType,
+    validParameterNamesFromSchema(tool.parameters),
+  );
   return message === null ? null : { reason: 'schema', message };
 }
 
@@ -101,6 +106,16 @@ export function parseLlmToolArguments(
   return { value };
 }
 
+const MAX_ARGS_SNIPPET = 240;
+
+function formatArgsSnippet(raw: string | null): string {
+  if (raw === null || raw.length === 0) return '';
+  const compact = raw.trim().replace(/\s+/g, ' ');
+  if (compact.length === 0) return '';
+  const snippet = compact.length <= MAX_ARGS_SNIPPET ? compact : `${compact.slice(0, MAX_ARGS_SNIPPET)}...`;
+  return ` (received arguments: ${snippet})`;
+}
+
 export function invalidToolCallText(name: string, issue: string): string {
   return `Tool call "${name}" was not executed because its arguments were invalid: ${issue}`;
 }
@@ -120,7 +135,7 @@ export function invalidToolArgumentsError(
   }
   return {
     kind: 'invalid_tool_arguments',
-    message: `${invalidToolCallText(call.name, result.issue.message)} Generate a new tool call with valid arguments.`,
+    message: `${invalidToolCallText(call.name, result.issue.message)}${formatArgsSnippet(call.arguments)} Generate a new tool call with valid arguments.`,
     retryable: true,
   };
 }

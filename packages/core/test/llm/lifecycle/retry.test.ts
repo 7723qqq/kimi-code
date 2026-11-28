@@ -316,4 +316,82 @@ describe('LLM retry boundaries', () => {
       '[image omitted: dropped to fit the provider request size limit; re-read the file to view it]',
     );
   });
+
+  it('includes valid parameter names in the retry reminder and falls back cleanly instead of failing the turn', async () => {
+    const encodedRequests: unknown[] = [];
+    let sends = 0;
+    const invalidReadStream = () => ({
+      body: asyncChunks([
+        openAIChunk({
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call_read_1',
+              type: 'function',
+              function: { name: 'Read', arguments: '{"path":"a.ts","offset":10}' },
+            },
+          ],
+        }),
+        openAIChunk({}, { finishReason: 'tool_calls' }),
+      ]),
+      headers: {},
+    });
+    const protocol = {
+      ...openAIProtocol,
+      encode: (module: OpenAIModule) => {
+        const encoded = openAIProtocol.encode(module);
+        encodedRequests.push(encoded);
+        return encoded;
+      },
+      sendStream: async () => {
+        sends += 1;
+        return invalidReadStream();
+      },
+      decodeError,
+    };
+
+    const result = await runGenerate(protocol, {
+      module: testModule({
+        profile: {
+          tools: [
+            {
+              name: 'Read',
+              description: 'Read a file',
+              parameters: {
+                type: 'object',
+                properties: {
+                  path: { type: 'string' },
+                  line_offset: { type: 'integer' },
+                },
+                required: ['path'],
+                additionalProperties: false,
+              },
+            },
+          ],
+        },
+      }),
+      policy: { retry: { maxAttemptsPerStep: 10 } },
+    });
+
+    expect(sends).toBe(3);
+    expect(doneOutcome(result.outcome).message.toolCalls).toEqual([
+      {
+        type: 'function',
+        id: 'call_read_1',
+        name: 'Read',
+        arguments: '{"path":"a.ts","offset":10}',
+      },
+    ]);
+    const retries = result.events.filter((event) => event.type === 'llm.retry');
+    expect(retries).toHaveLength(2);
+    expect(retries[0]).toMatchObject({ reason: 'invalid_tool_arguments' });
+    const retryRequest = encodedRequests[1] as {
+      params: { messages: Array<{ role: string; content: string }> };
+    };
+    const reminder = retryRequest.params.messages.at(-1);
+    expect(reminder?.role).toBe('user');
+    expect(reminder?.content).toContain('<system-reminder>');
+    expect(reminder?.content).toContain('valid parameters: path, line_offset');
+    expect(reminder?.content).toContain('{"path":"a.ts","offset":10}');
+  });
 });

@@ -1,9 +1,9 @@
 import { estimateUsedContextTokens } from '#/llm/context-usage';
 import {
-  createSystemMessage,
+  createUserMessage,
   TOOL_ARGUMENT_CORRECTION_ORIGIN,
-  type SystemMessage,
   type ToolDescription,
+  type UserMessage,
 } from '@moonshot-ai/core/llm/message';
 import { isAbortError, toLlmErrorMessage } from '#/llm/protocol/errors';
 import type { LlmRequest } from '#/llm/request';
@@ -226,6 +226,8 @@ export async function runLlmRequest(
   return outcome;
 }
 
+const MAX_SILENT_INVALID_TOOL_ARG_RETRIES = 2;
+
 async function runAttempts(
   request: LlmRequest,
   control: LlmRunControl,
@@ -237,7 +239,8 @@ async function runAttempts(
   let attempt = 1;
   const maxAttempts = resolveMaxAttempts(policy.retry);
 
-  let toolArgumentCorrectionMessage: SystemMessage | undefined;
+  let toolArgumentCorrectionMessage: UserMessage | undefined;
+  let invalidToolArgumentRetries = 0;
   while (!signal.aborted) {
     const requestForAttempt = toolArgumentCorrectionMessage === undefined
       ? request
@@ -294,15 +297,25 @@ async function runAttempts(
       },
       'llm attempt',
     );
-    const result = await settleLlmRequest(resolvedRequest, { signal, onEvent });
+    const allowInvalidToolArguments =
+      invalidToolArgumentRetries >= MAX_SILENT_INVALID_TOOL_ARG_RETRIES ||
+      (policy.retry?.infiniteRetry !== true && invalidToolArgumentRetries > 0 && attempt >= maxAttempts);
+    const result = await settleLlmRequest(resolvedRequest, {
+      signal,
+      onEvent,
+      allowInvalidToolArguments,
+    });
     if (result.type === 'done' || result.type === 'aborted') {
       return result;
     }
     if (result.error.kind === 'invalid_tool_arguments') {
-      toolArgumentCorrectionMessage = createSystemMessage(result.error.message, {
-        origin: { kind: TOOL_ARGUMENT_CORRECTION_ORIGIN },
-      });
+      invalidToolArgumentRetries += 1;
+      toolArgumentCorrectionMessage = createUserMessage(
+        `<system-reminder>\n${result.error.message}\n</system-reminder>`,
+        { origin: { kind: TOOL_ARGUMENT_CORRECTION_ORIGIN } },
+      );
     } else if (result.message !== undefined) {
+      invalidToolArgumentRetries = 0;
       toolArgumentCorrectionMessage = undefined;
     }
 

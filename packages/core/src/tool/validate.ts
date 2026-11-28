@@ -1,6 +1,7 @@
 import {
   compileToolArgsValidator,
   validateToolArgs,
+  validParameterNamesFromSchema,
   type JsonType,
   type ToolArgsValidator,
 } from '#/tool/args';
@@ -25,5 +26,5 @@ export function toolArgsError(tool: ExecutableTool<any, any, any, any>, args: un
       return error instanceof Error ? error.message : String(error);
     }
   }
-  return validateToolArgs(cached.validator, args as JsonType);
+  return validateToolArgs(cached.validator, args as JsonType, validParameterNamesFromSchema(schema));
 }

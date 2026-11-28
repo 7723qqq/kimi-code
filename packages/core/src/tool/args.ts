@@ -88,7 +88,18 @@ export function compileToolArgsValidator(schema: Record<string, unknown>): ToolA
   return ajvFor(schema).compile(schema) as ToolArgsValidator;
 }
 
-export function validateToolArgs(validator: ToolArgsValidator, args: JsonType): string | null {
+export function validParameterNamesFromSchema(schema: Record<string, unknown>): readonly string[] {
+  const properties = schema['properties'];
+  return typeof properties === 'object' && properties !== null && !Array.isArray(properties)
+    ? Object.keys(properties)
+    : [];
+}
+
+export function validateToolArgs(
+  validator: ToolArgsValidator,
+  args: JsonType,
+  validParameterNames: readonly string[] = [],
+): string | null {
   const valid = validator(args);
   if (valid) {
     return null;
@@ -99,7 +110,14 @@ export function validateToolArgs(validator: ToolArgsValidator, args: JsonType): 
     return 'Tool parameter validation failed';
   }
 
-  return errors.map((error) => formatValidationError(error)).join('; ');
+  const messages = errors.map((error) => formatValidationError(error));
+  if (
+    validParameterNames.length > 0 &&
+    errors.some((error) => error.keyword === 'additionalProperties')
+  ) {
+    messages.push(`valid parameters: ${validParameterNames.join(', ')}`);
+  }
+  return messages.join('; ');
 }
 
 export function parseToolCallArguments(raw: unknown): {

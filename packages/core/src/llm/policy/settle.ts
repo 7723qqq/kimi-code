@@ -92,6 +92,7 @@ export function emptyResponseError(
 export interface LlmSettleControl {
   readonly signal: AbortSignal;
   readonly onEvent?: (event: LlmDeltaEvent | LlmNoticeEvent) => void;
+  readonly allowInvalidToolArguments?: boolean;
 }
 
 export async function settleLlmRequest(
@@ -250,7 +251,10 @@ export async function settleLlmRequest(
       onToolCallEnd: (index) => {
         const toolCall = inner.toolCallEnd(index);
         if (toolCall !== undefined) {
-          const invalid = invalidToolArgumentsError(toolCall, visibleToolMap());
+          const invalid =
+            control.allowInvalidToolArguments === true
+              ? null
+              : invalidToolArgumentsError(toolCall, visibleToolMap());
           if (invalid === null) {
             onEvent?.({ type: 'llm.delta.tool_call_end', index, toolCall });
           }
@@ -276,9 +280,11 @@ export async function settleLlmRequest(
   }
 
   const message = finishMessage();
-  for (const toolCall of message.toolCalls) {
-    const invalid = invalidToolArgumentsError(toolCall, visibleToolMap());
-    if (invalid !== null) return failed({ error: invalid }, message);
+  if (control.allowInvalidToolArguments !== true) {
+    for (const toolCall of message.toolCalls) {
+      const invalid = invalidToolArgumentsError(toolCall, visibleToolMap());
+      if (invalid !== null) return failed({ error: invalid }, message);
+    }
   }
   const empty = emptyResponseError(message, request.model.spec, finish ?? NO_FINISH);
   if (empty !== null) {

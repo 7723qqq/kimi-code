@@ -62,6 +62,17 @@ describe('tool args validation', () => {
       { type: 'object', properties: { a: {} }, additionalProperties: false },
       { b: 1 },
     )).toContain("must NOT have additional property 'b'");
+    expect(
+      validateToolArgs(
+        compileToolArgsValidator({
+          type: 'object',
+          properties: { path: { type: 'string' }, line_offset: { type: 'integer' } },
+          additionalProperties: false,
+        }),
+        { offset: 1 },
+        ['path', 'line_offset'],
+      ),
+    ).toBe("must NOT have additional property 'offset'; valid parameters: path, line_offset");
   });
 
   it('validates type, enum and const', () => {
