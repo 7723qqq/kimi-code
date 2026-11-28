@@ -1,5 +1,3 @@
-import { describe } from 'bun:test';
-
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
@@ -7,11 +5,15 @@ import { ILogService, type ILogger } from '#/_base/log/log';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentContextProjectorService } from '#/agent/contextProjector/contextProjector';
 import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
 import type { Message } from '#/llm-adapter/contract/message';
 import type { ContentPart, TextPart, ToolCall } from '#/llm-adapter/contract/message';
 
-import { bench, reportBenchResults } from '../../_support/bench';
+import { bench, describe, reportBenchResults } from '../../_support/bench';
 
 const noopLogger: ILogger = {
   error: () => {},
@@ -187,6 +189,9 @@ function makeMixedHistory(turns: number): ContextMessage[] {
 function createProjector(disposables: DisposableStore): IAgentContextProjectorService {
   const ix = disposables.add(new TestInstantiationService());
   ix.set(ILogService, noopLogService);
+  ix.set(ITelemetryService, { track: () => {}, track2: () => {} } as unknown as ITelemetryService);
+  ix.set(IAgentStateService, new AgentStateService());
+  ix.set(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
   ix.set(IAgentContextProjectorService, new SyncDescriptor(AgentContextProjectorService));
   return ix.get(IAgentContextProjectorService);
 }

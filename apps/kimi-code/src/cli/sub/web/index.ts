@@ -5,7 +5,7 @@ import { t } from '#/i18n';
 import { registerEnsureDaemonCommand } from './ensure-daemon';
 import { registerLegacyKillCommand } from './legacy-kill';
 import { registerRotateTokenCommand } from './rotate-token';
-import { buildWebCommand } from './run';
+import { buildWebCommand } from './command';
 
 export function registerWebCommand(program: Command): void {
   const web = buildWebCommand(

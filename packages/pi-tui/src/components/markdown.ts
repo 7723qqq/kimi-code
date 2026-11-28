@@ -243,8 +243,12 @@ const LATEX_MARKDOWN_EXTENSIONS: readonly TokenizerExtension[] = [
 		name: "latex",
 		level: "inline",
 		start(source) {
-			const indices = [source.indexOf("$"), source.indexOf("\\("), source.indexOf("\\[")].filter((index) => index >= 0);
-			return indices.length > 0 ? Math.min(...indices) : undefined;
+			let earliest = source.indexOf("$");
+			const paren = source.indexOf("\\(");
+			if (paren >= 0 && (earliest < 0 || paren < earliest)) earliest = paren;
+			const bracket = source.indexOf("\\[");
+			if (bracket >= 0 && (earliest < 0 || bracket < earliest)) earliest = bracket;
+			return earliest >= 0 ? earliest : undefined;
 		},
 		tokenizer: tokenizeInlineLatex,
 	},

@@ -15,9 +15,8 @@ import {
   resolveGlobalLogPath,
 } from '@moonshot-ai/kimi-code-sdk/logging';
 import { isProxyConfigured, resolveKimiHome } from '@moonshot-ai/kimi-code-sdk/runtime';
-import { ErrorCodes, isKimiError } from '@moonshot-ai/kimi-code-sdk';
 import { installCrashHandlers, shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
-import { takeProgramResumeToken } from '@moonshot-ai/pi-tui';
+import { takeProgramResumeToken } from '@moonshot-ai/pi-tui/program-resume';
 
 import { t } from '#/i18n';
 import type { MigrateCommandOptions } from '#/migration/command';
@@ -438,6 +437,7 @@ async function bootstrap(): Promise<void> {
 }
 
 async function logStartupFailure(operation: string, error: unknown): Promise<void> {
+  const { ErrorCodes, isKimiError } = await import('@moonshot-ai/kimi-code-sdk/errors');
   log.error('startup failed', {
     operation,
     error,

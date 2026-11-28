@@ -17,7 +17,7 @@ import { registerExportCommand } from './sub/export';
 import { registerForkCommand } from './sub/fork';
 import { registerInstallDesktopCommand } from './sub/install-desktop';
 import { registerLoginCommand } from './sub/login';
-import { registerProviderCommand } from './sub/provider';
+import { registerProviderCommand } from './sub/provider-command';
 import { registerSessionCommand } from './sub/session';
 import { registerShellsCommand } from './sub/shells';
 import { registerSnapshotCommand } from './v2/snapshot';

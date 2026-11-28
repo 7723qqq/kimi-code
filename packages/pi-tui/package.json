@@ -37,6 +37,10 @@
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
 		},
+		"./program-resume": {
+			"types": "./src/program-resume.ts",
+			"default": "./src/program-resume.ts"
+		},
 		"./testing": {
 			"types": "./test/virtual-terminal.ts",
 			"default": "./test/virtual-terminal.ts"

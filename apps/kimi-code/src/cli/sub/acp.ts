@@ -31,8 +31,6 @@ import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { t } from '#/i18n';
 import { getDataDir } from '#/utils/paths';
 
-import { parseRegionFlag, runLoginFlow } from './login-flow';
-
 export function registerAcpCommand(parent: Command): void {
   parent
     .command('acp')
@@ -59,6 +57,7 @@ export function registerAcpCommand(parent: Command): void {
         process.exit(1);
       }
       if (opts.login === true) {
+        const { parseRegionFlag, runLoginFlow } = await import('./login-flow');
         await runLoginFlow({
           region: opts.region === undefined ? undefined : parseRegionFlag(opts.region),
         });

@@ -86,7 +86,8 @@ interface SliceLayout {
 function sliceLayout(history: readonly ContextMessage[]): SliceLayout {
   let sizing = true;
   let lastNonToolIndex = -1;
-  for (const [index, message] of history.entries()) {
+  for (let index = 0; index < history.length; index++) {
+    const message = history[index]!;
     if (message.partial === true || message.role === 'tool') continue;
     lastNonToolIndex = index;
     if (message.role === 'assistant') sizing = false;
@@ -122,31 +123,40 @@ type Block =
     }
   | { readonly kind: 'exchange'; readonly exchange: Exchange };
 
+function allVacuousParts(content: readonly ContentPart[]): boolean {
+  for (let i = 0; i < content.length; i++) {
+    if (!isVacuousContentPart(content[i]!)) return false;
+  }
+  return true;
+}
+
 function pairBlocks(
   history: readonly ContextMessage[],
   layout: SliceLayout,
   onAnomaly?: OnAnomaly,
 ): Block[] {
   const blocks: Block[] = [];
-  const openCalls = new Map<string, { exchange: Exchange; pending: PendingCall }>();
+  let openCalls: Map<string, { exchange: Exchange; pending: PendingCall }> | undefined;
 
   const markForeignBetween = (): void => {
+    if (openCalls === undefined) return;
     for (const { pending } of openCalls.values()) pending.foreignBetween = true;
   };
 
-  for (const [index, message] of history.entries()) {
+  for (let index = 0; index < history.length; index++) {
+    const message = history[index]!;
     if (message.partial === true) {
       if (message.role !== 'assistant' || message.toolCalls.length > 0 || message.content.length === 0) continue;
     }
     if (message.role === 'tool' && !layout.sizing) {
       if (message.toolCallId === undefined) continue;
-      const open = openCalls.get(message.toolCallId);
+      const open = openCalls?.get(message.toolCallId);
       if (open === undefined) {
         markForeignBetween();
         onAnomaly?.({ kind: 'orphan_tool_result_dropped', toolCallId: message.toolCallId });
         continue;
       }
-      openCalls.delete(message.toolCallId);
+      openCalls!.delete(message.toolCallId);
       open.pending.result = { source: message, content: projectedContent(message, onAnomaly) };
       if (open.pending.foreignBetween) {
         onAnomaly?.({ kind: 'tool_result_reordered', toolCallId: message.toolCallId });
@@ -157,7 +167,7 @@ function pairBlocks(
     const content = projectedContent(message, onAnomaly);
     if (message.toolCalls.length === 0 && !hasDeclaredTools(message)) {
       if (content.length === 0) continue;
-      if (content.every(isVacuousContentPart)) {
+      if (allVacuousParts(content)) {
         onAnomaly?.({ kind: 'vacuous_message_dropped', role: message.role });
         continue;
       }
@@ -168,6 +178,7 @@ function pairBlocks(
       continue;
     }
 
+    openCalls ??= new Map();
     const exchange: Exchange = { source: message, content, ownerIndex: index, pending: [] };
     blocks.push({ kind: 'exchange', exchange });
     for (const call of message.toolCalls) {
@@ -337,8 +348,13 @@ function dropLeadingNonUserMessages(
 }
 
 function appendMergeContent(group: MergeState, content: readonly ContentPart[]): void {
+  if (content.length === 1 && content[0]!.type === 'text') {
+    if (content[0]!.text.length > 0) group.texts.push(content[0]!.text);
+    return;
+  }
   let text = '';
-  for (const part of content) {
+  for (let i = 0; i < content.length; i++) {
+    const part = content[i]!;
     if (part.type === 'text') text += part.text;
     else group.parts.push(part);
   }
@@ -363,11 +379,18 @@ function cleanContent(
   rawContent: readonly ContentPart[],
   onAnomaly?: OnAnomaly,
 ): ContentPart[] {
-  const hasBlank = rawContent.some(isBlankText);
+  let hasBlank = false;
+  for (let i = 0; i < rawContent.length; i++) {
+    if (isBlankText(rawContent[i]!)) {
+      hasBlank = true;
+      break;
+    }
+  }
   let content: readonly ContentPart[] = rawContent;
   if (hasBlank) {
     const filtered: ContentPart[] = [];
-    for (const part of rawContent) {
+    for (let i = 0; i < rawContent.length; i++) {
+      const part = rawContent[i]!;
       if (isBlankText(part)) {
         if (part.type === 'text' && part.text.length > 0) {
           onAnomaly?.({ kind: 'whitespace_text_dropped', role: source.role });
@@ -385,7 +408,7 @@ function cleanContent(
       { details: { toolCallId: source.toolCallId } },
     );
   }
-  return [...content];
+  return content === rawContent ? [...rawContent] : (content as ContentPart[]);
 }
 
 function outputFromToolContent(content: readonly ContentPart[]): string | readonly ContentPart[] {

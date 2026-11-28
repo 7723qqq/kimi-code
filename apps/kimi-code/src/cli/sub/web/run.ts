@@ -19,7 +19,6 @@ import {
 } from '@moonshot-ai/kap-server';
 import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
-import { type Command, Option } from 'commander';
 
 import { resolvePluginNodeRunner } from '#/cli/plugin-node-runner';
 import {
@@ -52,12 +51,8 @@ import type {
 } from './remote-control';
 import {
   DEFAULT_FOREGROUND_LOG_LEVEL,
-  DEFAULT_LAN_HOST,
-  DEFAULT_SERVER_HOST,
-  DEFAULT_SERVER_PORT,
   parseServerOptions,
   tryResolveServerToken,
-  VALID_LOG_LEVELS,
   type ParsedServerOptions,
   type ServerCliOptions,
 } from './shared';
@@ -171,83 +166,7 @@ export function buildWebUrl(origin: string, token: string): string {
   return buildOpenableUrl(origin, token);
 }
 
-/** Build the `web` command, mounting the runner action on `cmd` itself. */
-export function buildWebCommand(
-  cmd: Command,
-  opts: { forceRemoteControl?: boolean; defaultOpen?: boolean } = {},
-): Command {
-  const forceRemoteControl = opts.forceRemoteControl === true;
-  const defaultOpen = opts.defaultOpen ?? true;
-  const withServerOptions = cmd
-    .option(
-      '--port <port>',
-      t('cli.optionDescriptions.serverRunOptionPort', { port: String(DEFAULT_SERVER_PORT) }),
-      String(DEFAULT_SERVER_PORT),
-    )
-    .option(
-      '--host [host]',
-      t('cli.optionDescriptions.serverRunOptionHost', {
-        host: DEFAULT_SERVER_HOST,
-        lanHost: DEFAULT_LAN_HOST,
-      }),
-    )
-    .option('--allowed-host <host...>', t('cli.optionDescriptions.serverRunOptionAllowedHost'))
-    .option('--insecure-no-tls', t('cli.optionDescriptions.serverRunOptionInsecureNoTls'), true)
-    .option(
-      '--allow-remote-shutdown',
-      t('cli.optionDescriptions.serverRunOptionAllowRemoteShutdown'),
-      false,
-    )
-    .option(
-      '--dangerous-bypass-auth',
-      t('cli.optionDescriptions.serverRunOptionDangerousBypassAuth'),
-      false,
-    )
-    .option(
-      '--log-level <level>',
-      t('cli.optionDescriptions.serverRunOptionLogLevel', { levels: VALID_LOG_LEVELS.join('|') }),
-    )
-    .option('--debug-endpoints', t('cli.optionDescriptions.serverRunOptionDebugEndpoints'), false)
-    .option('--web-title <title>', t('cli.optionDescriptions.serverRunOptionWebTitle'));
-  withServerOptions.addOption(new Option('--socket <path>').hideHelp());
-  withServerOptions.addOption(new Option('--managed-by <owner>').hideHelp());
-  if (!forceRemoteControl) {
-    withServerOptions.addOption(
-      new Option(
-        '--rc, --remote-control',
-        t('cli.optionDescriptions.serverRunOptionRemoteControl'),
-      ).default(false),
-    );
-    withServerOptions.option(
-      '--json',
-      t('cli.optionDescriptions.serverRunOptionJson'),
-      false,
-    );
-  }
-  if (defaultOpen) {
-    withServerOptions.option(
-      '--no-open',
-      t('cli.optionDescriptions.serverRunOptionNoOpen'),
-      true,
-    );
-  } else {
-    withServerOptions.option(
-      '--open',
-      t('cli.optionDescriptions.serverRunOptionOpen'),
-      false,
-    );
-    withServerOptions.addOption(new Option('--no-open').hideHelp());
-  }
-  return withServerOptions
-    .action(async (opts: WebCliOptions) => {
-      try {
-        await handleWebCommand(forceRemoteControl ? { ...opts, remoteControl: true } : opts);
-      } catch (error) {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-        process.exit(1);
-      }
-    });
-}
+export { buildWebCommand } from './command';
 
 function createEphemeralAuthTokenService(secret: string): IAuthTokenService {
   const expected = Buffer.from(secret, 'utf8');

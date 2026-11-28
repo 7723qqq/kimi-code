@@ -8,7 +8,6 @@ import { dirname, join } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import { HOST_API_LEVEL, HOST_PROTOCOL_VERSION } from '@moonshot-ai/kap-server';
 import type { Command } from 'commander';
 
 import { t } from '#/i18n';
@@ -365,6 +364,7 @@ export function registerEnsureDaemonCommand(web: Command): void {
     .description(t('cli.ensureDaemon.commandDescription'))
     .option('--probe', t('cli.ensureDaemon.probeDescription'))
     .action(async (options: { probe?: boolean }) => {
+      const { HOST_API_LEVEL, HOST_PROTOCOL_VERSION } = await import('@moonshot-ai/kap-server');
       const report = (payload: Record<string, unknown>): void => {
         process.stdout.write(
           `${ENSURE_DAEMON_MARKER}${JSON.stringify({ protocol: HOST_PROTOCOL_VERSION, api_level: HOST_API_LEVEL, version: getVersion(), ...payload })}\n`,
